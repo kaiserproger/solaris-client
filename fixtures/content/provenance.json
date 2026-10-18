@@ -1,0 +1,60 @@
+{
+  "schema": 1,
+  "namespace": "solaris_fixture",
+  "license": "MIT OR Apache-2.0",
+  "copyright": "2026 Solaris Client contributors",
+  "origin": "Original procedural checker/cutout image, authored cuboid model and mathematical synthesized tone; no Mojang input bytes.",
+  "generator": "generate.py",
+  "texture": {
+    "width": 16,
+    "height": 16,
+    "format": "RGBA8 PNG"
+  },
+  "sound": {
+    "formats": [
+      "PCM16 WAV",
+      "Vorbis OGG"
+    ],
+    "sample_rate": 48000,
+    "channels": 1,
+    "samples": 12000
+  },
+  "ogg_encoder": "ffmpeg libvorbis q4 bitexact; byte identity requires the same encoder build",
+  "files": [
+    {
+      "path": "assets/solaris_fixture/models/block/checker.json",
+      "size": 1313,
+      "sha256": "4dc03c0dc6628446509a42258e95a6d6f1314de10c2d1122ea55c0f0c2e9d260"
+    },
+    {
+      "path": "assets/solaris_fixture/sounds/confirmation.ogg",
+      "size": 4335,
+      "sha256": "9162158df6db6fb47e38280ed8709b5d13a891ded624baf6cc2209604aa5e04e"
+    },
+    {
+      "path": "assets/solaris_fixture/sounds/confirmation.wav",
+      "size": 24044,
+      "sha256": "53f048fc5ed90f386a48ee375148aad86b1b33aa996b28f15b6c1ea564a9bc07"
+    },
+    {
+      "path": "assets/solaris_fixture/sounds.json",
+      "size": 87,
+      "sha256": "0e0c8bd89c24c5e3ab1a571840a2c2fe3ba053d8c813d2e85514f469e3d9841f"
+    },
+    {
+      "path": "assets/solaris_fixture/textures/block/checker.png",
+      "size": 96,
+      "sha256": "30ff3415bc15b8e0f50c8c974cb7cac5682c69dd5dfcd1466e6d29c29e2fb009"
+    },
+    {
+      "path": "assets/solaris_fixture/textures/block/cutout.png",
+      "size": 146,
+      "sha256": "2c5d3321fd40c5ea21b25a4f3bb123b330aa7a1d41bc60e12c2935db65f99b75"
+    },
+    {
+      "path": "pack.mcmeta",
+      "size": 173,
+      "sha256": "064c4a84eef01bda13163f44dc29e37d3f5b989e36890fbecde561dcd10bbf79"
+    }
+  ]
+}

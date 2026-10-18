@@ -1,0 +1,1742 @@
+[
+ {
+  "name": "minecraft_observe",
+  "description": "Read the current client-visible player, inventory, target, screen, overlay, time, and recent chat state.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {},
+   "required": [],
+   "additionalProperties": false
+  },
+  "annotations": {
+   "readOnlyHint": true,
+   "destructiveHint": false,
+   "idempotentHint": true,
+   "openWorldHint": true
+  }
+ },
+ {
+  "name": "minecraft_read_item_components",
+  "description": "Read one actual received stack's native components on demand. Selected forbids slot; player/container require slot; container requires a visible menu.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "source": {
+     "type": "string",
+     "enum": [
+      "selected",
+      "player",
+      "container"
+     ]
+    },
+    "slot": {
+     "type": "integer",
+     "minimum": 0,
+     "maximum": 32767
+    }
+   },
+   "required": [
+    "source"
+   ],
+   "additionalProperties": false
+  },
+  "annotations": {
+   "readOnlyHint": true,
+   "destructiveHint": false,
+   "idempotentHint": true,
+   "openWorldHint": true
+  }
+ },
+ {
+  "name": "minecraft_read_block",
+  "description": "Read one loaded client-visible block with state, fluid, sky-light, and block-light values.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "x": {
+     "type": "integer"
+    },
+    "y": {
+     "type": "integer"
+    },
+    "z": {
+     "type": "integer"
+    }
+   },
+   "required": [
+    "x",
+    "y",
+    "z"
+   ],
+   "additionalProperties": false
+  },
+  "annotations": {
+   "readOnlyHint": true,
+   "destructiveHint": false,
+   "idempotentHint": true,
+   "openWorldHint": true
+  }
+ },
+ {
+  "name": "minecraft_wait_for_loaded_block",
+  "description": "Wait for one block's chunk to become client-loaded, waking on applied packet events.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "x": {
+     "type": "integer"
+    },
+    "y": {
+     "type": "integer"
+    },
+    "z": {
+     "type": "integer"
+    },
+    "timeout_seconds": {
+     "type": "number",
+     "minimum": 0.1,
+     "maximum": 120.0,
+     "default": 30.0
+    }
+   },
+   "required": [
+    "x",
+    "y",
+    "z"
+   ],
+   "additionalProperties": false
+  },
+  "annotations": {
+   "readOnlyHint": true,
+   "destructiveHint": false,
+   "idempotentHint": true,
+   "openWorldHint": true
+  }
+ },
+ {
+  "name": "minecraft_wait_for_block_state",
+  "description": "Wait for a loaded block to match an exact id and optional state properties, waking only on applied client state events.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "x": {
+     "type": "integer"
+    },
+    "y": {
+     "type": "integer"
+    },
+    "z": {
+     "type": "integer"
+    },
+    "block_id": {
+     "type": "string",
+     "minLength": 1,
+     "maxLength": 128
+    },
+    "properties": {
+     "type": "object",
+     "maxProperties": 32,
+     "additionalProperties": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+     }
+    },
+    "timeout_seconds": {
+     "type": "number",
+     "minimum": 0.1,
+     "maximum": 120.0,
+     "default": 8.0
+    }
+   },
+   "required": [
+    "x",
+    "y",
+    "z",
+    "block_id"
+   ],
+   "additionalProperties": false
+  },
+  "annotations": {
+   "readOnlyHint": true,
+   "destructiveHint": false,
+   "idempotentHint": true,
+   "openWorldHint": true
+  }
+ },
+ {
+  "name": "minecraft_scan_blocks",
+  "description": "Read a bounded inclusive box of loaded client-visible blocks, never more than 4096 cells.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "min_x": {
+     "type": "integer"
+    },
+    "min_y": {
+     "type": "integer"
+    },
+    "min_z": {
+     "type": "integer"
+    },
+    "max_x": {
+     "type": "integer"
+    },
+    "max_y": {
+     "type": "integer"
+    },
+    "max_z": {
+     "type": "integer"
+    },
+    "max_blocks": {
+     "type": "integer",
+     "minimum": 1,
+     "maximum": 4096,
+     "default": 4096
+    }
+   },
+   "required": [
+    "min_x",
+    "min_y",
+    "min_z",
+    "max_x",
+    "max_y",
+    "max_z"
+   ],
+   "additionalProperties": false
+  },
+  "annotations": {
+   "readOnlyHint": true,
+   "destructiveHint": false,
+   "idempotentHint": true,
+   "openWorldHint": true
+  }
+ },
+ {
+  "name": "minecraft_list_entities",
+  "description": "List bounded client-visible entities near the player with stable ids, types, and positions.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "radius": {
+     "type": "number",
+     "minimum": 0.0,
+     "maximum": 128.0,
+     "default": 32.0
+    },
+    "limit": {
+     "type": "integer",
+     "minimum": 1,
+     "maximum": 512,
+     "default": 128
+    }
+   },
+   "required": [],
+   "additionalProperties": false
+  },
+  "annotations": {
+   "readOnlyHint": true,
+   "destructiveHint": false,
+   "idempotentHint": true,
+   "openWorldHint": true
+  }
+ },
+ {
+  "name": "minecraft_read_recipe_book",
+  "description": "Read bounded recipe display ids accepted by the real client.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "limit": {
+     "type": "integer",
+     "minimum": 1,
+     "maximum": 8192,
+     "default": 2048
+    }
+   },
+   "required": [],
+   "additionalProperties": false
+  },
+  "annotations": {
+   "readOnlyHint": true,
+   "destructiveHint": false,
+   "idempotentHint": true,
+   "openWorldHint": true
+  }
+ },
+ {
+  "name": "minecraft_wait_for_visible_entity",
+  "description": "Wait for an entity type to become client-visible within a bounded radius, waking only on client state events.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "entity_type": {
+     "type": "string",
+     "minLength": 1,
+     "maxLength": 128
+    },
+    "radius": {
+     "type": "number",
+     "minimum": 0.0,
+     "maximum": 128.0,
+     "default": 32.0
+    },
+    "timeout_seconds": {
+     "type": "number",
+     "minimum": 0.1,
+     "maximum": 120.0,
+     "default": 8.0
+    }
+   },
+   "required": [
+    "entity_type"
+   ],
+   "additionalProperties": false
+  },
+  "annotations": {
+   "readOnlyHint": true,
+   "destructiveHint": false,
+   "idempotentHint": true,
+   "openWorldHint": true
+  }
+ },
+ {
+  "name": "minecraft_wait_for_entity_motion",
+  "description": "Wait for one UUID- and type-fenced entity to move, returning bounded aggregate motion fields.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "entity_id": {
+     "type": "integer",
+     "minimum": 0,
+     "maximum": 2147483647
+    },
+    "entity_uuid": {
+     "type": "string",
+     "minLength": 1,
+     "maxLength": 36
+    },
+    "entity_type": {
+     "type": "string",
+     "minLength": 1,
+     "maxLength": 128
+    },
+    "minimum_horizontal_distance": {
+     "type": "number",
+     "minimum": 0.001,
+     "maximum": 128.0,
+     "default": 0.01
+    },
+    "minimum_vertical_rise": {
+     "type": "number",
+     "minimum": 0.0,
+     "maximum": 128.0,
+     "default": 0.0
+    },
+    "timeout_seconds": {
+     "type": "number",
+     "minimum": 0.1,
+     "maximum": 120.0,
+     "default": 8.0
+    }
+   },
+   "required": [
+    "entity_id",
+    "entity_uuid",
+    "entity_type"
+   ],
+   "additionalProperties": false
+  },
+  "annotations": {
+   "readOnlyHint": true,
+   "destructiveHint": false,
+   "idempotentHint": true,
+   "openWorldHint": true
+  }
+ },
+ {
+  "name": "minecraft_wait_for_entity_removed",
+  "description": "Wait for one UUID- and type-fenced entity to leave client-visible state.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "entity_id": {
+     "type": "integer",
+     "minimum": 0,
+     "maximum": 2147483647
+    },
+    "entity_uuid": {
+     "type": "string",
+     "minLength": 1,
+     "maxLength": 36
+    },
+    "entity_type": {
+     "type": "string",
+     "minLength": 1,
+     "maxLength": 128
+    },
+    "timeout_seconds": {
+     "type": "number",
+     "minimum": 0.1,
+     "maximum": 120.0,
+     "default": 8.0
+    }
+   },
+   "required": [
+    "entity_id",
+    "entity_uuid",
+    "entity_type"
+   ],
+   "additionalProperties": false
+  },
+  "annotations": {
+   "readOnlyHint": true,
+   "destructiveHint": false,
+   "idempotentHint": true,
+   "openWorldHint": true
+  }
+ },
+ {
+  "name": "minecraft_wait_for_health_below",
+  "description": "Wait for client-visible player health to fall below a threshold, waking only on client state events.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "health": {
+     "type": "number",
+     "minimum": 0.001,
+     "maximum": 2048.0
+    },
+    "timeout_seconds": {
+     "type": "number",
+     "minimum": 0.1,
+     "maximum": 120.0,
+     "default": 8.0
+    }
+   },
+   "required": [
+    "health"
+   ],
+   "additionalProperties": false
+  },
+  "annotations": {
+   "readOnlyHint": true,
+   "destructiveHint": false,
+   "idempotentHint": true,
+   "openWorldHint": true
+  }
+ },
+ {
+  "name": "minecraft_wait_for_inventory",
+  "description": "Wait for an exact client inventory count, waking only on client state events.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "item_id": {
+     "type": "string",
+     "minLength": 1,
+     "maxLength": 128
+    },
+    "count": {
+     "type": "integer",
+     "minimum": 0,
+     "maximum": 4096
+    },
+    "timeout_seconds": {
+     "type": "number",
+     "minimum": 0.1,
+     "maximum": 120.0,
+     "default": 8.0
+    }
+   },
+   "required": [
+    "item_id",
+    "count"
+   ],
+   "additionalProperties": false
+  },
+  "annotations": {
+   "readOnlyHint": true,
+   "destructiveHint": false,
+   "idempotentHint": true,
+   "openWorldHint": true
+  }
+ },
+ {
+  "name": "minecraft_wait_for_container_slot",
+  "description": "Wait for an exact item stack in one visible container slot using client state events.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "slot": {
+     "type": "integer",
+     "minimum": 0,
+     "maximum": 32767
+    },
+    "item_id": {
+     "type": "string",
+     "minLength": 1,
+     "maxLength": 128
+    },
+    "count": {
+     "type": "integer",
+     "minimum": 1,
+     "maximum": 4096
+    },
+    "timeout_seconds": {
+     "type": "number",
+     "minimum": 0.1,
+     "maximum": 120.0,
+     "default": 8.0
+    }
+   },
+   "required": [
+    "slot",
+    "item_id",
+    "count"
+   ],
+   "additionalProperties": false
+  },
+  "annotations": {
+   "readOnlyHint": true,
+   "destructiveHint": false,
+   "idempotentHint": true,
+   "openWorldHint": true
+  }
+ },
+ {
+  "name": "minecraft_wait_for_visible_item",
+  "description": "Wait for an item entity to become client-visible near a block position.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "item_id": {
+     "type": "string",
+     "minLength": 1,
+     "maxLength": 128
+    },
+    "x": {
+     "type": "integer"
+    },
+    "y": {
+     "type": "integer"
+    },
+    "z": {
+     "type": "integer"
+    },
+    "timeout_seconds": {
+     "type": "number",
+     "minimum": 0.1,
+     "maximum": 120.0,
+     "default": 8.0
+    }
+   },
+   "required": [
+    "item_id",
+    "x",
+    "y",
+    "z"
+   ],
+   "additionalProperties": false
+  },
+  "annotations": {
+   "readOnlyHint": true,
+   "destructiveHint": false,
+   "idempotentHint": true,
+   "openWorldHint": true
+  }
+ },
+ {
+  "name": "minecraft_wait_for_no_visible_item",
+  "description": "Wait for an item entity to stop being client-visible near a block position.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "item_id": {
+     "type": "string",
+     "minLength": 1,
+     "maxLength": 128
+    },
+    "x": {
+     "type": "integer"
+    },
+    "y": {
+     "type": "integer"
+    },
+    "z": {
+     "type": "integer"
+    },
+    "timeout_seconds": {
+     "type": "number",
+     "minimum": 0.1,
+     "maximum": 120.0,
+     "default": 8.0
+    }
+   },
+   "required": [
+    "item_id",
+    "x",
+    "y",
+    "z"
+   ],
+   "additionalProperties": false
+  },
+  "annotations": {
+   "readOnlyHint": true,
+   "destructiveHint": false,
+   "idempotentHint": true,
+   "openWorldHint": true
+  }
+ },
+ {
+  "name": "minecraft_connect",
+  "description": "Connect the real Minecraft client to a server. Repeating the active address is a no-op; changing servers requires an explicit disconnect.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "server_addr": {
+     "type": "string",
+     "minLength": 1,
+     "maxLength": 512
+    },
+    "host": {
+     "type": "string",
+     "minLength": 1,
+     "maxLength": 253
+    },
+    "port": {
+     "type": "integer",
+     "minimum": 1,
+     "maximum": 65535
+    }
+   },
+   "required": [],
+   "additionalProperties": false
+  },
+  "annotations": {
+   "readOnlyHint": false,
+   "destructiveHint": false,
+   "idempotentHint": true,
+   "openWorldHint": true
+  }
+ },
+ {
+  "name": "minecraft_wait_for_play",
+  "description": "Wait until the client reaches an active world or the bounded timeout expires.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "timeout_seconds": {
+     "type": "number",
+     "minimum": 0.1,
+     "maximum": 3600.0,
+     "default": 30.0
+    }
+   },
+   "required": [],
+   "additionalProperties": false
+  },
+  "annotations": {
+   "readOnlyHint": true,
+   "destructiveHint": false,
+   "idempotentHint": true,
+   "openWorldHint": true
+  }
+ },
+ {
+  "name": "minecraft_wait_for_state_change",
+  "description": "Wait for the next exact client lifecycle or packet state event.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "observed_version": {
+     "type": "integer",
+     "minimum": 0,
+     "maximum": 2147483647
+    },
+    "timeout_seconds": {
+     "type": "number",
+     "minimum": 0.1,
+     "maximum": 120.0,
+     "default": 30.0
+    }
+   },
+   "required": [
+    "observed_version"
+   ],
+   "additionalProperties": false
+  },
+  "annotations": {
+   "readOnlyHint": true,
+   "destructiveHint": false,
+   "idempotentHint": true,
+   "openWorldHint": true
+  }
+ },
+ {
+  "name": "minecraft_disconnect",
+  "description": "Disconnect the real Minecraft client from its current server.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {},
+   "required": [],
+   "additionalProperties": false
+  },
+  "annotations": {
+   "readOnlyHint": false,
+   "destructiveHint": true,
+   "idempotentHint": false,
+   "openWorldHint": true
+  }
+ },
+ {
+  "name": "minecraft_set_hotbar_slot",
+  "description": "Select a zero-based hotbar slot.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "slot": {
+     "type": "integer",
+     "minimum": 0,
+     "maximum": 8
+    }
+   },
+   "required": [
+    "slot"
+   ],
+   "additionalProperties": false
+  },
+  "annotations": {
+   "readOnlyHint": false,
+   "destructiveHint": false,
+   "idempotentHint": true,
+   "openWorldHint": true
+  }
+ },
+ {
+  "name": "minecraft_select_hotbar_item",
+  "description": "Move a matching inventory stack into the hotbar and select it.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "item_id": {
+     "type": "string",
+     "minLength": 1,
+     "maxLength": 128
+    },
+    "count": {
+     "type": "integer",
+     "minimum": 1,
+     "maximum": 64
+    },
+    "timeout_seconds": {
+     "type": "number",
+     "minimum": 0.1,
+     "maximum": 120.0,
+     "default": 8.0
+    }
+   },
+   "required": [
+    "item_id",
+    "count"
+   ],
+   "additionalProperties": false
+  },
+  "annotations": {
+   "readOnlyHint": false,
+   "destructiveHint": true,
+   "idempotentHint": false,
+   "openWorldHint": true
+  }
+ },
+ {
+  "name": "minecraft_navigate_to_block",
+  "description": "Walk to a loaded client-visible block with ordinary movement, planning bounded legs toward far targets and replanning from the current position; returns only after observed grounded arrival near the target (a solid target needs a standing endpoint next to or on it).",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "x": {
+     "type": "integer"
+    },
+    "y": {
+     "type": "integer"
+    },
+    "z": {
+     "type": "integer"
+    },
+    "timeout_seconds": {
+     "type": "number",
+     "minimum": 0.1,
+     "maximum": 120.0,
+     "default": 8.0
+    }
+   },
+   "required": [
+    "x",
+    "y",
+    "z"
+   ],
+   "additionalProperties": false
+  },
+  "annotations": {
+   "readOnlyHint": false,
+   "destructiveHint": true,
+   "idempotentHint": false,
+   "openWorldHint": true
+  }
+ },
+ {
+  "name": "minecraft_approach_entity",
+  "description": "Approach one client-visible entity through ordinary movement until it is in survival reach.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "entity_id": {
+     "type": "integer",
+     "minimum": 0,
+     "maximum": 2147483647
+    },
+    "timeout_seconds": {
+     "type": "number",
+     "minimum": 0.1,
+     "maximum": 120.0,
+     "default": 30.0
+    }
+   },
+   "required": [
+    "entity_id"
+   ],
+   "additionalProperties": false
+  },
+  "annotations": {
+   "readOnlyHint": false,
+   "destructiveHint": true,
+   "idempotentHint": false,
+   "openWorldHint": true
+  }
+ },
+ {
+  "name": "minecraft_interact_entity",
+  "description": "Dispatch the vanilla entity interaction for one UUID- and type-fenced entity, aiming at any part of its bounding box the ordinary raycast resolves to it, and return the local interaction result without inferring server gameplay success. Refuses with out-of-reach or occluded-by-block reasons.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "entity_id": {
+     "type": "integer",
+     "minimum": 0,
+     "maximum": 2147483647
+    },
+    "entity_uuid": {
+     "type": "string",
+     "minLength": 1,
+     "maxLength": 36
+    },
+    "entity_type": {
+     "type": "string",
+     "minLength": 1,
+     "maxLength": 128
+    },
+    "hand": {
+     "type": "string",
+     "enum": [
+      "main_hand",
+      "off_hand"
+     ],
+     "default": "main_hand"
+    }
+   },
+   "required": [
+    "entity_id",
+    "entity_uuid",
+    "entity_type"
+   ],
+   "additionalProperties": false
+  },
+  "annotations": {
+   "readOnlyHint": false,
+   "destructiveHint": true,
+   "idempotentHint": false,
+   "openWorldHint": true
+  }
+ },
+ {
+  "name": "minecraft_attack_entity_once",
+  "description": "Dispatch one ordinary vanilla attack and wait for authoritative damage or removal.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "entity_id": {
+     "type": "integer",
+     "minimum": 0,
+     "maximum": 2147483647
+    },
+    "entity_uuid": {
+     "type": "string",
+     "minLength": 1,
+     "maxLength": 36
+    },
+    "entity_type": {
+     "type": "string",
+     "minLength": 1,
+     "maxLength": 128
+    },
+    "timeout_seconds": {
+     "type": "number",
+     "minimum": 0.1,
+     "maximum": 120.0,
+     "default": 8.0
+    }
+   },
+   "required": [
+    "entity_id",
+    "entity_uuid",
+    "entity_type"
+   ],
+   "additionalProperties": false
+  },
+  "annotations": {
+   "readOnlyHint": false,
+   "destructiveHint": true,
+   "idempotentHint": false,
+   "openWorldHint": true
+  }
+ },
+ {
+  "name": "minecraft_attack_entity_until_drop_collected",
+  "description": "Attack one client-visible entity and collect its expected visible item drop.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "entity_id": {
+     "type": "integer",
+     "minimum": 0,
+     "maximum": 2147483647
+    },
+    "expected_drop_item_id": {
+     "type": "string",
+     "minLength": 1,
+     "maxLength": 128
+    },
+    "expected_drop_count": {
+     "type": "integer",
+     "minimum": 1,
+     "maximum": 64
+    },
+    "timeout_seconds": {
+     "type": "number",
+     "minimum": 0.1,
+     "maximum": 120.0,
+     "default": 30.0
+    }
+   },
+   "required": [
+    "entity_id",
+    "expected_drop_item_id",
+    "expected_drop_count"
+   ],
+   "additionalProperties": false
+  },
+  "annotations": {
+   "readOnlyHint": false,
+   "destructiveHint": true,
+   "idempotentHint": false,
+   "openWorldHint": true
+  }
+ },
+ {
+  "name": "minecraft_look",
+  "description": "Set the player's absolute yaw and pitch in degrees (vanilla convention: pitch +90 looks down, -90 looks up; yaw 0 faces +Z, -90 faces +X).",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "yaw_deg": {
+     "type": "integer",
+     "minimum": -180,
+     "maximum": 180
+    },
+    "pitch_deg": {
+     "type": "integer",
+     "minimum": -90,
+     "maximum": 90
+    }
+   },
+   "required": [
+    "yaw_deg",
+    "pitch_deg"
+   ],
+   "additionalProperties": false
+  },
+  "annotations": {
+   "readOnlyHint": false,
+   "destructiveHint": false,
+   "idempotentHint": true,
+   "openWorldHint": true
+  }
+ },
+ {
+  "name": "minecraft_look_at_block",
+  "description": "Aim at a face of a loaded client-visible block.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "x": {
+     "type": "integer"
+    },
+    "y": {
+     "type": "integer"
+    },
+    "z": {
+     "type": "integer"
+    },
+    "face": {
+     "type": "string",
+     "enum": [
+      "down",
+      "up",
+      "north",
+      "south",
+      "west",
+      "east"
+     ]
+    }
+   },
+   "required": [
+    "x",
+    "y",
+    "z",
+    "face"
+   ],
+   "additionalProperties": false
+  },
+  "annotations": {
+   "readOnlyHint": false,
+   "destructiveHint": false,
+   "idempotentHint": true,
+   "openWorldHint": true
+  }
+ },
+ {
+  "name": "minecraft_use_item_on",
+  "description": "Use the selected main- or off-hand item on a face of a loaded client-visible block.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "x": {
+     "type": "integer"
+    },
+    "y": {
+     "type": "integer"
+    },
+    "z": {
+     "type": "integer"
+    },
+    "face": {
+     "type": "string",
+     "enum": [
+      "down",
+      "up",
+      "north",
+      "south",
+      "west",
+      "east"
+     ]
+    },
+    "hand": {
+     "type": "string",
+     "enum": [
+      "main_hand",
+      "off_hand"
+     ],
+     "default": "main_hand"
+    }
+   },
+   "required": [
+    "x",
+    "y",
+    "z",
+    "face"
+   ],
+   "additionalProperties": false
+  },
+  "annotations": {
+   "readOnlyHint": false,
+   "destructiveHint": true,
+   "idempotentHint": false,
+   "openWorldHint": true
+  }
+ },
+ {
+  "name": "minecraft_break_block",
+  "description": "Break one loaded block through ordinary client mining and wait for the expected drop pickup.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "x": {
+     "type": "integer"
+    },
+    "y": {
+     "type": "integer"
+    },
+    "z": {
+     "type": "integer"
+    },
+    "face": {
+     "type": "string",
+     "enum": [
+      "down",
+      "up",
+      "north",
+      "south",
+      "west",
+      "east"
+     ]
+    },
+    "expected_drop_item_id": {
+     "type": "string",
+     "minLength": 1,
+     "maxLength": 128
+    },
+    "expected_drop_count": {
+     "type": "integer",
+     "minimum": 0,
+     "maximum": 64
+    },
+    "timeout_seconds": {
+     "type": "number",
+     "minimum": 0.1,
+     "maximum": 120.0,
+     "default": 8.0
+    }
+   },
+   "required": [
+    "x",
+    "y",
+    "z",
+    "face",
+    "expected_drop_item_id",
+    "expected_drop_count"
+   ],
+   "additionalProperties": false
+  },
+  "annotations": {
+   "readOnlyHint": false,
+   "destructiveHint": true,
+   "idempotentHint": false,
+   "openWorldHint": true
+  }
+ },
+ {
+  "name": "minecraft_press_inputs",
+  "description": "Activate vanilla inputs or named key.keyboard.* keys for exact client ticks. Named keys use the native keyboard callback; swap_offhand clicks once; key.keyboard.f5 cycles the camera perspective once on press.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "keys": {
+     "type": "array",
+     "items": {
+      "anyOf": [
+       {
+        "type": "string",
+        "enum": [
+         "forward",
+         "back",
+         "left",
+         "right",
+         "jump",
+         "sneak",
+         "sprint",
+         "attack",
+         "use",
+         "swap_offhand"
+        ]
+       },
+       {
+        "type": "string",
+        "pattern": "^key\\.keyboard\\.[a-z0-9.]{1,32}$"
+       }
+      ]
+     },
+     "minItems": 1,
+     "maxItems": 8,
+     "uniqueItems": true
+    },
+    "ticks": {
+     "type": "integer",
+     "minimum": 1,
+     "maximum": 255
+    }
+   },
+   "required": [
+    "keys",
+    "ticks"
+   ],
+   "additionalProperties": false
+  },
+  "annotations": {
+   "readOnlyHint": false,
+   "destructiveHint": true,
+   "idempotentHint": false,
+   "openWorldHint": true
+  }
+ },
+ {
+  "name": "minecraft_wait_ticks",
+  "description": "Wait for a bounded number of real client ticks without blocking the client thread.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "ticks": {
+     "type": "integer",
+     "minimum": 1,
+     "maximum": 255
+    }
+   },
+   "required": [
+    "ticks"
+   ],
+   "additionalProperties": false
+  },
+  "annotations": {
+   "readOnlyHint": true,
+   "destructiveHint": false,
+   "idempotentHint": true,
+   "openWorldHint": true
+  }
+ },
+ {
+  "name": "minecraft_close_screen",
+  "description": "Close the current client GUI screen or container.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {},
+   "required": [],
+   "additionalProperties": false
+  },
+  "annotations": {
+   "readOnlyHint": false,
+   "destructiveHint": false,
+   "idempotentHint": true,
+   "openWorldHint": true
+  }
+ },
+ {
+  "name": "minecraft_request_loader_view",
+  "description": "Request an exact declared plugin-owned Loader view on the acknowledged live connection.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "view_key": {
+     "type": "string",
+     "minLength": 1,
+     "maxLength": 128
+    }
+   },
+   "required": [
+    "view_key"
+   ],
+   "additionalProperties": false
+  },
+  "annotations": {
+   "readOnlyHint": false,
+   "destructiveHint": false,
+   "idempotentHint": false,
+   "openWorldHint": true
+  }
+ },
+ {
+  "name": "minecraft_click_confirmation_button",
+  "description": "Press one exact enabled button on the current confirmation screen after matching its exact title.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "expected_title": {
+     "type": "string",
+     "minLength": 1,
+     "maxLength": 256
+    },
+    "button_label": {
+     "type": "string",
+     "minLength": 1,
+     "maxLength": 64
+    }
+   },
+   "required": [
+    "expected_title",
+    "button_label"
+   ],
+   "additionalProperties": false
+  },
+  "annotations": {
+   "readOnlyHint": false,
+   "destructiveHint": true,
+   "idempotentHint": false,
+   "openWorldHint": true
+  }
+ },
+ {
+  "name": "minecraft_click_screen_button",
+  "description": "Press one exact enabled button, tab, switch or slider (a slider steps to its next value) after matching the current screen's exact class and title.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "expected_screen_class": {
+     "type": "string",
+     "minLength": 1,
+     "maxLength": 256
+    },
+    "expected_title": {
+     "type": "string",
+     "minLength": 1,
+     "maxLength": 256
+    },
+    "button_label": {
+     "type": "string",
+     "minLength": 1,
+     "maxLength": 64
+    }
+   },
+   "required": [
+    "expected_screen_class",
+    "expected_title",
+    "button_label"
+   ],
+   "additionalProperties": false
+  },
+  "annotations": {
+   "readOnlyHint": false,
+   "destructiveHint": true,
+   "idempotentHint": false,
+   "openWorldHint": true
+  }
+ },
+ {
+  "name": "minecraft_set_screen_input",
+  "description": "Set one exact visible editable native EditBox after matching the screen class, title and input label; refuses native truncation.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "expected_screen_class": {
+     "type": "string",
+     "minLength": 1,
+     "maxLength": 256
+    },
+    "expected_title": {
+     "type": "string",
+     "minLength": 1,
+     "maxLength": 256
+    },
+    "input_label": {
+     "type": "string",
+     "minLength": 1,
+     "maxLength": 128
+    },
+    "value": {
+     "type": "string",
+     "minLength": 0,
+     "maxLength": 256
+    }
+   },
+   "required": [
+    "expected_screen_class",
+    "expected_title",
+    "input_label",
+    "value"
+   ],
+   "additionalProperties": false
+  },
+  "annotations": {
+   "readOnlyHint": false,
+   "destructiveHint": false,
+   "idempotentHint": false,
+   "openWorldHint": true
+  }
+ },
+ {
+  "name": "minecraft_open_inventory",
+  "description": "Open the vanilla survival inventory and 2x2 crafting screen.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {},
+   "required": [],
+   "additionalProperties": false
+  },
+  "annotations": {
+   "readOnlyHint": false,
+   "destructiveHint": false,
+   "idempotentHint": true,
+   "openWorldHint": true
+  }
+ },
+ {
+  "name": "minecraft_respawn",
+  "description": "Send the vanilla respawn action, wait for confirmed active player state, and optionally apply immediate vanilla inputs.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "timeout_seconds": {
+     "type": "number",
+     "minimum": 0.1,
+     "maximum": 120.0,
+     "default": 10.0
+    },
+    "keys": {
+     "type": "array",
+     "items": {
+      "anyOf": [
+       {
+        "type": "string",
+        "enum": [
+         "forward",
+         "back",
+         "left",
+         "right",
+         "jump",
+         "sneak",
+         "sprint",
+         "attack",
+         "use",
+         "swap_offhand"
+        ]
+       },
+       {
+        "type": "string",
+        "pattern": "^key\\.keyboard\\.[a-z0-9.]{1,32}$"
+       }
+      ]
+     },
+     "minItems": 1,
+     "maxItems": 8,
+     "uniqueItems": true
+    },
+    "ticks": {
+     "type": "integer",
+     "minimum": 1,
+     "maximum": 255
+    }
+   },
+   "required": [],
+   "additionalProperties": false,
+   "dependentRequired": {
+    "keys": [
+     "ticks"
+    ],
+    "ticks": [
+     "keys"
+    ]
+   }
+  },
+  "annotations": {
+   "readOnlyHint": false,
+   "destructiveHint": false,
+   "idempotentHint": false,
+   "openWorldHint": true
+  }
+ },
+ {
+  "name": "minecraft_quick_move_container_slot",
+  "description": "Quick-move one visible menu slot and wait for the server-confirmed container state update.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "slot": {
+     "type": "integer",
+     "minimum": 0,
+     "maximum": 32767
+    },
+    "timeout_seconds": {
+     "type": "number",
+     "minimum": 0.1,
+     "maximum": 120.0,
+     "default": 8.0
+    }
+   },
+   "required": [
+    "slot"
+   ],
+   "additionalProperties": false
+  },
+  "annotations": {
+   "readOnlyHint": false,
+   "destructiveHint": true,
+   "idempotentHint": false,
+   "openWorldHint": true
+  }
+ },
+ {
+  "name": "minecraft_click_container_slot",
+  "description": "Primary- or secondary-click one visible menu slot and wait for a server-confirmed container update.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "slot": {
+     "type": "integer",
+     "minimum": 0,
+     "maximum": 32767
+    },
+    "button": {
+     "type": "string",
+     "enum": [
+      "primary",
+      "secondary"
+     ]
+    },
+    "timeout_seconds": {
+     "type": "number",
+     "minimum": 0.1,
+     "maximum": 120.0,
+     "default": 8.0
+    }
+   },
+   "required": [
+    "slot",
+    "button"
+   ],
+   "additionalProperties": false
+  },
+  "annotations": {
+   "readOnlyHint": false,
+   "destructiveHint": true,
+   "idempotentHint": false,
+   "openWorldHint": true
+  }
+ },
+ {
+  "name": "minecraft_click_container_button",
+  "description": "Click one menu button and wait for the server-confirmed container state update.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "button_id": {
+     "type": "integer",
+     "minimum": 0,
+     "maximum": 2147483647
+    },
+    "timeout_seconds": {
+     "type": "number",
+     "minimum": 0.1,
+     "maximum": 120.0,
+     "default": 8.0
+    }
+   },
+   "required": [
+    "button_id"
+   ],
+   "additionalProperties": false
+  },
+  "annotations": {
+   "readOnlyHint": false,
+   "destructiveHint": true,
+   "idempotentHint": false,
+   "openWorldHint": true
+  }
+ },
+ {
+  "name": "minecraft_send_chat",
+  "description": "Send a chat message or command. A leading '/' is a command (sent without the slash) unless command=false is passed; the result reports sent_as.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "message": {
+     "type": "string",
+     "minLength": 1,
+     "maxLength": 256
+    },
+    "command": {
+     "type": "boolean",
+     "default": false
+    }
+   },
+   "required": [
+    "message"
+   ],
+   "additionalProperties": false
+  },
+  "annotations": {
+   "readOnlyHint": false,
+   "destructiveHint": false,
+   "idempotentHint": false,
+   "openWorldHint": true
+  }
+ },
+ {
+  "name": "minecraft_drop_selected_item",
+  "description": "Drop an exact selected stack and wait for its confirmed inventory debit and visible item entity.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "item_id": {
+     "type": "string",
+     "minLength": 1,
+     "maxLength": 128
+    },
+    "count": {
+     "type": "integer",
+     "minimum": 1,
+     "maximum": 64
+    },
+    "timeout_seconds": {
+     "type": "number",
+     "minimum": 0.1,
+     "maximum": 120.0,
+     "default": 8.0
+    }
+   },
+   "required": [
+    "item_id",
+    "count"
+   ],
+   "additionalProperties": false
+  },
+  "annotations": {
+   "readOnlyHint": false,
+   "destructiveHint": true,
+   "idempotentHint": false,
+   "openWorldHint": true
+  }
+ },
+ {
+  "name": "minecraft_run_scenario",
+  "description": "Run one deterministic in-client regression scenario and return its structured observations.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "id": {
+     "type": "string",
+     "minLength": 1,
+     "maxLength": 128
+    },
+    "artifacts_dir": {
+     "type": "string",
+     "minLength": 1,
+     "maxLength": 1024
+    }
+   },
+   "required": [
+    "id"
+   ],
+   "additionalProperties": false
+  },
+  "annotations": {
+   "readOnlyHint": false,
+   "destructiveHint": true,
+   "idempotentHint": false,
+   "openWorldHint": true
+  }
+ },
+ {
+  "name": "minecraft_screenshot",
+  "description": "Capture optional visual context to a path inside a screenshots directory.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "path": {
+     "type": "string",
+     "minLength": 1,
+     "maxLength": 1024
+    }
+   },
+   "required": [
+    "path"
+   ],
+   "additionalProperties": false
+  },
+  "annotations": {
+   "readOnlyHint": false,
+   "destructiveHint": true,
+   "idempotentHint": false,
+   "openWorldHint": true
+  }
+ },
+ {
+  "name": "minecraft_mine_until_crack",
+  "description": "Hold ordinary mining input on a loaded block WITHOUT breaking it and report the observed crack stage (0-9). Windowed-proof seam for the block-break crack overlay screenshot.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "x": {
+     "type": "integer"
+    },
+    "y": {
+     "type": "integer"
+    },
+    "z": {
+     "type": "integer"
+    },
+    "face": {
+     "type": "string",
+     "enum": [
+      "down",
+      "up",
+      "north",
+      "south",
+      "west",
+      "east"
+     ]
+    },
+    "ticks": {
+     "type": "integer",
+     "minimum": 1,
+     "maximum": 100
+    },
+    "timeout_seconds": {
+     "type": "number",
+     "minimum": 0.1,
+     "maximum": 120.0,
+     "default": 8.0
+    }
+   },
+   "required": [
+    "x",
+    "y",
+    "z",
+    "face",
+    "ticks"
+   ],
+   "additionalProperties": false
+  },
+  "annotations": {
+   "readOnlyHint": false,
+   "destructiveHint": false,
+   "idempotentHint": false,
+   "openWorldHint": true
+  }
+ },
+ {
+  "name": "minecraft_toggle_debug_overlay",
+  "description": "Toggle the F3 debug overlay through the ordinary input owner (same flag the physical F3 key flips). Reports the overlay lines visible after the toggle.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {
+    "enabled": {
+     "type": "boolean"
+    }
+   },
+   "required": [
+    "enabled"
+   ],
+   "additionalProperties": false
+  },
+  "annotations": {
+   "readOnlyHint": false,
+   "destructiveHint": false,
+   "idempotentHint": false,
+   "openWorldHint": true
+  }
+ },
+ {
+  "name": "minecraft_open_pause_menu",
+  "description": "Open the Pause menu through the ordinary Game->Pause UI path (same transition the physical Escape key drives). Fails closed unless the Game screen is open with no dialog or container.",
+  "inputSchema": {
+   "type": "object",
+   "properties": {},
+   "required": [],
+   "additionalProperties": false
+  },
+  "annotations": {
+   "readOnlyHint": false,
+   "destructiveHint": false,
+   "idempotentHint": false,
+   "openWorldHint": true
+  }
+ }
+]

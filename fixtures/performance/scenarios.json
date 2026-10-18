@@ -1,0 +1,367 @@
+{
+  "schema": 1,
+  "source": "SOLARIS_NATIVE_CLIENT_SPEC_FOR_OPUS.md sections 21.2, 21.3, 23.4 (2026-10-01)",
+  "status": "descriptors_not_measurements",
+  "execution_ready": false,
+  "missing_prerequisites": [
+    "full representative world/entity/UI/audio implementation",
+    "approved immutable scene/world mutation recordings",
+    "matched vanilla and compatible Sodium baselines",
+    "confirmed reference hardware and power/thermal profile"
+  ],
+  "equality": {
+    "fixed": {
+      "game": "26.1.2",
+      "resolution_pixels": [
+        1920,
+        1080
+      ],
+      "profile": "Parity",
+      "view_distance_chunks": 16,
+      "particles": "normal",
+      "dynamic_resolution": false,
+      "frame_generation": false,
+      "adaptive_quality_during_run": false
+    },
+    "required_run_inputs": [
+      "world_copy_sha256",
+      "seed",
+      "camera_track_sha256",
+      "normal_input_trace_sha256",
+      "packet_or_scene_replay_sha256",
+      "world_mutation_trace_sha256",
+      "source_asset_hashes",
+      "pack_order",
+      "equipment_assignments_sha256",
+      "expected_visible_set_per_frame_sha256",
+      "render_settings_all_semantically_relevant",
+      "simulation_distance",
+      "FOV",
+      "gamma",
+      "mip_levels",
+      "anisotropy",
+      "vsync",
+      "refresh_rate",
+      "fullscreen_or_windowed",
+      "compositor",
+      "backend",
+      "CPU_GPU_RAM",
+      "GPU_TGP",
+      "driver",
+      "OS",
+      "power_profile",
+      "warmup_duration_and_completion_condition",
+      "server_build_and_tick_metrics",
+      "cache_state",
+      "client_build_sha256",
+      "baseline_build_and_mod_hashes"
+    ],
+    "missing_input_policy": "not_ready; never substitute another version, smaller population, lower distance, synthetic passing numbers or an empty uniform scene",
+    "baseline_order": [
+      "isolated_renderer_replay",
+      "live_server",
+      "co_located_client_and_Solaris_separate_run"
+    ],
+    "comparators": [
+      "unmodified_vanilla_26.1.2",
+      "Sodium_exact_compatible_build_or_explicit_unavailable",
+      "native_no_optimization_reference_path_where_relevant"
+    ],
+    "steady_method": {
+      "repeats_minimum": 5,
+      "sample_duration_seconds_each": 600,
+      "warmup": "same immutable run input for all comparators",
+      "cold_streaming": "separate runs; do not mix cold and warm samples"
+    },
+    "raw_outputs": [
+      "all_frame_samples_including_missing_and_skipped",
+      "p50_p95_p99_p99_9_max",
+      "stalls_over_50ms",
+      "actual_resolution",
+      "camera_track",
+      "received_client_known_visibility_eligible_submitted_covered_animated_counts",
+      "content_hashes",
+      "world_mutations",
+      "settings",
+      "CPU_stage_time",
+      "GPU_supported_timestamps_or_unsupported",
+      "present_wait",
+      "input_and_edit_latency",
+      "queue_peaks",
+      "corrections",
+      "resident_RAM",
+      "tracked_GPU_allocations",
+      "driver_overhead_separate",
+      "thermal_throttling_swapping_competing_builds_CPU_quota"
+    ],
+    "reject": [
+      "hidden reduced distance or particles",
+      "dropped essential packets or interactions",
+      "teleport replacing normal movement",
+      "omitted complex models",
+      "culling visible fighters",
+      "posthoc outlier removal",
+      "claiming 100k rendered bodies from 100k state records",
+      "adding CPU GPU present percentiles together",
+      "using server/network latency as GPU duration"
+    ]
+  },
+  "scenarios": [
+    {
+      "id": "P01",
+      "name": "Traversal",
+      "original_workload": "1080p, Parity, view 16, normal particles, разнообразный terrain, обычные mobs, прогретый маршрут",
+      "targets_ms": {
+        "p50": 8.3,
+        "p95": 12.5,
+        "p99": 16.7
+      },
+      "required_scene_features": [
+        "diverse_terrain",
+        "ordinary_mobs",
+        "warmed_route"
+      ],
+      "measurements": null
+    },
+    {
+      "id": "P02",
+      "name": "Streaming",
+      "original_workload": "Тот же profile, новая местность/быстрое движение и teleport, отдельно cold caches",
+      "targets_ms": {
+        "p95": 16.7,
+        "p99": 25
+      },
+      "invariants": [
+        "bounded_queues",
+        "stalls_over_50ms_counted_separately",
+        "cold_caches_separate",
+        "fixture_teleport_is_declared_privileged_setup_not_gameplay"
+      ],
+      "measurements": null
+    },
+    {
+      "id": "P03",
+      "name": "Battle",
+      "original_workload": "1024 реально присутствующих бойца, 50 player avatars, terrain/оборудование/снаряды и звук, видимость зафиксирована",
+      "fighters_present": 1024,
+      "player_avatars_present": 50,
+      "targets_ms": {
+        "p95": 16.7,
+        "p99": 25
+      },
+      "invariants": [
+        "actual_fighters_not_generic_billboard_substitutes",
+        "equipment_projectiles_audio_active",
+        "exact_visibility_receipt"
+      ],
+      "measurements": null
+    },
+    {
+      "id": "P04",
+      "name": "Crowd stress",
+      "original_workload": "4096 бойцов с репрезентативной экипировкой, та же камера/геометрия; точный visible-set",
+      "fighters_present": 4096,
+      "targets_ms": {
+        "p95": 33.3,
+        "p99": 50
+      },
+      "invariants": [
+        "same_camera_geometry",
+        "exact_visible_set",
+        "no_removal_of_visible_fighters",
+        "weak_integrated_GPU_requires_separate_declared_profile"
+      ],
+      "measurements": null
+    },
+    {
+      "id": "P05",
+      "name": "Client-state scale",
+      "original_workload": "100k полученных entity records, фиксированный subset 4096 visible-eligible, burst metadata",
+      "received_entity_records": 100000,
+      "visible_eligible_subset": 4096,
+      "invariants": [
+        "bounded_memory_and_queues",
+        "no_O_100k_full_render_rebuild_per_frame",
+        "not_100k_simultaneously_rendered_bodies",
+        "metadata_burst_trace_fixed_as_equality_input"
+      ],
+      "measurements": null
+    },
+    {
+      "id": "P06",
+      "name": "Memory",
+      "original_workload": "P01 steady 30 min",
+      "duration_seconds": 1800,
+      "targets_bytes": {
+        "process_resident_RAM": 2147483648,
+        "tracked_GPU_allocations": 2684354560
+      },
+      "invariants": [
+        "driver_overhead_separate",
+        "UMA_not_double_counted"
+      ],
+      "measurements": null
+    },
+    {
+      "id": "P07",
+      "name": "Reload/soak",
+      "original_workload": "20 join/disconnect + reload cycles, затем 2 h mixed play",
+      "join_disconnect_reload_cycles": 20,
+      "mixed_play_seconds": 7200,
+      "invariants": [
+        "no_monotonic_live_resource_growth",
+        "prior_server_data_and_hooks_inactive",
+        "mixed_play_trace_fixed_not_idle_wait"
+      ],
+      "measurements": null
+    },
+    {
+      "id": "P08",
+      "name": "MCP idle",
+      "original_workload": "Тот же scene, endpoint on/off без запросов",
+      "maximum_median_CPU_frame_overhead_percent": 1,
+      "invariants": [
+        "same_scene",
+        "no_requests",
+        "no_periodic_world_scans"
+      ],
+      "measurements": null
+    },
+    {
+      "id": "P09",
+      "name": "MCP active",
+      "original_workload": "10 bounded observations/s + 1 causal action/s, без heavy capture",
+      "observations_per_second": 10,
+      "causal_actions_per_second": 1,
+      "maximum_p95_regression_percent": 5,
+      "invariants": [
+        "same_baseline",
+        "bounded_projection_queue",
+        "correct_cancellation",
+        "no_heavy_capture"
+      ],
+      "measurements": null
+    },
+    {
+      "id": "P10",
+      "name": "Interaction",
+      "original_workload": "Близкий одиночный block edit и GUI action при рабочем FPS",
+      "source_apply_to_first_correct_submitted_frame_p95_ms": 50,
+      "invariants": [
+        "source_apply_clock",
+        "server_network_latency_separate",
+        "ordinary_input",
+        "actual_correct_GUI_and_geometry_frame_not_present_call_only"
+      ],
+      "measurements": null
+    }
+  ],
+  "adversarial": [
+    {
+      "id": "A01",
+      "workload": "checkerboard geometry with poor face merging",
+      "equality_inputs": [
+        "block_state_volume_sha256",
+        "light_and_AO_sha256",
+        "camera_track_sha256"
+      ],
+      "assert": "No geometry/UV/AO/light loss; total cost and peak memory recorded"
+    },
+    {
+      "id": "A02",
+      "workload": "many tiny transparent quads",
+      "equality_inputs": [
+        "ordered_transparent_geometry_sha256",
+        "camera_track_sha256",
+        "blend_depth_settings"
+      ],
+      "assert": "No lost layers or hidden approximate OIT in Parity"
+    },
+    {
+      "id": "A03",
+      "workload": "rare materials and dense block entities",
+      "equality_inputs": [
+        "material_assignments_sha256",
+        "block_entity_state_and_animation_trace_sha256"
+      ],
+      "assert": "No generic-cube substitution or omitted active entity state"
+    },
+    {
+      "id": "A04",
+      "workload": "high-frequency light changes",
+      "equality_inputs": [
+        "ordered_light_trace_sha256",
+        "fixed_geometry_sha256"
+      ],
+      "assert": "Correct light revision reaches actual submitted frame"
+    },
+    {
+      "id": "A05",
+      "workload": "rapidly changing inventory",
+      "equality_inputs": [
+        "slot_cursor_revision_trace_sha256",
+        "ordinary_click_trace_sha256"
+      ],
+      "assert": "No mixed snapshots, stale actions or fabricated server acknowledgement"
+    },
+    {
+      "id": "A06",
+      "workload": "resource reload during teleport",
+      "equality_inputs": [
+        "resource_epoch_activation_trace_sha256",
+        "dimension_chunk_generation_trace_sha256"
+      ],
+      "assert": "No new mesh with old atlas or stale job commit"
+    },
+    {
+      "id": "A07",
+      "workload": "unusual skins and fonts",
+      "equality_inputs": [
+        "authored_skin_font_hashes",
+        "DPI_text_layout_inputs"
+      ],
+      "assert": "Bounded validation, explicit missing coverage; no unbounded image/font allocation"
+    },
+    {
+      "id": "A08",
+      "workload": "minimum and maximum packet sizes",
+      "equality_inputs": [
+        "exact_version_packet_trace_sha256",
+        "configured_frame_NBT_string_array_limits"
+      ],
+      "assert": "Bounds before allocation; order preserved; mandatory unknown packets fail closed"
+    },
+    {
+      "id": "R01",
+      "workload": "disconnect between decode and apply; remesh after dimension change",
+      "equality_inputs": [
+        "deterministic_scheduler_event_trace_sha256"
+      ],
+      "assert": "Old connection/dimension generations cannot commit"
+    },
+    {
+      "id": "R02",
+      "workload": "resource eviction before GPU completion; screenshot during resize",
+      "equality_inputs": [
+        "submission_completion_resize_trace_sha256"
+      ],
+      "assert": "No premature destruction; capture has actual frame/resource/state identity"
+    },
+    {
+      "id": "R03",
+      "workload": "controller expiry during click; duplicate action IDs",
+      "equality_inputs": [
+        "lease_and_action_event_trace_sha256"
+      ],
+      "assert": "Held input released; same action ID not applied twice; changed args rejected"
+    },
+    {
+      "id": "R04",
+      "workload": "WASM disable between host import and result",
+      "equality_inputs": [
+        "component_generation_scheduler_trace_sha256"
+      ],
+      "assert": "Disabled generation cannot mutate host; other extensions remain valid"
+    }
+  ]
+}

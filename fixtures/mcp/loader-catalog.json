@@ -1,0 +1,2187 @@
+{
+  "schema_version": 1,
+  "captured_date": "2026-10-02",
+  "target": "Minecraft Java Edition 26.1.2",
+  "sources": [
+    {
+      "path": "solaris-loader/bridge-core/src/main/java/dev/solaris/agent/mcp/ClientMcpTools.java",
+      "sha256": "fd15166a59c62769b4ecc9473c622b9c5ee03ca55ddc18acdfb38c0bb0f180ec",
+      "bytes": 29940
+    },
+    {
+      "path": "solaris-loader/bridge-core/src/main/java/dev/solaris/agent/mcp/McpHttpServer.java",
+      "sha256": "8fb39d463ffb9c2dfc58270399c89d4ebab4b1764be1b32b7f876f09ec78c0ba",
+      "bytes": 29189
+    },
+    {
+      "path": "solaris-loader/bridge-core/src/main/java/dev/solaris/agent/mcp/McpToolDefinition.java",
+      "sha256": "1e8d94f7ac0ce41895b18395798aa7def25332700f3c2c3976a6f484349f8c7b",
+      "bytes": 2508
+    }
+  ],
+  "export_method": "Compiled the read-only current ClientMcpTools.java and McpToolDefinition.java with Gson into an owned ignored directory; executed actual definitions()/toJson() on the JVM. Raw export and exact command are C02 evidence; no Loader runtime tools invoked.",
+  "loader_transport": {
+    "supported_protocol_versions": [
+      "2025-11-25",
+      "2025-06-18"
+    ],
+    "body_bytes": 1048576,
+    "max_sessions": 64,
+    "session_idle_seconds": 1800,
+    "transports": [
+      "authenticated_loopback_http"
+    ],
+    "resources": false,
+    "requires_initialized_before_tools": false,
+    "authorization": "local_pre_shared_bearer_not_oauth",
+    "version_fallback": "unsupported_initialize_revision_falls_back_to_2025-11-25"
+  },
+  "output_schema_note": "Current McpToolDefinition.toJson emits no outputSchema. Null means absent in the source, not a synthesized compatibility promise. Responses contain text plus structuredContent.",
+  "tools": [
+    {
+      "name": "minecraft_observe",
+      "description": "Read the current client-visible player, inventory, target, screen, overlay, time, and recent chat state.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "command": "observe",
+      "execution": "DIRECT",
+      "outputSchema": null,
+      "completion_semantics": "Read the current client-visible player, inventory, target, screen, overlay, time, and recent chat state."
+    },
+    {
+      "name": "minecraft_read_item_components",
+      "description": "Read one actual received stack's native components on demand. Selected forbids slot; player/container require slot; container requires a visible menu.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "source": {
+            "type": "string",
+            "enum": [
+              "selected",
+              "player",
+              "container"
+            ]
+          },
+          "slot": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 32767
+          }
+        },
+        "required": [
+          "source"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "command": "read_item_components",
+      "execution": "DIRECT",
+      "outputSchema": null,
+      "completion_semantics": "Read one actual received stack's native components on demand. Selected forbids slot; player/container require slot; container requires a visible menu."
+    },
+    {
+      "name": "minecraft_read_block",
+      "description": "Read one loaded client-visible block with state, fluid, sky-light, and block-light values.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "x": {
+            "type": "integer"
+          },
+          "y": {
+            "type": "integer"
+          },
+          "z": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "x",
+          "y",
+          "z"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "command": "read_block",
+      "execution": "DIRECT",
+      "outputSchema": null,
+      "completion_semantics": "Read one loaded client-visible block with state, fluid, sky-light, and block-light values."
+    },
+    {
+      "name": "minecraft_wait_for_loaded_block",
+      "description": "Wait for one block's chunk to become client-loaded, waking on applied packet events.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "x": {
+            "type": "integer"
+          },
+          "y": {
+            "type": "integer"
+          },
+          "z": {
+            "type": "integer"
+          },
+          "timeout_seconds": {
+            "type": "number",
+            "minimum": 0.1,
+            "maximum": 120.0,
+            "default": 30.0
+          }
+        },
+        "required": [
+          "x",
+          "y",
+          "z"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "command": "wait_loaded_block",
+      "execution": "DIRECT",
+      "outputSchema": null,
+      "completion_semantics": "Wait for one block's chunk to become client-loaded, waking on applied packet events."
+    },
+    {
+      "name": "minecraft_wait_for_block_state",
+      "description": "Wait for a loaded block to match an exact id and optional state properties, waking only on applied client state events.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "x": {
+            "type": "integer"
+          },
+          "y": {
+            "type": "integer"
+          },
+          "z": {
+            "type": "integer"
+          },
+          "block_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "properties": {
+            "type": "object",
+            "maxProperties": 32,
+            "additionalProperties": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          },
+          "timeout_seconds": {
+            "type": "number",
+            "minimum": 0.1,
+            "maximum": 120.0,
+            "default": 8.0
+          }
+        },
+        "required": [
+          "x",
+          "y",
+          "z",
+          "block_id"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "command": "wait_loaded_block",
+      "execution": "WAIT_FOR_BLOCK_STATE",
+      "outputSchema": null,
+      "completion_semantics": "Wait for a loaded block to match an exact id and optional state properties, waking only on applied client state events."
+    },
+    {
+      "name": "minecraft_scan_blocks",
+      "description": "Read a bounded inclusive box of loaded client-visible blocks, never more than 4096 cells.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "min_x": {
+            "type": "integer"
+          },
+          "min_y": {
+            "type": "integer"
+          },
+          "min_z": {
+            "type": "integer"
+          },
+          "max_x": {
+            "type": "integer"
+          },
+          "max_y": {
+            "type": "integer"
+          },
+          "max_z": {
+            "type": "integer"
+          },
+          "max_blocks": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 4096,
+            "default": 4096
+          }
+        },
+        "required": [
+          "min_x",
+          "min_y",
+          "min_z",
+          "max_x",
+          "max_y",
+          "max_z"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "command": "scan_blocks",
+      "execution": "DIRECT",
+      "outputSchema": null,
+      "completion_semantics": "Read a bounded inclusive box of loaded client-visible blocks, never more than 4096 cells."
+    },
+    {
+      "name": "minecraft_list_entities",
+      "description": "List bounded client-visible entities near the player with stable ids, types, and positions.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "radius": {
+            "type": "number",
+            "minimum": 0.0,
+            "maximum": 128.0,
+            "default": 32.0
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 512,
+            "default": 128
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "command": "list_entities",
+      "execution": "DIRECT",
+      "outputSchema": null,
+      "completion_semantics": "List bounded client-visible entities near the player with stable ids, types, and positions."
+    },
+    {
+      "name": "minecraft_read_recipe_book",
+      "description": "Read bounded recipe display ids accepted by the real client.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 8192,
+            "default": 2048
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "command": "recipe_book",
+      "execution": "DIRECT",
+      "outputSchema": null,
+      "completion_semantics": "Read bounded recipe display ids accepted by the real client."
+    },
+    {
+      "name": "minecraft_wait_for_visible_entity",
+      "description": "Wait for an entity type to become client-visible within a bounded radius, waking only on client state events.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "entity_type": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "radius": {
+            "type": "number",
+            "minimum": 0.0,
+            "maximum": 128.0,
+            "default": 32.0
+          },
+          "timeout_seconds": {
+            "type": "number",
+            "minimum": 0.1,
+            "maximum": 120.0,
+            "default": 8.0
+          }
+        },
+        "required": [
+          "entity_type"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "command": "wait_visible_entity",
+      "execution": "DIRECT",
+      "outputSchema": null,
+      "completion_semantics": "Wait for an entity type to become client-visible within a bounded radius, waking only on client state events."
+    },
+    {
+      "name": "minecraft_wait_for_entity_motion",
+      "description": "Wait for one UUID- and type-fenced entity to move, returning bounded aggregate motion fields.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "entity_id": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2147483647
+          },
+          "entity_uuid": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 36
+          },
+          "entity_type": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "minimum_horizontal_distance": {
+            "type": "number",
+            "minimum": 0.001,
+            "maximum": 128.0,
+            "default": 0.01
+          },
+          "minimum_vertical_rise": {
+            "type": "number",
+            "minimum": 0.0,
+            "maximum": 128.0,
+            "default": 0.0
+          },
+          "timeout_seconds": {
+            "type": "number",
+            "minimum": 0.1,
+            "maximum": 120.0,
+            "default": 8.0
+          }
+        },
+        "required": [
+          "entity_id",
+          "entity_uuid",
+          "entity_type"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "command": "wait_entity_motion",
+      "execution": "DIRECT",
+      "outputSchema": null,
+      "completion_semantics": "Wait for one UUID- and type-fenced entity to move, returning bounded aggregate motion fields."
+    },
+    {
+      "name": "minecraft_wait_for_entity_removed",
+      "description": "Wait for one UUID- and type-fenced entity to leave client-visible state.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "entity_id": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2147483647
+          },
+          "entity_uuid": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 36
+          },
+          "entity_type": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "timeout_seconds": {
+            "type": "number",
+            "minimum": 0.1,
+            "maximum": 120.0,
+            "default": 8.0
+          }
+        },
+        "required": [
+          "entity_id",
+          "entity_uuid",
+          "entity_type"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "command": "wait_entity_removed",
+      "execution": "DIRECT",
+      "outputSchema": null,
+      "completion_semantics": "Wait for one UUID- and type-fenced entity to leave client-visible state."
+    },
+    {
+      "name": "minecraft_wait_for_health_below",
+      "description": "Wait for client-visible player health to fall below a threshold, waking only on client state events.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "health": {
+            "type": "number",
+            "minimum": 0.001,
+            "maximum": 2048.0
+          },
+          "timeout_seconds": {
+            "type": "number",
+            "minimum": 0.1,
+            "maximum": 120.0,
+            "default": 8.0
+          }
+        },
+        "required": [
+          "health"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "command": "wait_health_below",
+      "execution": "DIRECT",
+      "outputSchema": null,
+      "completion_semantics": "Wait for client-visible player health to fall below a threshold, waking only on client state events."
+    },
+    {
+      "name": "minecraft_wait_for_inventory",
+      "description": "Wait for an exact client inventory count, waking only on client state events.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "item_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 4096
+          },
+          "timeout_seconds": {
+            "type": "number",
+            "minimum": 0.1,
+            "maximum": 120.0,
+            "default": 8.0
+          }
+        },
+        "required": [
+          "item_id",
+          "count"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "command": "wait_inventory",
+      "execution": "DIRECT",
+      "outputSchema": null,
+      "completion_semantics": "Wait for an exact client inventory count, waking only on client state events."
+    },
+    {
+      "name": "minecraft_wait_for_container_slot",
+      "description": "Wait for an exact item stack in one visible container slot using client state events.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "slot": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 32767
+          },
+          "item_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 4096
+          },
+          "timeout_seconds": {
+            "type": "number",
+            "minimum": 0.1,
+            "maximum": 120.0,
+            "default": 8.0
+          }
+        },
+        "required": [
+          "slot",
+          "item_id",
+          "count"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "command": "wait_for_container_slot",
+      "execution": "DIRECT",
+      "outputSchema": null,
+      "completion_semantics": "Wait for an exact item stack in one visible container slot using client state events."
+    },
+    {
+      "name": "minecraft_wait_for_visible_item",
+      "description": "Wait for an item entity to become client-visible near a block position.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "item_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "x": {
+            "type": "integer"
+          },
+          "y": {
+            "type": "integer"
+          },
+          "z": {
+            "type": "integer"
+          },
+          "timeout_seconds": {
+            "type": "number",
+            "minimum": 0.1,
+            "maximum": 120.0,
+            "default": 8.0
+          }
+        },
+        "required": [
+          "item_id",
+          "x",
+          "y",
+          "z"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "command": "wait_visible_item",
+      "execution": "DIRECT",
+      "outputSchema": null,
+      "completion_semantics": "Wait for an item entity to become client-visible near a block position."
+    },
+    {
+      "name": "minecraft_wait_for_no_visible_item",
+      "description": "Wait for an item entity to stop being client-visible near a block position.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "item_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "x": {
+            "type": "integer"
+          },
+          "y": {
+            "type": "integer"
+          },
+          "z": {
+            "type": "integer"
+          },
+          "timeout_seconds": {
+            "type": "number",
+            "minimum": 0.1,
+            "maximum": 120.0,
+            "default": 8.0
+          }
+        },
+        "required": [
+          "item_id",
+          "x",
+          "y",
+          "z"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "command": "wait_no_visible_item",
+      "execution": "DIRECT",
+      "outputSchema": null,
+      "completion_semantics": "Wait for an item entity to stop being client-visible near a block position."
+    },
+    {
+      "name": "minecraft_connect",
+      "description": "Connect the real Minecraft client to a server. Repeating the active address is a no-op; changing servers requires an explicit disconnect.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "server_addr": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          },
+          "host": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 253
+          },
+          "port": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 65535
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "command": "connect",
+      "execution": "DIRECT",
+      "outputSchema": null,
+      "completion_semantics": "Connect the real Minecraft client to a server. Repeating the active address is a no-op; changing servers requires an explicit disconnect."
+    },
+    {
+      "name": "minecraft_wait_for_play",
+      "description": "Wait until the client reaches an active world or the bounded timeout expires.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "timeout_seconds": {
+            "type": "number",
+            "minimum": 0.1,
+            "maximum": 3600.0,
+            "default": 30.0
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "command": "wait_play",
+      "execution": "DIRECT",
+      "outputSchema": null,
+      "completion_semantics": "Wait until the client reaches an active world or the bounded timeout expires."
+    },
+    {
+      "name": "minecraft_wait_for_state_change",
+      "description": "Wait for the next exact client lifecycle or packet state event.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "observed_version": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2147483647
+          },
+          "timeout_seconds": {
+            "type": "number",
+            "minimum": 0.1,
+            "maximum": 120.0,
+            "default": 30.0
+          }
+        },
+        "required": [
+          "observed_version"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "command": "wait_state_change",
+      "execution": "DIRECT",
+      "outputSchema": null,
+      "completion_semantics": "Wait for the next exact client lifecycle or packet state event."
+    },
+    {
+      "name": "minecraft_disconnect",
+      "description": "Disconnect the real Minecraft client from its current server.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "command": "disconnect",
+      "execution": "DIRECT",
+      "outputSchema": null,
+      "completion_semantics": "Disconnect the real Minecraft client from its current server."
+    },
+    {
+      "name": "minecraft_set_hotbar_slot",
+      "description": "Select a zero-based hotbar slot.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "slot": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 8
+          }
+        },
+        "required": [
+          "slot"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "command": "set_hotbar_slot",
+      "execution": "DIRECT",
+      "outputSchema": null,
+      "completion_semantics": "Select a zero-based hotbar slot."
+    },
+    {
+      "name": "minecraft_select_hotbar_item",
+      "description": "Move a matching inventory stack into the hotbar and select it.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "item_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 64
+          },
+          "timeout_seconds": {
+            "type": "number",
+            "minimum": 0.1,
+            "maximum": 120.0,
+            "default": 8.0
+          }
+        },
+        "required": [
+          "item_id",
+          "count"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "command": "select_hotbar_item",
+      "execution": "DIRECT",
+      "outputSchema": null,
+      "completion_semantics": "Move a matching inventory stack into the hotbar and select it."
+    },
+    {
+      "name": "minecraft_navigate_to_block",
+      "description": "Walk to a loaded client-visible block within a bounded route, returning only after observed grounded arrival near the target.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "x": {
+            "type": "integer"
+          },
+          "y": {
+            "type": "integer"
+          },
+          "z": {
+            "type": "integer"
+          },
+          "timeout_seconds": {
+            "type": "number",
+            "minimum": 0.1,
+            "maximum": 120.0,
+            "default": 8.0
+          }
+        },
+        "required": [
+          "x",
+          "y",
+          "z"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "command": "navigate_to_block",
+      "execution": "DIRECT",
+      "outputSchema": null,
+      "completion_semantics": "Walk to a loaded client-visible block within a bounded route, returning only after observed grounded arrival near the target."
+    },
+    {
+      "name": "minecraft_approach_entity",
+      "description": "Approach one client-visible entity through ordinary movement until it is in survival reach.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "entity_id": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2147483647
+          },
+          "timeout_seconds": {
+            "type": "number",
+            "minimum": 0.1,
+            "maximum": 120.0,
+            "default": 30.0
+          }
+        },
+        "required": [
+          "entity_id"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "command": "approach_entity",
+      "execution": "DIRECT",
+      "outputSchema": null,
+      "completion_semantics": "Approach one client-visible entity through ordinary movement until it is in survival reach."
+    },
+    {
+      "name": "minecraft_interact_entity",
+      "description": "Dispatch the vanilla entity interaction for one UUID- and type-fenced entity and return the local interaction result without inferring server gameplay success.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "entity_id": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2147483647
+          },
+          "entity_uuid": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 36
+          },
+          "entity_type": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "hand": {
+            "type": "string",
+            "enum": [
+              "main_hand",
+              "off_hand"
+            ],
+            "default": "main_hand"
+          }
+        },
+        "required": [
+          "entity_id",
+          "entity_uuid",
+          "entity_type"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "command": "interact_entity",
+      "execution": "DIRECT",
+      "outputSchema": null,
+      "completion_semantics": "Dispatch the vanilla entity interaction for one UUID- and type-fenced entity and return the local interaction result without inferring server gameplay success."
+    },
+    {
+      "name": "minecraft_attack_entity_once",
+      "description": "Dispatch one ordinary vanilla attack and wait for authoritative damage or removal.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "entity_id": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2147483647
+          },
+          "entity_uuid": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 36
+          },
+          "entity_type": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "timeout_seconds": {
+            "type": "number",
+            "minimum": 0.1,
+            "maximum": 120.0,
+            "default": 8.0
+          }
+        },
+        "required": [
+          "entity_id",
+          "entity_uuid",
+          "entity_type"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "command": "attack_entity_once",
+      "execution": "DIRECT",
+      "outputSchema": null,
+      "completion_semantics": "Dispatch one ordinary vanilla attack and wait for authoritative damage or removal."
+    },
+    {
+      "name": "minecraft_attack_entity_until_drop_collected",
+      "description": "Attack one client-visible entity and collect its expected visible item drop.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "entity_id": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2147483647
+          },
+          "expected_drop_item_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "expected_drop_count": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 64
+          },
+          "timeout_seconds": {
+            "type": "number",
+            "minimum": 0.1,
+            "maximum": 120.0,
+            "default": 30.0
+          }
+        },
+        "required": [
+          "entity_id",
+          "expected_drop_item_id",
+          "expected_drop_count"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "command": "attack_entity_until_drop_collected",
+      "execution": "DIRECT",
+      "outputSchema": null,
+      "completion_semantics": "Attack one client-visible entity and collect its expected visible item drop."
+    },
+    {
+      "name": "minecraft_look",
+      "description": "Set the player's absolute yaw and pitch in degrees.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "yaw_deg": {
+            "type": "integer",
+            "minimum": -180,
+            "maximum": 180
+          },
+          "pitch_deg": {
+            "type": "integer",
+            "minimum": -90,
+            "maximum": 90
+          }
+        },
+        "required": [
+          "yaw_deg",
+          "pitch_deg"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "command": "look",
+      "execution": "DIRECT",
+      "outputSchema": null,
+      "completion_semantics": "Set the player's absolute yaw and pitch in degrees."
+    },
+    {
+      "name": "minecraft_look_at_block",
+      "description": "Aim at a face of a loaded client-visible block.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "x": {
+            "type": "integer"
+          },
+          "y": {
+            "type": "integer"
+          },
+          "z": {
+            "type": "integer"
+          },
+          "face": {
+            "type": "string",
+            "enum": [
+              "down",
+              "up",
+              "north",
+              "south",
+              "west",
+              "east"
+            ]
+          }
+        },
+        "required": [
+          "x",
+          "y",
+          "z",
+          "face"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "command": "look_at_block",
+      "execution": "DIRECT",
+      "outputSchema": null,
+      "completion_semantics": "Aim at a face of a loaded client-visible block."
+    },
+    {
+      "name": "minecraft_use_item_on",
+      "description": "Use the selected main- or off-hand item on a face of a loaded client-visible block.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "x": {
+            "type": "integer"
+          },
+          "y": {
+            "type": "integer"
+          },
+          "z": {
+            "type": "integer"
+          },
+          "face": {
+            "type": "string",
+            "enum": [
+              "down",
+              "up",
+              "north",
+              "south",
+              "west",
+              "east"
+            ]
+          },
+          "hand": {
+            "type": "string",
+            "enum": [
+              "main_hand",
+              "off_hand"
+            ],
+            "default": "main_hand"
+          }
+        },
+        "required": [
+          "x",
+          "y",
+          "z",
+          "face"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "command": "use_item_on",
+      "execution": "DIRECT",
+      "outputSchema": null,
+      "completion_semantics": "Use the selected main- or off-hand item on a face of a loaded client-visible block."
+    },
+    {
+      "name": "minecraft_break_block",
+      "description": "Break one loaded block through ordinary client mining and wait for the expected drop pickup.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "x": {
+            "type": "integer"
+          },
+          "y": {
+            "type": "integer"
+          },
+          "z": {
+            "type": "integer"
+          },
+          "face": {
+            "type": "string",
+            "enum": [
+              "down",
+              "up",
+              "north",
+              "south",
+              "west",
+              "east"
+            ]
+          },
+          "expected_drop_item_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "expected_drop_count": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 64
+          },
+          "timeout_seconds": {
+            "type": "number",
+            "minimum": 0.1,
+            "maximum": 120.0,
+            "default": 8.0
+          }
+        },
+        "required": [
+          "x",
+          "y",
+          "z",
+          "face",
+          "expected_drop_item_id",
+          "expected_drop_count"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "command": "break_block",
+      "execution": "DIRECT",
+      "outputSchema": null,
+      "completion_semantics": "Break one loaded block through ordinary client mining and wait for the expected drop pickup."
+    },
+    {
+      "name": "minecraft_press_inputs",
+      "description": "Activate vanilla inputs or named key.keyboard.* keys for exact client ticks. Named keys use the native keyboard callback; swap_offhand clicks once.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "keys": {
+            "type": "array",
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "enum": [
+                    "forward",
+                    "back",
+                    "left",
+                    "right",
+                    "jump",
+                    "sneak",
+                    "sprint",
+                    "attack",
+                    "use",
+                    "swap_offhand"
+                  ]
+                },
+                {
+                  "type": "string",
+                  "pattern": "^key\\.keyboard\\.[a-z0-9.]{1,32}$"
+                }
+              ]
+            },
+            "minItems": 1,
+            "maxItems": 8,
+            "uniqueItems": true
+          },
+          "ticks": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 255
+          }
+        },
+        "required": [
+          "keys",
+          "ticks"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "command": "press_inputs",
+      "execution": "DIRECT",
+      "outputSchema": null,
+      "completion_semantics": "Activate vanilla inputs or named key.keyboard.* keys for exact client ticks. Named keys use the native keyboard callback; swap_offhand clicks once."
+    },
+    {
+      "name": "minecraft_wait_ticks",
+      "description": "Wait for a bounded number of real client ticks without blocking the client thread.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "ticks": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 255
+          }
+        },
+        "required": [
+          "ticks"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "command": "wait_ticks",
+      "execution": "DIRECT",
+      "outputSchema": null,
+      "completion_semantics": "Wait for a bounded number of real client ticks without blocking the client thread."
+    },
+    {
+      "name": "minecraft_close_screen",
+      "description": "Close the current client GUI screen or container.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "command": "close_screen",
+      "execution": "DIRECT",
+      "outputSchema": null,
+      "completion_semantics": "Close the current client GUI screen or container."
+    },
+    {
+      "name": "minecraft_request_loader_view",
+      "description": "Request an exact declared plugin-owned Loader view on the acknowledged live connection.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "view_key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        },
+        "required": [
+          "view_key"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "command": "request_loader_view",
+      "execution": "DIRECT",
+      "outputSchema": null,
+      "completion_semantics": "Request an exact declared plugin-owned Loader view on the acknowledged live connection."
+    },
+    {
+      "name": "minecraft_click_confirmation_button",
+      "description": "Press one exact enabled button on the current confirmation screen after matching its exact title.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "expected_title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "button_label": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": [
+          "expected_title",
+          "button_label"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "command": "click_confirmation_button",
+      "execution": "DIRECT",
+      "outputSchema": null,
+      "completion_semantics": "Press one exact enabled button on the current confirmation screen after matching its exact title."
+    },
+    {
+      "name": "minecraft_click_screen_button",
+      "description": "Press one exact enabled button after matching the current screen's exact class and title.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "expected_screen_class": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "expected_title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "button_label": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": [
+          "expected_screen_class",
+          "expected_title",
+          "button_label"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "command": "click_screen_button",
+      "execution": "DIRECT",
+      "outputSchema": null,
+      "completion_semantics": "Press one exact enabled button after matching the current screen's exact class and title."
+    },
+    {
+      "name": "minecraft_set_screen_input",
+      "description": "Set one exact visible editable native EditBox after matching the screen class, title and input label; refuses native truncation.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "expected_screen_class": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "expected_title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "input_label": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "value": {
+            "type": "string",
+            "minLength": 0,
+            "maxLength": 256
+          }
+        },
+        "required": [
+          "expected_screen_class",
+          "expected_title",
+          "input_label",
+          "value"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "command": "set_screen_input",
+      "execution": "DIRECT",
+      "outputSchema": null,
+      "completion_semantics": "Set one exact visible editable native EditBox after matching the screen class, title and input label; refuses native truncation."
+    },
+    {
+      "name": "minecraft_open_inventory",
+      "description": "Open the vanilla survival inventory and 2x2 crafting screen.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": true
+      },
+      "command": "open_inventory",
+      "execution": "DIRECT",
+      "outputSchema": null,
+      "completion_semantics": "Open the vanilla survival inventory and 2x2 crafting screen."
+    },
+    {
+      "name": "minecraft_respawn",
+      "description": "Send the vanilla respawn action, wait for confirmed active player state, and optionally apply immediate vanilla inputs.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "timeout_seconds": {
+            "type": "number",
+            "minimum": 0.1,
+            "maximum": 120.0,
+            "default": 10.0
+          },
+          "keys": {
+            "type": "array",
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "enum": [
+                    "forward",
+                    "back",
+                    "left",
+                    "right",
+                    "jump",
+                    "sneak",
+                    "sprint",
+                    "attack",
+                    "use",
+                    "swap_offhand"
+                  ]
+                },
+                {
+                  "type": "string",
+                  "pattern": "^key\\.keyboard\\.[a-z0-9.]{1,32}$"
+                }
+              ]
+            },
+            "minItems": 1,
+            "maxItems": 8,
+            "uniqueItems": true
+          },
+          "ticks": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 255
+          }
+        },
+        "required": [],
+        "additionalProperties": false,
+        "dependentRequired": {
+          "keys": [
+            "ticks"
+          ],
+          "ticks": [
+            "keys"
+          ]
+        }
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "command": "respawn",
+      "execution": "DIRECT",
+      "outputSchema": null,
+      "completion_semantics": "Send the vanilla respawn action, wait for confirmed active player state, and optionally apply immediate vanilla inputs."
+    },
+    {
+      "name": "minecraft_quick_move_container_slot",
+      "description": "Quick-move one visible menu slot and wait for the server-confirmed container state update.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "slot": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 32767
+          },
+          "timeout_seconds": {
+            "type": "number",
+            "minimum": 0.1,
+            "maximum": 120.0,
+            "default": 8.0
+          }
+        },
+        "required": [
+          "slot"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "command": "quick_move_container_slot",
+      "execution": "DIRECT",
+      "outputSchema": null,
+      "completion_semantics": "Quick-move one visible menu slot and wait for the server-confirmed container state update."
+    },
+    {
+      "name": "minecraft_click_container_slot",
+      "description": "Primary- or secondary-click one visible menu slot and wait for a server-confirmed container update.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "slot": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 32767
+          },
+          "button": {
+            "type": "string",
+            "enum": [
+              "primary",
+              "secondary"
+            ]
+          },
+          "timeout_seconds": {
+            "type": "number",
+            "minimum": 0.1,
+            "maximum": 120.0,
+            "default": 8.0
+          }
+        },
+        "required": [
+          "slot",
+          "button"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "command": "click_container_slot",
+      "execution": "DIRECT",
+      "outputSchema": null,
+      "completion_semantics": "Primary- or secondary-click one visible menu slot and wait for a server-confirmed container update."
+    },
+    {
+      "name": "minecraft_click_container_button",
+      "description": "Click one menu button and wait for the server-confirmed container state update.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "button_id": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2147483647
+          },
+          "timeout_seconds": {
+            "type": "number",
+            "minimum": 0.1,
+            "maximum": 120.0,
+            "default": 8.0
+          }
+        },
+        "required": [
+          "button_id"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "command": "click_container_button",
+      "execution": "DIRECT",
+      "outputSchema": null,
+      "completion_semantics": "Click one menu button and wait for the server-confirmed container state update."
+    },
+    {
+      "name": "minecraft_send_chat",
+      "description": "Send a chat message or command through the current client connection.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "command": {
+            "type": "boolean",
+            "default": false
+          }
+        },
+        "required": [
+          "message"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "command": "send_chat",
+      "execution": "DIRECT",
+      "outputSchema": null,
+      "completion_semantics": "Send a chat message or command through the current client connection."
+    },
+    {
+      "name": "minecraft_drop_selected_item",
+      "description": "Drop an exact selected stack and wait for its confirmed inventory debit and visible item entity.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "item_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 64
+          },
+          "timeout_seconds": {
+            "type": "number",
+            "minimum": 0.1,
+            "maximum": 120.0,
+            "default": 8.0
+          }
+        },
+        "required": [
+          "item_id",
+          "count"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "command": "drop_selected_item",
+      "execution": "DIRECT",
+      "outputSchema": null,
+      "completion_semantics": "Drop an exact selected stack and wait for its confirmed inventory debit and visible item entity."
+    },
+    {
+      "name": "minecraft_run_scenario",
+      "description": "Run one deterministic in-client regression scenario and return its structured observations.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "artifacts_dir": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1024
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "command": "run_scenario",
+      "execution": "DIRECT",
+      "outputSchema": null,
+      "completion_semantics": "Run one deterministic in-client regression scenario and return its structured observations."
+    },
+    {
+      "name": "minecraft_screenshot",
+      "description": "Capture optional visual context to a path inside a screenshots directory.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1024
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": true
+      },
+      "command": "screenshot",
+      "execution": "DIRECT",
+      "outputSchema": null,
+      "completion_semantics": "Capture optional visual context to a path inside a screenshots directory."
+    }
+  ],
+  "gap_matrix": [
+    {
+      "loader_tool": "minecraft_observe",
+      "status": "partial_adapter",
+      "native_adapter": "client_observe",
+      "reason": "Native observation envelope exposes actual supported state; Java overlay/screen/chat representation not implemented. Loader empty input schema retained; output layout not promised."
+    },
+    {
+      "loader_tool": "minecraft_read_item_components",
+      "status": "unsupported",
+      "native_adapter": null,
+      "reason": "The native preview exposes only decoded supported packet components in its bounded observation; the Loader on-demand registry-aware native stack codec and source/slot/container contract are not implemented. No compatibility alias is advertised."
+    },
+    {
+      "loader_tool": "minecraft_read_block",
+      "status": "unsupported",
+      "native_adapter": null,
+      "reason": "Full bounded domain query/entity identity/producer-specific wait semantics not implemented; generic observation predicates are not advertised as equivalent."
+    },
+    {
+      "loader_tool": "minecraft_wait_for_loaded_block",
+      "status": "unsupported",
+      "native_adapter": null,
+      "reason": "Full bounded domain query/entity identity/producer-specific wait semantics not implemented; generic observation predicates are not advertised as equivalent."
+    },
+    {
+      "loader_tool": "minecraft_wait_for_block_state",
+      "status": "unsupported",
+      "native_adapter": null,
+      "reason": "Full bounded domain query/entity identity/producer-specific wait semantics not implemented; generic observation predicates are not advertised as equivalent."
+    },
+    {
+      "loader_tool": "minecraft_scan_blocks",
+      "status": "unsupported",
+      "native_adapter": null,
+      "reason": "Full bounded domain query/entity identity/producer-specific wait semantics not implemented; generic observation predicates are not advertised as equivalent."
+    },
+    {
+      "loader_tool": "minecraft_list_entities",
+      "status": "unsupported",
+      "native_adapter": null,
+      "reason": "This gameplay/scenario helper and its authoritative completion contract are not implemented; ordinary native input primitives do not establish legacy equivalence."
+    },
+    {
+      "loader_tool": "minecraft_read_recipe_book",
+      "status": "unsupported",
+      "native_adapter": null,
+      "reason": "Full bounded domain query/entity identity/producer-specific wait semantics not implemented; generic observation predicates are not advertised as equivalent."
+    },
+    {
+      "loader_tool": "minecraft_wait_for_visible_entity",
+      "status": "unsupported",
+      "native_adapter": null,
+      "reason": "Full bounded domain query/entity identity/producer-specific wait semantics not implemented; generic observation predicates are not advertised as equivalent."
+    },
+    {
+      "loader_tool": "minecraft_wait_for_entity_motion",
+      "status": "unsupported",
+      "native_adapter": null,
+      "reason": "Full bounded domain query/entity identity/producer-specific wait semantics not implemented; generic observation predicates are not advertised as equivalent."
+    },
+    {
+      "loader_tool": "minecraft_wait_for_entity_removed",
+      "status": "unsupported",
+      "native_adapter": null,
+      "reason": "Full bounded domain query/entity identity/producer-specific wait semantics not implemented; generic observation predicates are not advertised as equivalent."
+    },
+    {
+      "loader_tool": "minecraft_wait_for_health_below",
+      "status": "unsupported",
+      "native_adapter": null,
+      "reason": "Full bounded domain query/entity identity/producer-specific wait semantics not implemented; generic observation predicates are not advertised as equivalent."
+    },
+    {
+      "loader_tool": "minecraft_wait_for_inventory",
+      "status": "unsupported",
+      "native_adapter": null,
+      "reason": "Corresponding real UI/container/Loader action lifecycle and server-observed completion are not yet implemented; no alias or fabricated success advertised."
+    },
+    {
+      "loader_tool": "minecraft_wait_for_container_slot",
+      "status": "unsupported",
+      "native_adapter": null,
+      "reason": "Corresponding real UI/container/Loader action lifecycle and server-observed completion are not yet implemented; no alias or fabricated success advertised."
+    },
+    {
+      "loader_tool": "minecraft_wait_for_visible_item",
+      "status": "unsupported",
+      "native_adapter": null,
+      "reason": "Full bounded domain query/entity identity/producer-specific wait semantics not implemented; generic observation predicates are not advertised as equivalent."
+    },
+    {
+      "loader_tool": "minecraft_wait_for_no_visible_item",
+      "status": "unsupported",
+      "native_adapter": null,
+      "reason": "Full bounded domain query/entity identity/producer-specific wait semantics not implemented; generic observation predicates are not advertised as equivalent."
+    },
+    {
+      "loader_tool": "minecraft_connect",
+      "status": "unsupported_legacy_schema",
+      "native_adapter": "client_connect",
+      "reason": "Typed native connect requires explicit offline username/action/context/lease fences; Loader implicit identity and active-address no-op completion semantics not implemented."
+    },
+    {
+      "loader_tool": "minecraft_wait_for_play",
+      "status": "unsupported_legacy_schema",
+      "native_adapter": "client_wait",
+      "reason": "Native bounded causal predicate wait supported; Loader timeout up to3600s exceeds native120s safety bound."
+    },
+    {
+      "loader_tool": "minecraft_wait_for_state_change",
+      "status": "unsupported_legacy_schema",
+      "native_adapter": "client_wait",
+      "reason": "Native revisions are exact decimal u64 strings; Loader observed_version integer/state_version contract not implemented."
+    },
+    {
+      "loader_tool": "minecraft_disconnect",
+      "status": "unsupported_legacy_schema",
+      "native_adapter": "client_disconnect",
+      "reason": "Native disconnect implemented through context/lease/action API; unfenced Loader mutation schema intentionally not advertised."
+    },
+    {
+      "loader_tool": "minecraft_set_hotbar_slot",
+      "status": "unsupported_legacy_schema",
+      "native_adapter": "client_input",
+      "reason": "Native hotbar input implemented; legacy mutation schema lacks context/action/writer fences."
+    },
+    {
+      "loader_tool": "minecraft_select_hotbar_item",
+      "status": "unsupported",
+      "native_adapter": null,
+      "reason": "This gameplay/scenario helper and its authoritative completion contract are not implemented; ordinary native input primitives do not establish legacy equivalence."
+    },
+    {
+      "loader_tool": "minecraft_navigate_to_block",
+      "status": "unsupported",
+      "native_adapter": null,
+      "reason": "Observed-arrival navigation controller through ordinary inputs is not implemented; no teleport or direct-position replacement."
+    },
+    {
+      "loader_tool": "minecraft_approach_entity",
+      "status": "unsupported",
+      "native_adapter": null,
+      "reason": "Full bounded domain query/entity identity/producer-specific wait semantics not implemented; generic observation predicates are not advertised as equivalent."
+    },
+    {
+      "loader_tool": "minecraft_interact_entity",
+      "status": "unsupported",
+      "native_adapter": null,
+      "reason": "Full bounded domain query/entity identity/producer-specific wait semantics not implemented; generic observation predicates are not advertised as equivalent."
+    },
+    {
+      "loader_tool": "minecraft_attack_entity_once",
+      "status": "unsupported",
+      "native_adapter": null,
+      "reason": "Full bounded domain query/entity identity/producer-specific wait semantics not implemented; generic observation predicates are not advertised as equivalent."
+    },
+    {
+      "loader_tool": "minecraft_attack_entity_until_drop_collected",
+      "status": "unsupported",
+      "native_adapter": null,
+      "reason": "Full bounded domain query/entity identity/producer-specific wait semantics not implemented; generic observation predicates are not advertised as equivalent."
+    },
+    {
+      "loader_tool": "minecraft_look",
+      "status": "unsupported_legacy_schema",
+      "native_adapter": "client_input",
+      "reason": "Native absolute look implemented; legacy mutation schema lacks context/action/writer fences."
+    },
+    {
+      "loader_tool": "minecraft_look_at_block",
+      "status": "unsupported",
+      "native_adapter": null,
+      "reason": "This gameplay/scenario helper and its authoritative completion contract are not implemented; ordinary native input primitives do not establish legacy equivalence."
+    },
+    {
+      "loader_tool": "minecraft_use_item_on",
+      "status": "unsupported",
+      "native_adapter": null,
+      "reason": "This gameplay/scenario helper and its authoritative completion contract are not implemented; ordinary native input primitives do not establish legacy equivalence."
+    },
+    {
+      "loader_tool": "minecraft_break_block",
+      "status": "unsupported",
+      "native_adapter": null,
+      "reason": "This gameplay/scenario helper and its authoritative completion contract are not implemented; ordinary native input primitives do not establish legacy equivalence."
+    },
+    {
+      "loader_tool": "minecraft_press_inputs",
+      "status": "unsupported",
+      "native_adapter": "client_input + client_wait",
+      "reason": "Semantic input edges and causal client-tick waits supported; exact Loader macro/named-key callback/swap-offhand tick semantics not implemented."
+    },
+    {
+      "loader_tool": "minecraft_wait_ticks",
+      "status": "unsupported_legacy_schema",
+      "native_adapter": "client_wait",
+      "reason": "Native causal client_tick predicate waits supported; Loader exact-duration wait_ticks tool not implemented."
+    },
+    {
+      "loader_tool": "minecraft_close_screen",
+      "status": "unsupported",
+      "native_adapter": null,
+      "reason": "Corresponding real UI/container/Loader action lifecycle and server-observed completion are not yet implemented; no alias or fabricated success advertised."
+    },
+    {
+      "loader_tool": "minecraft_request_loader_view",
+      "status": "unsupported",
+      "native_adapter": null,
+      "reason": "Corresponding real UI/container/Loader action lifecycle and server-observed completion are not yet implemented; no alias or fabricated success advertised."
+    },
+    {
+      "loader_tool": "minecraft_click_confirmation_button",
+      "status": "unsupported",
+      "native_adapter": null,
+      "reason": "Corresponding real UI/container/Loader action lifecycle and server-observed completion are not yet implemented; no alias or fabricated success advertised."
+    },
+    {
+      "loader_tool": "minecraft_click_screen_button",
+      "status": "unsupported",
+      "native_adapter": null,
+      "reason": "Corresponding real UI/container/Loader action lifecycle and server-observed completion are not yet implemented; no alias or fabricated success advertised."
+    },
+    {
+      "loader_tool": "minecraft_set_screen_input",
+      "status": "unsupported",
+      "native_adapter": null,
+      "reason": "Exact native screen/title/unique EditBox label, editability/maxLength/focus/responder and stale-widget checks are absent from the Rust preview. No direct model/packet bypass or synthesized success."
+    },
+    {
+      "loader_tool": "minecraft_open_inventory",
+      "status": "unsupported",
+      "native_adapter": null,
+      "reason": "Corresponding real UI/container/Loader action lifecycle and server-observed completion are not yet implemented; no alias or fabricated success advertised."
+    },
+    {
+      "loader_tool": "minecraft_respawn",
+      "status": "unsupported",
+      "native_adapter": null,
+      "reason": "Corresponding real UI/container/Loader action lifecycle and server-observed completion are not yet implemented; no alias or fabricated success advertised."
+    },
+    {
+      "loader_tool": "minecraft_quick_move_container_slot",
+      "status": "unsupported",
+      "native_adapter": null,
+      "reason": "Corresponding real UI/container/Loader action lifecycle and server-observed completion are not yet implemented; no alias or fabricated success advertised."
+    },
+    {
+      "loader_tool": "minecraft_click_container_slot",
+      "status": "unsupported",
+      "native_adapter": null,
+      "reason": "Corresponding real UI/container/Loader action lifecycle and server-observed completion are not yet implemented; no alias or fabricated success advertised."
+    },
+    {
+      "loader_tool": "minecraft_click_container_button",
+      "status": "unsupported",
+      "native_adapter": null,
+      "reason": "Corresponding real UI/container/Loader action lifecycle and server-observed completion are not yet implemented; no alias or fabricated success advertised."
+    },
+    {
+      "loader_tool": "minecraft_send_chat",
+      "status": "unsupported",
+      "native_adapter": null,
+      "reason": "This gameplay/scenario helper and its authoritative completion contract are not implemented; ordinary native input primitives do not establish legacy equivalence."
+    },
+    {
+      "loader_tool": "minecraft_drop_selected_item",
+      "status": "unsupported",
+      "native_adapter": null,
+      "reason": "This gameplay/scenario helper and its authoritative completion contract are not implemented; ordinary native input primitives do not establish legacy equivalence."
+    },
+    {
+      "loader_tool": "minecraft_run_scenario",
+      "status": "unsupported",
+      "native_adapter": null,
+      "reason": "This gameplay/scenario helper and its authoritative completion contract are not implemented; ordinary native input primitives do not establish legacy equivalence."
+    },
+    {
+      "loader_tool": "minecraft_screenshot",
+      "status": "unsupported_legacy_schema",
+      "native_adapter": "client_capture",
+      "reason": "Actual GPU capture implemented at configured artifact root; Loader path writing schema and completion layout not implemented."
+    }
+  ],
+  "native_transport": {
+    "supported_protocol_versions": [
+      "2025-11-25"
+    ],
+    "unsupported_protocol_versions": [
+      "2025-06-18",
+      "2026-07-28"
+    ],
+    "requires_initialized_before_tools": true,
+    "authorization": "local_pre_shared_bearer_not_oauth",
+    "transports": [
+      "authenticated_loopback_http",
+      "stdio_attach_same_running_instance"
+    ]
+  },
+  "acceptance_limits": {
+    "MCP-01": "full Loader catalog exported; only genuine partial observation adapter advertised, all remaining gaps explicit",
+    "MCP-06": "generic waits are atomically event-driven on Shared Condvar, but current producer publishes clock/frame events too; predicate reads are bounded, domain-specific wake filtering deferred. Do not claim idle-inventory producer-specific wake parity."
+  },
+  "baseline_snapshot": {
+    "path": ".analysis/evidence/C00/loader-catalog-baseline.json",
+    "sha256": "d42cd1def86b1bdf7e4c9ef036b2252ab4f0762db216885082aee755bdc121c8",
+    "tool_count": 45,
+    "interpretation": "Accepted C00 source snapshot retained unchanged; current research catalog is not a retroactive baseline replacement."
+  }
+}

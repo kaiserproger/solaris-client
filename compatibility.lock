@@ -1,0 +1,316 @@
+{
+  "schema": 1,
+  "generated_date": "2026-10-01",
+  "format": "JSON",
+  "status": "C00_source_contract_lock_not_full_client_acceptance",
+  "game": {
+    "edition": "Java",
+    "version": "26.1.2",
+    "protocol": 775,
+    "world_data_version": 4790,
+    "resource_pack_format": {
+      "major": 84,
+      "minor": 0
+    },
+    "data_pack_format": {
+      "major": 101,
+      "minor": 1
+    },
+    "java_runtime_major": 25,
+    "authority": "version.json embedded in verified official client and server archives; protocol IDs and C02 layouts independently inspected with javap"
+  },
+  "upstream": {
+    "solaris": {
+      "head_at_audit": "4865344edb3733eacd5a942cdd7b548f39a80126",
+      "working_tree_policy": "read-only; potentially concurrent dirty changes; source digests below, HEAD alone is not tree fingerprint",
+      "files": {
+        "AGENTS.md": "ffc90aaace1836ae2c4f0875a151075f24620fea72c1bbb50cc85172e8ef532f",
+        "crates/mc-protocol/Cargo.toml": "d6b9c32036aae5e25462749c278ecd87c877c5b757628c4a7d97fc938a8c69c4",
+        "crates/mc-protocol/src/lib.rs": "5757d79c3341c365ff2e7f3a352a33c138409690e0c94f9cdc3cf47ccf4a784c",
+        "crates/mc-protocol/src/frame.rs": "307249196327d68b6ae7a672b7924b2f35e6331f13e96f45d2cbec5a16efcb45",
+        "crates/mc-protocol/src/packets/mod.rs": "e61fa476c17f26e2cf351b909a3a79948438ee498d8296aa4d02245e98cd7f06",
+        "crates/mc-protocol/src/packets/play.rs": "5039aecc2a0cc54b64c268f8bfa73549ca4cae990a31026fbed53d3b4bdb8e99",
+        "crates/mc-data/Cargo.toml": "6ef7e4d5748b82706b4cedc5cfe2dd6023da8eda84f5bee5a7d04e45fce01f9d",
+        "crates/mc-data/src/lib.rs": "89414c9dee619fed9fa0d33de293298237e58634c2493a80a2367610659b1368",
+        "crates/mc-nbt/Cargo.toml": "468934bd1c9139619709ac2823f362f37aebbdfcfa08b6c66e8a5d185e6bb1f1",
+        "crates/mc-nbt/src/lib.rs": "f39299df18916fca419041a8b3258890253975b646f3f23a8993fdb0d1915ea8",
+        "crates/mc-net/src/loader.rs": "fd160a9ae19815ec32e5da658e3238e95574d2d8c3e276fa1d9926022eb390ca"
+      }
+    },
+    "solaris-loader": {
+      "head_at_audit": "bab2329c707d4bff026f22b65162e93b432ab50c",
+      "working_tree_policy": "read-only; potentially concurrent dirty changes; source digests below, HEAD alone is not tree fingerprint",
+      "files": {
+        "AGENTS.md": "3066fb89debcf14a88a93afb879bd14108dbfde4f338f87808cae3e1e971839b",
+        "loader-core/src/main/java/dev/solaris/loader/LoaderPlatform.java": "57d977f8f644d2989047162a1b3d6ddef597bad90cee561b14e36de37f5779f6",
+        "loader-core/src/main/java/dev/solaris/loader/LoaderHandshake.java": "e307f01302f7efb46a29c42f45e9cae2a9834e6e0a685d8cc09167990cc72de5",
+        "loader-core/src/main/java/dev/solaris/loader/LoaderClientAck.java": "219daaa626105c757a18a5b9744fc0202b6a87af75141b6991585c4d25726885",
+        "loader-core/src/main/java/dev/solaris/loader/LoaderContentArchive.java": "5b4fbe8549faaa57e3df862013861071940e217d7802445426952d53dc5e2152",
+        "loader-core/src/main/java/dev/solaris/loader/LoaderPermissionController.java": "0a622763bc00fcc7eb5bac826ad198e42e5ce86428f7f41499ea0454fd890871"
+      }
+    },
+    "solaris-default-plugins": {
+      "head_at_audit": "9adf5aebceb7595ca75f8e93ad82ef01739d328a",
+      "working_tree_policy": "read-only; potentially concurrent dirty changes; source digests below, HEAD alone is not tree fingerprint",
+      "files": {
+        "AGENTS.md": "94d1504180c7b96935186ff318003b470cdef65ea5bc5bd07cda55d42342661e"
+      }
+    }
+  },
+  "sources": {
+    "manifest": {
+      "path": "/home/kaiserroman/solaris-client/.analysis/evidence/C00/manifest-fetched.json",
+      "canonical_path": "/home/kaiserroman/solaris-client/.analysis/evidence/C00/manifest-fetched.json",
+      "size": 277187,
+      "sha1": "bc8e04a9c3ad9fa5ccea68bd43510b6583058522",
+      "sha256": "28b1e1e5d90851ce48ab935fe5644739364e262a8e8813e28e3d036aaec536ef",
+      "origin": "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json",
+      "redistribute_bytes": false
+    },
+    "descriptor": {
+      "path": "/home/kaiserroman/solaris-client/.analysis/evidence/C00/descriptor-current.json",
+      "canonical_path": "/home/kaiserroman/solaris-client/.analysis/evidence/C00/descriptor-current.json",
+      "size": 42491,
+      "sha1": "ee044d53f31fdcbfa31be3684ad321d44c81c3a5",
+      "sha256": "bedfd4c667d5f73d725fb9bdbf53efa13b8026b8c00e1eb1ab789c25ffbf5ca0",
+      "origin": "https://piston-meta.mojang.com/v1/packages/ee044d53f31fdcbfa31be3684ad321d44c81c3a5/26.1.2.json",
+      "expected_sha1": "ee044d53f31fdcbfa31be3684ad321d44c81c3a5",
+      "verified": true,
+      "redistribute_bytes": false
+    },
+    "client": {
+      "path": "/home/kaiserroman/solaris/.analysis/client-automation/versions/26.1.2/client.jar",
+      "canonical_path": "/home/kaiserroman/.gradle/caches/fabric-loom/26.1.2/minecraft-client.jar",
+      "size": 38113927,
+      "sha1": "4e618f09a0c649dde3fdf829df443ce0b8831e65",
+      "sha256": "b1b3158572666445eff01e82fad8c7de2e4953db6d354f311730d77a8359d0b0",
+      "origin": "https://piston-data.mojang.com/v1/objects/4e618f09a0c649dde3fdf829df443ce0b8831e65/client.jar",
+      "expected_sha1": "4e618f09a0c649dde3fdf829df443ce0b8831e65",
+      "expected_size": 38113927,
+      "verified": true,
+      "redistribute_bytes": false
+    },
+    "server": {
+      "path": "/home/kaiserroman/solaris/.analysis/server.jar",
+      "canonical_path": "/home/kaiserroman/solaris/.analysis/server.jar",
+      "size": 60417480,
+      "sha1": "97ccd4c0ed3f81bbb7bfacddd1090b0c56f9bc51",
+      "sha256": "cd47e7c38328f64768fd17af8fcd8b22496b40b63d4ffee81e71ae059fedcb42",
+      "origin": "https://piston-data.mojang.com/v1/objects/97ccd4c0ed3f81bbb7bfacddd1090b0c56f9bc51/server.jar",
+      "expected_sha1": "97ccd4c0ed3f81bbb7bfacddd1090b0c56f9bc51",
+      "expected_size": 60417480,
+      "verified": true,
+      "redistribute_bytes": false
+    },
+    "asset_index": {
+      "path": "/home/kaiserroman/solaris-client/.analysis/evidence/C00/asset-index-current.json",
+      "canonical_path": "/home/kaiserroman/solaris-client/.analysis/evidence/C00/asset-index-current.json",
+      "size": 548391,
+      "sha1": "2c17565f9cd7dbb95294e71fe258d65d6a8f0360",
+      "sha256": "07aeb96147ad5b7e5910d8617673f2a9c54bd78a951f40f701d20bed3e0238bc",
+      "origin": "https://piston-meta.mojang.com/v1/packages/2c17565f9cd7dbb95294e71fe258d65d6a8f0360/30.json",
+      "expected_sha1": "2c17565f9cd7dbb95294e71fe258d65d6a8f0360",
+      "expected_size": 548391,
+      "verified": true,
+      "redistribute_bytes": false
+    }
+  },
+  "asset_inventory": {
+    "receipt": "fixtures/content/source-inventory.json",
+    "sha256": "41a28b36e28fa63605e40b787956490445c2032c4a128e58f4481efd3fe2b35e",
+    "archive_entries": 10463,
+    "indexed_objects": 4750,
+    "verified_indexed_objects": 4750,
+    "missing_or_corrupt": 0,
+    "historical_receipt": "fixtures/content/source-inventory-historical.json",
+    "metadata_drift_receipt": ".analysis/evidence/C00/metadata-drift.json",
+    "owned_current_asset_root": ".analysis/evidence/C00/assets",
+    "imported_objects": 4608,
+    "downloaded_current_objects": 142,
+    "original_bytes_policy": ".analysis only, never Git/releases/public CI; user source caches read-only",
+    "local_indexes_warning": "Both local 30.json files have mismatched official SHA1 despite equal size. Only officially fetched SHA1-pinned index is authoritative; objects independently hash verified."
+  },
+  "contracts": {
+    "loader": {
+      "wire_protocol": 3,
+      "artifact_index_schema": 2,
+      "platforms": [
+        "fabric",
+        "neoforge",
+        "forge"
+      ],
+      "native_platform_status": "external_upstream_contract_gate",
+      "native_identity_used": false,
+      "upstream_request": ".analysis/upstream/native-platform-request.json",
+      "artifact_limits": {
+        "manifest_bytes": 32767,
+        "index_bytes": 65536,
+        "bundle_bytes": 67108864,
+        "screens": 64,
+        "world_previews": 64,
+        "blocks_per_bundle": 1,
+        "activated_blocks": 8,
+        "items": 128,
+        "assets": 128,
+        "sounds": 64,
+        "activated_asset_bytes": 67108864
+      }
+    },
+    "server_wasm_api": "solaris:plugin@0.7.0",
+    "client_wasm_api": null,
+    "mcp": {
+      "Loader_existing": [
+        "2025-11-25",
+        "2025-06-18"
+      ],
+      "native_adapter_acceptance": "parent-owned runtime verification; not inferred from version labels"
+    }
+  },
+  "rust": {
+    "toolchain": "1.95.0",
+    "toolchain_file_sha256": "7d21c66a15f41bad66b82ed06a289f5dc8a6e3751951d2696bbf20ce296f2b0f",
+    "declared_package_msrv": "1.88",
+    "MSRV_tested": false,
+    "manifest_sha256": "c9bcfcfaaf9356e0701e4410f66cadd80155d6d1a32d86c53e803bd6c49c0888",
+    "cargo_lock_sha256": "3edb51e7821408dbcf84a93c9fb9bbcdcf12ac384dc2b26366ec29a93b5ba391",
+    "cargo_lock_schema": 4,
+    "resolved_packages": 318,
+    "direct_dependencies": {
+      "anyhow": {
+        "version": "1.0.102",
+        "license": "MIT OR Apache-2.0",
+        "rust_version": "1.68",
+        "metadata_sha256": "a89e4444e863507cfd9d4df741a9512b5db220aefe75311bd402c787a22a0bfc"
+      },
+      "serde": {
+        "version": "1.0.228",
+        "license": "MIT OR Apache-2.0",
+        "rust_version": "1.56",
+        "metadata_sha256": "d7fc24e39691a0831eaa0eac677b46ecbae407a40fa816b904759822d10f42e8"
+      },
+      "serde_json": {
+        "version": "1.0.149",
+        "license": "MIT OR Apache-2.0",
+        "rust_version": "1.68",
+        "metadata_sha256": "65dabeea0112c066ff16c6d93142c4a08c01396f4e99a27d9255d19974eaeb73"
+      },
+      "wgpu": {
+        "version": "27.0.1",
+        "license": "MIT OR Apache-2.0",
+        "rust_version": "1.88",
+        "metadata_sha256": "ceeae3a2cb0f2c0f7ed09041c2b5a73f5a2f06c13e9690a53c76398fe6a30a2b"
+      },
+      "winit": {
+        "version": "0.30.12",
+        "license": "Apache-2.0",
+        "rust_version": "1.70.0",
+        "metadata_sha256": "c7a2f9046c8d8c063f04f19e2a6307675b8c26958b0d10973f6021e1c108c33a"
+      },
+      "pollster": {
+        "version": "0.4.0",
+        "license": "Apache-2.0/MIT",
+        "rust_version": null,
+        "metadata_sha256": "dc91cb6fb89f9d0b93cbf133821368d1ea656df20bcc01a0635f2286ef90c8d3"
+      },
+      "bytemuck": {
+        "version": "1.25.0",
+        "license": "Zlib OR Apache-2.0 OR MIT",
+        "rust_version": null,
+        "metadata_sha256": "eab3420a7e2d065b0720796c2334d4effa38d85671a89db4e431853cdd2b56a9"
+      },
+      "glam": {
+        "version": "0.30.10",
+        "license": "MIT OR Apache-2.0",
+        "rust_version": "1.68.2",
+        "metadata_sha256": "82bfce378b32579c5cff4e154af4f200fc4dc21cb04d532d387d6335e7f1497b"
+      },
+      "png": {
+        "version": "0.18.1",
+        "license": "MIT OR Apache-2.0",
+        "rust_version": "1.73",
+        "metadata_sha256": "642c5d3c2bf538404cf1d5c4aac254d033e0854af844610435fd13e910bf93aa"
+      },
+      "flate2": {
+        "version": "1.1.9",
+        "license": "MIT OR Apache-2.0",
+        "rust_version": "1.67.0",
+        "metadata_sha256": "06464242e6674c339ff6c564551fddc9288a57c2bc1b78f363a643d7c566f007"
+      },
+      "uuid": {
+        "version": "1.21.0",
+        "license": "Apache-2.0 OR MIT",
+        "rust_version": "1.85.0",
+        "metadata_sha256": "0b7a9c318c82241d05a7c10d6f65294420ff06cf24b1ec8b2c04bf5e37222f2f"
+      },
+      "sha2": {
+        "version": "0.10.9",
+        "license": "MIT OR Apache-2.0",
+        "rust_version": null,
+        "metadata_sha256": "f5b86209df69360114aaee67a66c3fcd31d8c840b8f34b9ad383aacd63cd15da"
+      },
+      "getrandom": {
+        "version": "0.3.4",
+        "license": "MIT OR Apache-2.0",
+        "rust_version": "1.63",
+        "metadata_sha256": "5fd1d61c342777480822b8f8259a7bd8cbf6c2486a3d389b2d5b235f667a7952"
+      },
+      "md5": {
+        "version": "0.7.0",
+        "license": "Apache-2.0/MIT",
+        "rust_version": null,
+        "metadata_sha256": "4d90a5cf52b1bcd412e5dc6a7cb5436b3cf8f73bccc7b6f001ef7e7ab7b10b18"
+      },
+      "rodio": {
+        "version": "0.21.1",
+        "default_features": false,
+        "features": ["playback", "vorbis"],
+        "license": "MIT OR Apache-2.0",
+        "rust_version": null,
+        "metadata_sha256": "2e632bba5afecde401d086e84479d72e5335010251b456ea6c9f60bc4448faa8"
+      },
+      "sha1": {
+        "version": "0.10.6",
+        "license": "MIT OR Apache-2.0",
+        "rust_version": null,
+        "metadata_sha256": "cbfdd2dcaf34776f686caf30420c0a32a13d032fdd62495a054e65c3b0769132"
+      },
+      "base64": {
+        "version": "0.22.1",
+        "license": "MIT OR Apache-2.0",
+        "rust_version": "1.48.0",
+        "metadata_sha256": "52bee6a418e14918d37058fd15fccfd0f417a06fe4f9668b6f97866bf7f991e3"
+      },
+      "parking_lot": {
+        "version": "0.12.5",
+        "license": "MIT OR Apache-2.0",
+        "rust_version": "1.71",
+        "metadata_sha256": "3a52d781dd42d10f8c2dd3336bb61c4beaa850b5d62ebe7580070b8d0a4e3b98"
+      }
+    },
+    "transitive_dependency_authority": "Cargo.lock versions sources and checksums; full transitive license/platform review still required before release",
+    "production_reference_dependencies_used": [],
+    "shared_crates_audit": "mc-protocol/mc-data/mc-nbt investigated, not silently assumed client-complete or linked from dirty sibling checkout"
+  },
+  "fixtures": {
+    "authored_provenance": "fixtures/content/provenance.json",
+    "authored_license": "MIT OR Apache-2.0",
+    "performance_descriptors": "fixtures/performance/scenarios.json",
+    "performance_measurements": null
+  },
+  "auth": {
+    "status": "external_blocker_own_public_client_registration_and_provider_access",
+    "client_id": null,
+    "foreign_client_identity_used": false,
+    "receipt": ".analysis/evidence/C00/auth-feasibility.json"
+  },
+  "verification": {
+    "protocol_registration_javap_exit": 0,
+    "protocol_packet_layout_javap_exit": 0,
+    "wire_probe_help_exit": 0,
+    "public_manifest_descriptor_index_fetch": "HTTP200 and source digest verification",
+    "GPU_receipt": ".analysis/evidence/C00/gpu.json",
+    "GPU_status": "RenderWindow owns runtime receipt; existence/acceptance not assumed",
+    "project_builds_tests_by_auditor": false,
+    "gameplay_claim": false
+  }
+}

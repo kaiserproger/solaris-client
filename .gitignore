@@ -1,0 +1,48 @@
+# Build and tooling caches
+/target/
+/.analysis/
+**/.analysis/
+/.cache/
+/cache/
+/caches/
+
+# Original and resource-derived Mojang content: never distribute or commit.
+/data/vanilla/
+**/data/vanilla/
+/data/mojang/
+/data/assets/
+/assets/original/
+/assets/derived/
+/resources/original/
+/resources/derived/
+/original-cache/
+/derived-cache/
+/asset-cache/
+/asset-objects/
+/game-assets/
+/.minecraft/
+/vanilla/
+/mojang/
+/decompiled/
+/mapped/
+*.jar
+*.class
+
+# Local process/session data, account material and generated evidence.
+/runtime/
+/game-dir/
+/worlds/
+/logs/
+/crash-reports/
+/captures/
+*.log
+*.partial
+.env
+.env.*
+
+# Project-authored redistributable fixture packs are source, not caches.
+# Do not add blanket ignores for fixtures/, PNG/OGG/fonts/models or Cargo.lock.
+
+# Local bundle with derived Mojang content and per-agent build dirs.
+/dist/
+/target-*/

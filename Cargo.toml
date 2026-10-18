@@ -1,0 +1,46 @@
+[package]
+name = "solaris-client"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+license = "MIT OR Apache-2.0"
+description = "Independent native Minecraft Java client for Solaris"
+publish = false
+
+[[bin]]
+name = "solaris-client"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "=1.0.102"
+serde = { version = "=1.0.228", features = ["derive", "rc"] }
+serde_json = { version = "=1.0.149", features = ["arbitrary_precision"] }
+wgpu = "=27.0.1"
+winit = "=0.30.12"
+pollster = "=0.4.0"
+bytemuck = { version = "=1.25.0", features = ["derive"] }
+glam = "=0.30.10"
+libm = "=0.2.16"
+png = "=0.18.1"
+flate2 = "=1.1.9"
+uuid = { version = "=1.21.0", features = ["v4", "serde"] }
+sha2 = { version = "=0.10.9", features = ["oid"] }
+sha1 = "=0.10.6"
+getrandom = "=0.3.4"
+md5 = "=0.7.0"
+rodio = { version = "=0.21.1", default-features = false, features = ["playback", "vorbis"] }
+symphonia = { version = "=0.5.5", default-features = false, features = ["ogg", "vorbis"] }
+parking_lot = "=0.12.5"
+base64 = "=0.22.1"
+unicode-bidi = "=0.3.18"
+zip = { version = "=2.4.2", default-features = false, features = ["deflate"] }
+crc32c = "=0.6.8"
+arboard = { version = "=3.6.1", default-features = false, features = ["wayland-data-control"] }
+arabic_reshaper = "=0.4.2"
+reqwest = { version = "=0.13.4", default-features = false, features = ["blocking", "rustls"] }
+rsa = { version = "=0.9.10", default-features = false, features = ["std", "u64_digit", "sha1"] }
+freetype-rs = { version = "=0.38.0", features = ["bundled"] }
+
+[profile.dev]
+debug = 1
+incremental = false
