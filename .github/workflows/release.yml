@@ -62,7 +62,18 @@ jobs:
         if: matrix.name == 'linux-x86_64'
         run: |
           sudo apt-get update
-          sudo apt-get install -y pkg-config libasound2-dev libudev-dev libxkbcommon-dev libwayland-dev libx11-dev libxcursor-dev libxi-dev libxrandr-dev libgl1-mesa-dev libvulkan-dev cmake
+          sudo apt-get install -y pkg-config libasound2-dev libudev-dev libxkbcommon-dev libwayland-dev libx11-dev libxcursor-dev libxi-dev libxrandr-dev libgl1-mesa-dev libvulkan-dev cmake mold
+      # freetype-sys 0.23 "bundled" compiles libpng against a zlib include dir its
+      # crate does not ship; point MSVC at the vendored zlib in libz-sys instead.
+      - name: Expose zlib headers to bundled freetype
+        if: matrix.name == 'windows-x86_64'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo fetch --locked
+          zlib="$(ls -d "${CARGO_HOME:-$HOME/.cargo}"/registry/src/*/libz-sys-*/src/zlib | head -n 1)"
+          test -f "$zlib/zlib.h"
+          echo "CFLAGS_x86_64_pc_windows_msvc=/I$(cygpath -w "$zlib")" >> "$GITHUB_ENV"
       - name: Build release binaries
         run: cargo build --release --locked
       - name: Check out Solaris server (pinned)
