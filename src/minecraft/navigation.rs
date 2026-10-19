@@ -633,8 +633,7 @@ mod tests {
                 attributes: BTreeMap::new(),
                 attribute_ids: BTreeMap::new(),
                 digest: String::new(),
-                presentation: BTreeMap::new(),
-                animations: BTreeMap::new(),
+                armor_models: BTreeMap::new(),
                 motion: BTreeMap::new(),
             }));
         session.phase = "play".into();

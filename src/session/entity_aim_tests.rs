@@ -37,8 +37,7 @@ fn models() -> Models {
         attributes: BTreeMap::new(),
         attribute_ids: BTreeMap::new(),
         digest: String::new(),
-        presentation: BTreeMap::new(),
-        animations: BTreeMap::new(),
+        armor_models: BTreeMap::new(),
         motion: BTreeMap::new(),
     }
 }
@@ -204,7 +203,12 @@ fn local_player_air_supply_is_captured_from_its_own_metadata_row() {
     packet.0.extend([255u8]);
     session
         .entities
-        .apply(99, &mut Reader::new(&packet.0), session.content.as_ref().unwrap(), 1)
+        .apply(
+            99,
+            &mut Reader::new(&packet.0),
+            session.content.as_ref().unwrap(),
+            1,
+        )
         .unwrap();
     assert_eq!(session.local_air_supply(), Some(250));
 }

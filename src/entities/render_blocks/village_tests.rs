@@ -46,8 +46,7 @@ fn models_with(rigs: Vec<(String, Rig)>) -> Models {
         attributes: BTreeMap::new(),
         attribute_ids: BTreeMap::new(),
         digest: String::new(),
-        presentation: BTreeMap::new(),
-        animations: BTreeMap::new(),
+        armor_models: BTreeMap::new(),
         motion: BTreeMap::new(),
     }
 }

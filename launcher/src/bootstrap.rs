@@ -2,15 +2,13 @@
 //! when its result is already installed, so Play after a clean install does
 //! not touch the network.
 use crate::{
-    derive,
-    jdk,
-    mojang,
-    pins,
+    jdk, mojang,
     net::{self, Check, Job},
-    paths::{self, GAME_VERSION, Layout},
+    paths::{self, Layout, GAME_VERSION},
+    pins,
     progress::{Cancelled, Reporter},
 };
-use anyhow::{Context, Result, anyhow, bail};
+use anyhow::{anyhow, bail, Context, Result};
 use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -20,7 +18,7 @@ use std::{
     path::Path,
 };
 
-const STAGES: usize = 8;
+const STAGES: usize = 5;
 
 /// What is installed, so unchanged stages can be skipped.
 #[derive(Default, Serialize, Deserialize)]
@@ -31,7 +29,6 @@ pub struct Installed {
     /// Bundle name -> sha256 of the installed archive.
     pub bundles: std::collections::BTreeMap<String, String>,
     pub resources_for: String,
-    pub entities_for: String,
 }
 
 impl Installed {
@@ -55,7 +52,6 @@ pub fn is_ready(layout: &Layout) -> bool {
     installed.game_version == GAME_VERSION
         && !installed.bundles.is_empty()
         && !installed.resources_for.is_empty()
-        && !installed.entities_for.is_empty()
         && paths::missing(&layout.root).is_empty()
 }
 
@@ -81,7 +77,10 @@ fn fetch_bundles(client: &Client, manifest_url: &str) -> Result<Vec<Bundle>> {
 fn parse_bundles(bytes: &[u8]) -> Result<Vec<Bundle>> {
     let manifest: Value = serde_json::from_slice(bytes).context("parsing content manifest")?;
     if manifest["game_version"] != GAME_VERSION {
-        bail!("content manifest is for {}, launcher needs {GAME_VERSION}", manifest["game_version"]);
+        bail!(
+            "content manifest is for {}, launcher needs {GAME_VERSION}",
+            manifest["game_version"]
+        );
     }
     let mut bundles = Vec::new();
     for entry in manifest["bundles"].as_array().context("manifest.bundles")? {
@@ -137,7 +136,9 @@ fn install_bundle(layout: &Layout, archive: &Path, rep: &Reporter) -> Result<()>
     let _ = fs::remove_dir_all(&staging);
     fs::create_dir_all(&staging)?;
     let decoder = zstd::stream::read::Decoder::new(fs::File::open(archive)?)?;
-    tar::Archive::new(decoder).unpack(&staging).context("unpacking Solaris data bundle")?;
+    tar::Archive::new(decoder)
+        .unpack(&staging)
+        .context("unpacking Solaris data bundle")?;
     for entry in fs::read_dir(&staging)? {
         let entry = entry?;
         let name = entry.file_name().to_string_lossy().into_owned();
@@ -170,13 +171,17 @@ fn extract_resources(layout: &Layout, rep: &Reporter) -> Result<()> {
     let root = layout.join("resources");
     let mut buffer = Vec::new();
     for index in 0..zip.len() {
-        rep.check_cancel().map_err(|_: Cancelled| net::UserCancelled)?;
+        rep.check_cancel()
+            .map_err(|_: Cancelled| net::UserCancelled)?;
         let mut entry = zip.by_index(index)?;
         if !entry.is_file() || !entry.name().starts_with("assets/") {
             continue;
         }
         let Some(relative) = entry.enclosed_name() else {
-            bail!("client jar entry {} escapes the extraction root", entry.name());
+            bail!(
+                "client jar entry {} escapes the extraction root",
+                entry.name()
+            );
         };
         let target = root.join(relative);
         if let Some(parent) = target.parent() {
@@ -224,7 +229,9 @@ pub fn run(layout: &Layout, options: &Options, force: bool, rep: &Reporter) -> R
             rep,
         )?;
         install_bundle(layout, &archive, rep)?;
-        installed.bundles.insert(bundle.name.clone(), bundle.sha256.clone());
+        installed
+            .bundles
+            .insert(bundle.name.clone(), bundle.sha256.clone());
         installed.game_version = GAME_VERSION.into();
         installed.save(layout)?;
     }
@@ -256,33 +263,6 @@ pub fn run(layout: &Layout, options: &Options, force: bool, rep: &Reporter) -> R
         installed.save(layout)?;
     }
 
-    let entities_stamp = format!("{}:{}", release.client.sha1, derive::exporter_stamp());
-    let entities_ready = derive::OUTPUTS.iter().all(|n| layout.join("entities").join(n).is_file());
-    let derive_needed = force || !entities_ready || installed.entities_for != entities_stamp;
-
-    rep.stage(6, STAGES, "Downloading Minecraft server (entity tooling)");
-    let jdk_home = if derive_needed {
-        let server = layout.join("mojang/versions/26.1.2/server.jar");
-        rep.set_total(release.server.size);
-        net::download(&client, &release.server.job(server), rep)?;
-        rep.stage(7, STAGES, "Downloading Java toolchain (Temurin JDK)");
-        Some(jdk::ensure(&client, layout, rep)?)
-    } else {
-        rep.log("entity data up to date");
-        rep.stage(7, STAGES, "Java toolchain not needed");
-        None
-    };
-
-    rep.stage(8, STAGES, "Deriving entity models from the client");
-    match jdk_home {
-        Some(home) => {
-            derive::run(layout, &home, rep)?;
-            installed.entities_for = entities_stamp;
-            installed.save(layout)?;
-        }
-        None => rep.log("entity data already derived"),
-    }
-
     installed.game_version = GAME_VERSION.into();
     installed.save(layout)?;
     let missing = paths::missing(&layout.root);
@@ -290,6 +270,28 @@ pub fn run(layout: &Layout, options: &Options, force: bool, rep: &Reporter) -> R
         bail!("install incomplete, missing: {}", missing.join(", "));
     }
     rep.log("Game content ready");
+    Ok(())
+}
+
+/// Singleplayer only, run lazily on its first use (`solaris-launcher --singleplayer-runtime`,
+/// started by the client): the Minecraft server jar and a Temurin JDK. The local server's
+/// content import derives datapack data from that jar with Java extractors, and that data
+/// cannot be published, so it has to be derived on the player's machine. Multiplayer never
+/// needs either.
+pub fn ensure_singleplayer_runtime(layout: &Layout, rep: &Reporter) -> Result<()> {
+    fs::create_dir_all(&layout.root)?;
+    let client = net::client()?;
+    rep.stage(
+        1,
+        2,
+        "Downloading Minecraft server (singleplayer data import)",
+    );
+    let release = mojang::resolve(&client, layout, rep)?;
+    rep.set_total(release.server.size);
+    net::download(&client, &release.server.job(layout.server_jar()), rep)?;
+    rep.stage(2, 2, "Downloading Java toolchain (Temurin JDK)");
+    jdk::ensure(&client, layout, rep)?;
+    rep.log("Singleplayer runtime ready");
     Ok(())
 }
 

@@ -2,10 +2,10 @@
 
 Entity and block-entity geometry is **authored by Solaris** and shipped inside the client binary
 (`assets/solaris/models/entity/<id>.json`, embedded by `build.rs`, baked by
-`src/entities/solaris_models.rs`). The client no longer reads rig meshes from `dist/entities`;
-`dist/entities/models.json` / `presentation.json` / `motion-facts.json` remain only as the
-local behaviour cache (protocol ids, dimensions, metadata accessors, texture/variant selection,
-head/body turn limits). Their `roots` (Mojang-derived baked meshes) are never parsed.
+`src/entities/solaris_models.rs`). Entity metadata (protocol ids, dimensions, metadata accessors,
+texture/variant selection, head/body turn limits) is the Solaris-owned data table
+`assets/solaris/entities/entity-facts.json`, embedded via `include_str!` in
+`src/entities/resources.rs`. Nothing is read from `dist/entities` any more.
 
 Models are UV-compatible with the vanilla entity textures, which the player supplies at runtime.
 Authors derive boxes from the unwrapped regions of the vanilla PNG; no Mojang numbers, code or
@@ -81,6 +81,7 @@ a fixed box). Placeholders are tinted in `presentation::emit_rig`.
 * Quality tier is visible in `python3 tools/entity_models.py check` coverage: classic nets
   (cow, wolf, cat, creeper, skeleton family, humanoids...) are near 100%; fitted models list the
   deliberately unmapped texels.
-* Entity texture/variant choice, protocol metadata and head/body turn limits still come from the
-  local behaviour cache under `dist/entities` (not geometry). Replacing those with Solaris-owned
-  data is separate work.
+* Entity metadata is Solaris-owned data: `assets/solaris/entities/entity-facts.json` (embedded in
+  the binary; protocol ids, dimensions, metadata accessors, texture/variant selection, head/body
+  turn limits, armor shell keys, motion rules). Pure tables, no meshes/UV/animation keyframes;
+  the launcher needs no JDK and nothing is derived from the client jar for entities.

@@ -443,8 +443,8 @@ impl Player {
 mod p1_helmet_tests {
     use super::*;
     use crate::protocol::{
-        Reader,
         world::{Chunk, Palette, Section, SurfaceHeightmap},
+        Reader,
     };
     use serde_json::json;
 
@@ -610,8 +610,7 @@ mod p1_helmet_tests {
             attributes: BTreeMap::new(),
             attribute_ids: BTreeMap::new(),
             digest: String::new(),
-            presentation: BTreeMap::new(),
-            animations: BTreeMap::new(),
+            armor_models: BTreeMap::new(),
             motion: BTreeMap::new(),
         }));
         for hand in [0, 1] {

@@ -949,12 +949,7 @@ impl Session {
             .as_ref()
             .ok_or("content unavailable")?
             .stage_current_reload()?;
-        let path = std::env::var_os("SOLARIS_CLIENT_ENTITY_MODELS")
-            .ok_or("entity models path unavailable")?;
-        let models = Arc::new(crate::entities::Models::load(
-            std::path::Path::new(&path),
-            &content,
-        )?);
+        let models = Arc::new(crate::entities::Models::load(&content)?);
         self.ui
             .as_mut()
             .ok_or("ui unavailable")?

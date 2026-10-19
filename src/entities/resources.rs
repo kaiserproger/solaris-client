@@ -1,51 +1,30 @@
-use super::render_living::{AnimationDefinition, MotionFacts};
+use super::render_living::MotionFacts;
 use super::solaris_models;
-use crate::protocol::{Result, content::Content};
+use crate::protocol::{content::Content, Result};
 use glam::{Mat4, Vec3};
 use serde::Deserialize;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-use std::{collections::BTreeMap, fs, path::Path};
+use std::collections::BTreeMap;
+
+/// Solaris-owned entity metadata: protocol ids, dimensions, metadata accessors, texture/variant
+/// selection, head/body turn limits and armor shell keys. Pure data, no geometry.
+const ENTITY_FACTS: &str = include_str!("../../assets/solaris/entities/entity-facts.json");
+const FACTS_SCHEMA: u32 = 1;
 
 #[derive(Deserialize)]
 struct Document {
     schema: u32,
     game_version: String,
-    client_sha256: String,
     entities: BTreeMap<String, EntitySchema>,
     families: BTreeMap<String, Family>,
+    armor_models: BTreeMap<String, ArmorModels>,
     simple_particles: Vec<String>,
     default_skins: Vec<DefaultSkin>,
     poses: BTreeMap<u8, String>,
     attributes: BTreeMap<String, AttributeBounds>,
-    #[serde(default)]
     builtin_variants: BTreeMap<String, BTreeMap<String, Value>>,
-}
-#[derive(Deserialize)]
-struct StateDocument {
-    schema: u32,
-    game_version: String,
-    client_sha256: String,
-    entities: BTreeMap<String, EntitySchema>,
-    poses: BTreeMap<u8, String>,
-    attributes: BTreeMap<String, AttributeBounds>,
-    #[serde(default)]
-    builtin_variants: BTreeMap<String, BTreeMap<String, Value>>,
-}
-#[derive(Deserialize)]
-struct PresentationDocument {
-    schema: u32,
-    game_version: String,
-    client_sha256: String,
-    families: BTreeMap<String, Value>,
-    animations: BTreeMap<String, AnimationDefinition>,
-}
-#[derive(Deserialize)]
-struct MotionDocument {
-    schema: u32,
-    game_version: String,
-    client_sha256: String,
-    entities: BTreeMap<String, MotionFacts>,
+    motion: BTreeMap<String, MotionFacts>,
 }
 #[derive(Deserialize, Debug)]
 pub struct DefaultSkin {
@@ -155,69 +134,70 @@ pub struct Models {
     pub attributes: BTreeMap<String, AttributeBounds>,
     pub attribute_ids: BTreeMap<u32, String>,
     pub digest: String,
-    pub(crate) presentation: BTreeMap<String, Value>,
-    pub(crate) animations: BTreeMap<String, AnimationDefinition>,
+    pub(crate) armor_models: BTreeMap<String, ArmorModels>,
     pub(crate) motion: BTreeMap<String, MotionFacts>,
 }
+/// Renderer rig keys of the per-slot armor shells of a humanoid family.
+#[derive(Deserialize, Debug)]
+pub(crate) struct ArmorModels {
+    pub adult: BTreeMap<String, String>,
+    pub baby: BTreeMap<String, String>,
+}
 impl Models {
-    pub(crate) fn load_state(path: &Path, content: &Content) -> Result<Self> {
-        let bytes = crate::protocol::content::bounded_bytes(path, 64 << 20)?;
-        let provenance: Value = serde_json::from_slice(&crate::protocol::content::bounded_bytes(
-            &path.with_file_name("provenance.json"),
-            1 << 20,
-        )?)
-        .map_err(|e| e.to_string())?;
-        let digest = format!("{:x}", Sha256::digest(&bytes));
-        if provenance["models_sha256"].as_str() != Some(&digest) {
-            return Err("entity model cache digest mismatch".into());
+    fn parse() -> Result<Document> {
+        let doc: Document = serde_json::from_str(ENTITY_FACTS)
+            .map_err(|e| format!("solaris entity facts schema: {e}"))?;
+        if doc.schema != FACTS_SCHEMA || doc.game_version != "26.1.2" {
+            return Err("solaris entity facts source/target mismatch".into());
         }
-        // Deserialize protocol/dimensions metadata only. Unknown rig/texture fields
-        // are skipped by serde without allocating their render geometry.
-        let doc: StateDocument = serde_json::from_slice(&bytes)
-            .map_err(|e| format!("entity state cache schema: {e}"))?;
-        if doc.schema != 2
-            || doc.game_version != "26.1.2"
-            || provenance["client_sha256"].as_str() != Some(&doc.client_sha256)
-            || doc.entities.len() > 1024
-            || doc.poses.len() != 18
-        {
-            return Err("entity state source/target mismatch".into());
+        if doc.entities.len() > 1024 || doc.poses.len() != 18 {
+            return Err("solaris entity facts catalog mismatch".into());
         }
         for (name, schema) in &doc.entities {
-            if content.entity_names.get(&schema.protocol_id) != Some(name)
-                || !schema.width.is_finite()
+            if !schema.width.is_finite()
                 || schema.width < 0.
                 || !schema.height.is_finite()
                 || schema.height < 0.
                 || !schema.eye_height.is_finite()
             {
-                return Err(format!(
-                    "entity state registry/dimensions mismatch for {name}"
-                ));
+                return Err(format!("entity dimensions invalid for {name}"));
             }
         }
-        let motion_path = std::env::var_os("SOLARIS_CLIENT_ENTITY_MOTION_FACTS")
-            .map(std::path::PathBuf::from)
-            .unwrap_or_else(|| path.with_file_name("motion-facts.json"));
-        let motion_bytes = crate::protocol::content::bounded_bytes(&motion_path, 8 << 20)?;
-        let motion_digest = format!("{:x}", Sha256::digest(&motion_bytes));
-        if provenance["motion_sha256"].as_str() != Some(&motion_digest) {
-            return Err("entity motion cache digest mismatch".into());
-        }
-        let motion: MotionDocument = serde_json::from_slice(&motion_bytes)
-            .map_err(|e| format!("entity motion cache schema: {e}"))?;
-        if motion.schema != 1
-            || motion.game_version != doc.game_version
-            || motion.client_sha256 != doc.client_sha256
-            || motion.entities.len() != doc.entities.len()
-            || motion.entities.iter().any(|(kind, facts)| {
+        if doc.motion.len() != doc.entities.len()
+            || doc.motion.iter().any(|(kind, facts)| {
                 doc.entities
                     .get(kind)
                     .is_none_or(|schema| schema.class != facts.class)
             })
         {
-            return Err("entity motion source or holder coverage mismatch".into());
+            return Err("entity motion holder coverage mismatch".into());
         }
+        Ok(doc)
+    }
+    fn check_registry(doc: &Document, content: &Content) -> Result<()> {
+        for (name, schema) in &doc.entities {
+            if content.entity_names.get(&schema.protocol_id) != Some(name) {
+                return Err(format!("entity registry/facts mismatch for {name}"));
+            }
+        }
+        Ok(())
+    }
+    fn digest() -> String {
+        let mut digest = Sha256::new();
+        digest.update(ENTITY_FACTS.as_bytes());
+        digest.update(solaris_models::embedded_digest());
+        format!("{:x}", digest.finalize())
+    }
+    fn attribute_ids(attributes: &BTreeMap<String, AttributeBounds>) -> BTreeMap<u32, String> {
+        attributes
+            .iter()
+            .map(|(name, value)| (value.id, name.clone()))
+            .collect()
+    }
+    /// Protocol/dimension/motion metadata only: no families or render resources.
+    pub(crate) fn load_state(content: &Content) -> Result<Self> {
+        let doc = Self::parse()?;
+        Self::check_registry(&doc, content)?;
         Ok(Self {
             rigs: BTreeMap::new(),
             families: BTreeMap::new(),
@@ -226,110 +206,21 @@ impl Models {
             schemas: doc.entities,
             poses: doc.poses,
             builtin_variants: doc.builtin_variants,
-            attribute_ids: doc
-                .attributes
-                .iter()
-                .map(|(name, value)| (value.id, name.clone()))
-                .collect(),
+            attribute_ids: Self::attribute_ids(&doc.attributes),
             attributes: doc.attributes,
-            digest,
-            presentation: BTreeMap::new(),
-            animations: BTreeMap::new(),
-            motion: motion.entities,
+            digest: Self::digest(),
+            armor_models: BTreeMap::new(),
+            motion: doc.motion,
         })
     }
-    pub fn load(path: &Path, content: &Content) -> Result<Self> {
-        let bytes = crate::protocol::content::bounded_bytes(path, 64 << 20)?;
-        let provenance_path = path.with_file_name("provenance.json");
-        let provenance: Value = serde_json::from_slice(&crate::protocol::content::bounded_bytes(
-            &provenance_path,
-            1 << 20,
-        )?)
-        .map_err(|e| e.to_string())?;
-        let digest = format!("{:x}", Sha256::digest(&bytes));
-        if provenance["models_sha256"].as_str() != Some(&digest) {
-            return Err("entity model cache digest mismatch".into());
+    pub fn load(content: &Content) -> Result<Self> {
+        let doc = Self::parse()?;
+        if doc.default_skins.len() != 18 {
+            return Err("source skin catalog mismatch".into());
         }
-        let doc: Document = serde_json::from_slice(&bytes)
-            .map_err(|e| format!("entity model cache schema: {e}"))?;
-        if doc.schema != 2
-            || doc.game_version != "26.1.2"
-            || provenance["client_sha256"].as_str() != Some(&doc.client_sha256)
-        {
-            return Err("entity model source/target mismatch".into());
-        }
-        if doc.entities.len() > 1024 {
-            return Err("entity model catalog bound".into());
-        }
-        if doc.default_skins.len() != 18 || doc.poses.len() != 18 {
-            return Err("source skin/pose catalog mismatch".into());
-        }
-        for (name, schema) in &doc.entities {
-            if content.entity_names.get(&schema.protocol_id) != Some(name) {
-                return Err(format!("entity registry/cache mismatch for {name}"));
-            }
-            if !schema.width.is_finite()
-                || !schema.height.is_finite()
-                || schema.width < 0.
-                || schema.height < 0.
-                || !schema.eye_height.is_finite()
-            {
-                return Err("entity dimensions invalid".into());
-            }
-        }
-        let presentation_path = std::env::var_os("SOLARIS_CLIENT_ENTITY_PRESENTATION")
-            .map(std::path::PathBuf::from)
-            .unwrap_or_else(|| path.with_file_name("presentation.json"));
-        let presentation_bytes =
-            crate::protocol::content::bounded_bytes(&presentation_path, 64 << 20)?;
-        let presentation_digest = format!("{:x}", Sha256::digest(&presentation_bytes));
-        if provenance["presentation_sha256"].as_str() != Some(&presentation_digest) {
-            return Err("entity presentation cache digest mismatch".into());
-        }
-        let presentation: PresentationDocument = serde_json::from_slice(&presentation_bytes)
-            .map_err(|error| format!("entity presentation cache schema: {error}"))?;
-        if presentation.schema != 2
-            || presentation.game_version != doc.game_version
-            || presentation.client_sha256 != doc.client_sha256
-            || presentation.families.len() > 1024
-            || presentation.families.len() != doc.entities.len()
-            || presentation
-                .families
-                .keys()
-                .any(|kind| !doc.entities.contains_key(kind))
-        {
-            return Err("entity presentation source or holder coverage mismatch".into());
-        }
-        let motion_path = std::env::var_os("SOLARIS_CLIENT_ENTITY_MOTION_FACTS")
-            .map(std::path::PathBuf::from)
-            .unwrap_or_else(|| path.with_file_name("motion-facts.json"));
-        let motion_bytes = crate::protocol::content::bounded_bytes(&motion_path, 8 << 20)?;
-        let motion_digest = format!("{:x}", Sha256::digest(&motion_bytes));
-        if provenance["motion_sha256"].as_str() != Some(&motion_digest) {
-            return Err("entity motion cache digest mismatch".into());
-        }
-        let motion: MotionDocument = serde_json::from_slice(&motion_bytes)
-            .map_err(|error| format!("entity motion cache schema: {error}"))?;
-        if motion.schema != 1
-            || motion.game_version != doc.game_version
-            || motion.client_sha256 != doc.client_sha256
-            || motion.entities.len() != doc.entities.len()
-            || motion.entities.iter().any(|(kind, facts)| {
-                doc.entities
-                    .get(kind)
-                    .is_none_or(|schema| schema.class != facts.class)
-            })
-        {
-            return Err("entity motion source or holder coverage mismatch".into());
-        }
-        let mut resource_digest = Sha256::new();
-        resource_digest.update(&bytes);
-        resource_digest.update(&presentation_bytes);
-        resource_digest.update(&motion_bytes);
-        resource_digest.update(solaris_models::embedded_digest());
-        // Geometry is Solaris-authored (`solaris_models`); the cache carries no meshes. A family
+        Self::check_registry(&doc, content)?;
+        // Geometry is Solaris-authored (`solaris_models`); the facts carry no meshes. A family
         // whose rig has no authored model gets a visible entity-sized placeholder box.
-        let digest = format!("{:x}", resource_digest.finalize());
         let mut rigs = BTreeMap::new();
         for (kind, family) in &doc.families {
             let (width, height) = doc
@@ -351,17 +242,18 @@ impl Models {
             simple_particles: doc.simple_particles,
             default_skins: doc.default_skins,
             poses: doc.poses,
-            attribute_ids: doc
-                .attributes
-                .iter()
-                .map(|(name, value)| (value.id, name.clone()))
-                .collect(),
+            attribute_ids: Self::attribute_ids(&doc.attributes),
             attributes: doc.attributes,
-            digest,
-            presentation: presentation.families,
-            animations: presentation.animations,
-            motion: motion.entities,
+            digest: Self::digest(),
+            armor_models: doc.armor_models,
+            motion: doc.motion,
         })
+    }
+    /// Rig key of one armor slot shell (`head`/`chest`/`legs`/`feet`) of a humanoid family.
+    pub(crate) fn armor_rig(&self, kind: &str, baby: bool, part: &str) -> Option<&str> {
+        let armor = self.armor_models.get(kind)?;
+        let set = if baby { &armor.baby } else { &armor.adult };
+        set.get(part).map(String::as_str)
     }
     /// Geometry for a renderer rig key: explicit entry, else Solaris-authored model, else a
     /// placeholder box. Never fails; a missing model must not stop the frame.
@@ -636,6 +528,38 @@ pub fn transform(pivot: Vec3, rotation: Vec3, scale: Vec3) -> Mat4 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn embedded_entity_facts_parse_and_carry_no_geometry() {
+        let doc = Models::parse().unwrap();
+        assert_eq!(doc.entities.len(), 157);
+        assert_eq!(doc.motion.len(), doc.entities.len());
+        assert_eq!(doc.families.len(), 129);
+        assert_eq!(doc.default_skins.len(), 18);
+        let zombie = &doc.entities["minecraft:zombie"];
+        assert_eq!(zombie.protocol_id, 150);
+        assert!(zombie.dimension_constants.contains_key("BABY_DIMENSIONS"));
+        assert!(
+            ENTITY_FACTS.len() < 1 << 20,
+            "entity facts must stay a data table"
+        );
+        for geometry in ["\"roots\"", "\"quads\"", "\"polygons\"", "\"animations\""] {
+            assert!(
+                !ENTITY_FACTS.contains(geometry),
+                "{geometry} in entity facts"
+            );
+        }
+    }
+
+    #[test]
+    fn armor_models_resolve_per_slot_for_adult_and_baby() {
+        let doc = Models::parse().unwrap();
+        let zombie = &doc.armor_models["minecraft:zombie"];
+        for part in ["head", "chest", "legs", "feet"] {
+            assert!(zombie.adult.contains_key(part), "adult {part}");
+            assert!(zombie.baby.contains_key(part), "baby {part}");
+        }
+    }
 
     #[test]
     fn dimension_constants_preserve_decimal_dimensions_and_attachments() {

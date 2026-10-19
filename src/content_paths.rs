@@ -20,9 +20,6 @@ const INPUTS: &[(&str, &str)] = &[
     ("ITEM_PLACEMENT_FACTS", "facts/item-placement-facts.json"),
     ("ACTION_STATE_FACTS", "facts/action-state-facts.json"),
     ("ENTITY_USE_STATIC", "facts/entity-use-static.json"),
-    ("ENTITY_MODELS", "entities/models.json"),
-    ("ENTITY_MOTION_FACTS", "entities/motion-facts.json"),
-    ("ENTITY_PRESENTATION", "entities/presentation.json"),
     ("ASSET_INDEX", "assets/asset-index.json"),
     ("ASSET_ROOT", "assets"),
     ("DATA_DIR", "data/vanilla"),
@@ -82,12 +79,7 @@ fn require(path: &Path, directory: bool) -> Result<(), String> {
 /// Fail before creating a window instead of leaving startup on a blank frame.
 pub(crate) fn validate(presentation: bool) -> Result<(), String> {
     for (suffix, _) in INPUTS {
-        if !presentation
-            && matches!(
-                *suffix,
-                "ASSET_ROOT" | "ASSET_INDEX" | "RESOURCE_ROOT" | "ENTITY_PRESENTATION"
-            )
-        {
+        if !presentation && matches!(*suffix, "ASSET_ROOT" | "ASSET_INDEX" | "RESOURCE_ROOT") {
             continue;
         }
         let var = format!("SOLARIS_CLIENT_{suffix}");
@@ -136,13 +128,13 @@ fn link(source: &Path, destination: &Path) -> Result<(), String> {
 
 pub(crate) fn setup(dist: &Path, assets: &Path, root: &Path) -> Result<(), String> {
     // Validate every source before creating the destination. Never overwrite caches.
-    for directory in ["facts", "entities", "data", "resources"] {
+    for directory in ["facts", "data", "resources"] {
         require(&dist.join(directory), true)?;
     }
     require(&dist.join("assets/asset-index.json"), false)?;
     require(&assets.join("objects"), true)?;
     std::fs::create_dir_all(root.join("assets")).map_err(|e| format!("{}: {e}", root.display()))?;
-    for directory in ["facts", "entities", "data", "resources"] {
+    for directory in ["facts", "data", "resources"] {
         link(&dist.join(directory), &root.join(directory))?;
     }
     // Pin exactly the index paired with the verified dist facts, not an arbitrary

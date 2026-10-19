@@ -2,7 +2,7 @@
 //!
 //! ```text
 //! <root>/
-//!   facts/ entities/ data/vanilla/      Solaris data bundle (see `bootstrap`)
+//!   facts/ data/vanilla/                Solaris data bundle (see `bootstrap`)
 //!   resources/assets/                   extracted from the official client.jar
 //!   assets/asset-index.json, objects/   Mojang asset index + sound/lang objects
 //!   mojang/versions/<ver>/              official version json + client.jar
@@ -52,6 +52,9 @@ impl Layout {
     pub fn client_jar(&self) -> PathBuf {
         self.version_dir().join("client.jar")
     }
+    pub fn server_jar(&self) -> PathBuf {
+        self.version_dir().join("server.jar")
+    }
     pub fn version_json(&self) -> PathBuf {
         self.version_dir().join(format!("{GAME_VERSION}.json"))
     }
@@ -93,9 +96,6 @@ pub const REQUIRED: &[(&str, bool)] = &[
     ("facts/item-placement-facts.json", false),
     ("facts/action-state-facts.json", false),
     ("facts/entity-use-static.json", false),
-    ("entities/models.json", false),
-    ("entities/motion-facts.json", false),
-    ("entities/presentation.json", false),
     ("assets/asset-index.json", false),
     ("assets/objects", true),
     ("data/vanilla/reports/blocks.json", false),

@@ -1,8 +1,6 @@
 //! Solaris launcher: downloads the game content, then starts `solaris-client`.
 mod bootstrap;
 mod config;
-mod derive;
-mod families;
 mod jdk;
 mod launch;
 mod mojang;
@@ -12,7 +10,7 @@ mod pins;
 mod progress;
 mod ui;
 
-use anyhow::{Context, Result, bail};
+use anyhow::{bail, Context, Result};
 use paths::Layout;
 use progress::Reporter;
 use std::path::PathBuf;
@@ -21,8 +19,12 @@ const HELP: &str = "Solaris launcher
 Usage:
   solaris-launcher                      Open the launcher window
   solaris-launcher --headless-bootstrap [--force] [--play]
-                                        Download/derive content without a window
+                                        Download game content without a window
                                         (--play then starts the client and waits)
+  solaris-launcher --singleplayer-runtime
+                                        Download the Minecraft server jar and a Java
+                                        runtime that singleplayer's first run needs
+                                        (the client starts this itself, only once)
 Options:
   --data-dir DIR     Data root (default: $XDG_DATA_HOME/solaris-client, %APPDATA%\\solaris-client)
   --manifest URL     Solaris content manifest (default: built in, or launcher.json)
@@ -30,7 +32,7 @@ Options:
   --username NAME        Offline username for --play / --autoplay
   --autoplay         Window mode: start the install/Play flow immediately
   --tab play|settings|logs   Window mode: initial tab
-  --force            Re-verify every download and re-derive local data
+  --force            Re-verify every download
   --help             This text";
 
 pub struct Args {
@@ -39,6 +41,7 @@ pub struct Args {
     pub server: Option<String>,
     pub username: Option<String>,
     pub headless: bool,
+    pub singleplayer_runtime: bool,
     pub play: bool,
     pub autoplay: bool,
     pub force: bool,
@@ -52,6 +55,7 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Option<Args>> {
         server: None,
         username: None,
         headless: false,
+        singleplayer_runtime: false,
         play: false,
         autoplay: false,
         force: false,
@@ -67,6 +71,7 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Option<Args>> {
             "--username" => out.username = Some(value("--username")?),
             "--tab" => out.tab = Some(value("--tab")?),
             "--headless-bootstrap" => out.headless = true,
+            "--singleplayer-runtime" => out.singleplayer_runtime = true,
             "--play" => out.play = true,
             "--autoplay" => out.autoplay = true,
             "--force" => out.force = true,
@@ -82,47 +87,28 @@ fn headless(args: &Args, layout: &Layout) -> Result<()> {
         config.manifest_url = url.clone();
     }
     let rep = Reporter::new(Some(&layout.log_file()), true);
-    let done = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-    let printer = {
-        let (rep, done) = (rep.clone(), done.clone());
-        std::thread::spawn(move || {
-            while !done.load(std::sync::atomic::Ordering::Relaxed) {
-                for _ in 0..20 {
-                    if done.load(std::sync::atomic::Ordering::Relaxed) {
-                        return;
-                    }
-                    std::thread::sleep(std::time::Duration::from_millis(250));
-                }
-                let s = rep.snapshot();
-                if s.total > 0 {
-                    println!(
-                        "  ... {} {} / {} ({}/s)",
-                        s.title,
-                        progress::human_bytes(s.done),
-                        progress::human_bytes(s.total),
-                        progress::human_bytes(s.bytes_per_second as u64)
-                    );
-                }
-            }
-        })
-    };
-    let result = bootstrap::run(
+    bootstrap::run(
         layout,
         &bootstrap::Options {
             manifest_url: config.manifest_url.clone(),
         },
         args.force,
         &rep,
-    );
-    done.store(true, std::sync::atomic::Ordering::Relaxed);
-    let _ = printer.join();
-    result?;
+    )?;
     if args.play {
         let spec = launch::Spec {
             root: layout.root.clone(),
-            server: args.server.clone().unwrap_or_else(|| config.address().to_owned()),
-            username: args.username.clone().unwrap_or_else(|| config.username().to_owned()),
-            fullscreen: config::fullscreen(&config::load_client_settings(&layout.client_settings())),
+            server: args
+                .server
+                .clone()
+                .unwrap_or_else(|| config.address().to_owned()),
+            username: args
+                .username
+                .clone()
+                .unwrap_or_else(|| config.username().to_owned()),
+            fullscreen: config::fullscreen(&config::load_client_settings(
+                &layout.client_settings(),
+            )),
         };
         let mut child = launch::spawn(&spec, &rep)?;
         let status = child.wait()?;
@@ -153,7 +139,12 @@ fn main() {
         }
     };
     let layout = Layout::new(root);
-    let result = if args.headless {
+    let result = if args.singleplayer_runtime {
+        bootstrap::ensure_singleplayer_runtime(
+            &layout,
+            &Reporter::new(Some(&layout.log_file()), true),
+        )
+    } else if args.headless {
         headless(&args, &layout)
     } else {
         ui::run(args, layout)

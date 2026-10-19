@@ -6,7 +6,7 @@
 //! EntityAttachments.transformPoint (attributes-attachments.javap). ItemFrameRenderer,
 //! ItemStack.getCustomName/getHoverName and EnderDragonRenderer were checked against
 //! /home/kaiserroman/research/client-26.1.2.jar. No original/derived Java bytes are included.
-use super::{Entity, Handle, Metadata, Models, Store, presentation};
+use super::{presentation, Entity, Handle, Metadata, Models, Store};
 use crate::{
     protocol::Result,
     ui::{ScoreTeam, ScoreboardState, TeamParameters, TeamVisibility},
@@ -265,7 +265,7 @@ pub(crate) fn nameplate<'a>(
 
 #[cfg(test)]
 mod tests {
-    use super::super::{PlayerProfile, Transform, physical, resources};
+    use super::super::{physical, resources, PlayerProfile, Transform};
     use super::*;
     use crate::{
         inventory::Stack,
@@ -337,8 +337,7 @@ mod tests {
             attributes: BTreeMap::new(),
             attribute_ids: BTreeMap::new(),
             digest: String::new(),
-            presentation: BTreeMap::new(),
-            animations: BTreeMap::new(),
+            armor_models: BTreeMap::new(),
             motion: BTreeMap::new(),
         };
         let transform = Transform {
@@ -454,16 +453,14 @@ mod tests {
         let (generic_store, generic_models, mut generic) =
             fixture("minecraft:marker", &["net.minecraft.world.entity.Entity"]);
         visible_name(&mut generic);
-        assert!(
-            selected(
-                &generic_store,
-                &generic_models,
-                &generic,
-                &view,
-                4096. - 0.001
-            )
-            .is_some()
-        );
+        assert!(selected(
+            &generic_store,
+            &generic_models,
+            &generic,
+            &view,
+            4096. - 0.001
+        )
+        .is_some());
         for distance in [4096., 4096. + 0.001, f64::NAN] {
             assert!(selected(&generic_store, &generic_models, &generic, &view, distance).is_none());
         }

@@ -1,12 +1,12 @@
-//! Temurin JDK (javac/javap/java) from the Adoptium API, used only to derive
-//! entity models from the official client jar and (later) to run the
-//! singleplayer server content import.
+//! Temurin JDK from the Adoptium API, used only by singleplayer's first-run content import
+//! (the local server derives datapack data from the Mojang server jar with Java extractors).
+//! Fetched lazily by `--singleplayer-runtime`; multiplayer never needs it.
 use crate::{
     net::{self, Check, Job},
     paths::Layout,
     progress::Reporter,
 };
-use anyhow::{Context, Result, anyhow, bail};
+use anyhow::{anyhow, bail, Context, Result};
 use reqwest::blocking::Client;
 use serde_json::Value;
 use std::{
@@ -17,7 +17,11 @@ use std::{
 pub const JDK_MAJOR: u32 = 25;
 
 fn exe(name: &str) -> String {
-    if cfg!(windows) { format!("{name}.exe") } else { name.to_owned() }
+    if cfg!(windows) {
+        format!("{name}.exe")
+    } else {
+        name.to_owned()
+    }
 }
 
 pub fn java(home: &Path) -> PathBuf {
@@ -57,7 +61,10 @@ pub fn ensure(client: &Client, layout: &Layout, rep: &Reporter) -> Result<PathBu
             rep.log(format!("Using JDK from SOLARIS_JDK: {}", custom.display()));
             return Ok(custom);
         }
-        bail!("SOLARIS_JDK={} has no bin/java, javac and javap", custom.display());
+        bail!(
+            "SOLARIS_JDK={} has no bin/java, javac and javap",
+            custom.display()
+        );
     }
     let home = layout.join(&format!("jdk/temurin-{JDK_MAJOR}"));
     if usable(&home) {
@@ -100,7 +107,9 @@ pub fn ensure(client: &Client, layout: &Layout, rep: &Reporter) -> Result<PathBu
         zip.extract(&staging).context("unpacking JDK zip")?;
     } else {
         let tar = flate2::read::GzDecoder::new(fs::File::open(&archive)?);
-        tar::Archive::new(tar).unpack(&staging).context("unpacking JDK tar.gz")?;
+        tar::Archive::new(tar)
+            .unpack(&staging)
+            .context("unpacking JDK tar.gz")?;
     }
     // The archive holds a single top directory (`jdk-25.0.x+y`).
     let top = fs::read_dir(&staging)?

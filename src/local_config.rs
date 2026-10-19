@@ -21,9 +21,6 @@ const RESOURCE_VARS: &[(&str, &str)] = &[
     ("resource_root", "SOLARIS_CLIENT_RESOURCE_ROOT"),
     ("asset_root", "SOLARIS_CLIENT_ASSET_ROOT"),
     ("asset_index", "SOLARIS_CLIENT_ASSET_INDEX"),
-    ("entity_models", "SOLARIS_CLIENT_ENTITY_MODELS"),
-    ("entity_motion_facts", "SOLARIS_CLIENT_ENTITY_MOTION_FACTS"),
-    ("entity_presentation", "SOLARIS_CLIENT_ENTITY_PRESENTATION"),
     ("collision_shapes", "SOLARIS_CLIENT_COLLISION_SHAPES"),
     ("terrain_facts", "SOLARIS_CLIENT_TERRAIN_FACTS"),
     (

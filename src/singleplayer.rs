@@ -477,7 +477,6 @@ fn toml_str(text: &str) -> String {
 
 pub(crate) struct ConfigSpec<'a> {
     pub name: &'a str,
-    pub port: u16,
     pub view_distance: u8,
     pub seed: i64,
     pub world_dir: &'a Path,
@@ -491,12 +490,11 @@ pub(crate) fn server_config(spec: &ConfigSpec) -> String {
     let mut out = format!(
         "[server]\nname = {}\nmotd = \"Solaris singleplayer\"\nmax_players = 8\n\
          view_distance = {view}\nsimulation_distance = {}\n\n\
-         [network]\nbind_address = \"127.0.0.1\"\nport = {}\n\n\
+         [network]\nbind_address = \"127.0.0.1\"\nport = 0\n\n\
          [auth]\nonline_mode = false\n\n\
          [dashboard]\nenabled = false\n\n",
         toml_str(spec.name),
         view.min(8),
-        spec.port,
     );
     if let Some(plugins) = spec.plugins_dir {
         out.push_str(&format!(
@@ -531,7 +529,8 @@ pub(crate) fn ops_json(username: &str) -> String {
 // ---------------------------------------------------------------------------
 
 pub(crate) enum Event {
-    Listening,
+    /// The server is accepting connections; carries the port it actually bound.
+    Listening(Option<u16>),
     /// One output stream reached EOF.
     Closed,
     Cancel,
@@ -635,11 +634,23 @@ fn pump(
                 tail.push_back(strip_ansi(&line));
             }
             if line.contains(READY_MARKER) {
-                let _ = events.send(Event::Listening);
+                let _ = events.send(Event::Listening(listening_port(&line)));
             }
         }
         let _ = events.send(Event::Closed);
     });
+}
+
+/// Port from the server's ready line, e.g. `... Solaris is listening (edge v2) addr=127.0.0.1:41567 ...`.
+/// The server binds port 0 and reports the address it actually got.
+fn listening_port(line: &str) -> Option<u16> {
+    let line = strip_ansi(line);
+    let rest = line.split_once("addr=")?.1;
+    rest.split_whitespace()
+        .next()?
+        .parse::<std::net::SocketAddr>()
+        .ok()
+        .map(|addr| addr.port())
 }
 
 /// Test seam for session tests: serve a shell script as the "server".
@@ -656,7 +667,6 @@ pub(crate) fn spawn_fake_server(root: &Path, script: &str) -> Result<Server, Str
         &root.join("server.toml"),
         root,
         &root.join("logs/server.log"),
-        1,
         &cancel,
         events,
     )
@@ -668,7 +678,6 @@ fn spawn_server(
     config: &Path,
     cwd: &Path,
     log_path: &Path,
-    port: u16,
     cancel: &Cancel,
     events: Receiver<Event>,
 ) -> Result<Server, String> {
@@ -718,14 +727,22 @@ fn spawn_server(
         child,
         tail,
         events,
-        port,
+        port: 0,
         log_path: log_path.to_owned(),
         stopped: false,
         closed: 0,
     };
     loop {
         match server.events.recv_timeout(START_TIMEOUT) {
-            Ok(Event::Listening) => return Ok(server),
+            Ok(Event::Listening(Some(port))) => {
+                server.port = port;
+                return Ok(server);
+            }
+            Ok(Event::Listening(None)) => {
+                let reason = server.crash_report("Server reported ready without a local address");
+                let _ = server.stop();
+                return Err(reason);
+            }
             Ok(Event::Closed) => {
                 server.closed += 1;
                 if server.closed == 2 {
@@ -736,12 +753,12 @@ fn spawn_server(
                 }
             }
             Ok(Event::Cancel) => {
-                server.stop();
+                let _ = server.stop();
                 return Err("Cancelled".into());
             }
             Err(_) => {
                 let reason = server.crash_report("Server did not start in time");
-                server.stop();
+                let _ = server.stop();
                 return Err(reason);
             }
         }
@@ -805,33 +822,51 @@ impl Server {
         }
     }
 
-    /// Graceful stop: the server checkpoints the world before exiting.
-    pub(crate) fn stop(&mut self) {
+    /// Graceful stop: the server checkpoints the world before exiting. `Err` carries the
+    /// server-error report (with the log tail) when the stop had to be forced after
+    /// `STOP_TIMEOUT` or the server exited unsuccessfully.
+    pub(crate) fn stop(&mut self) -> Result<(), String> {
         if self.stopped {
-            return;
+            return Ok(());
         }
         self.stopped = true;
-        if matches!(self.child.try_wait(), Ok(Some(_))) {
-            return;
-        }
-        self.request_stop();
-        while self.closed < 2 {
-            match self.events.recv_timeout(STOP_TIMEOUT) {
-                Ok(Event::Closed) => self.closed += 1,
-                Ok(_) => {}
-                Err(_) => {
-                    let _ = self.child.kill();
-                    break;
+        let mut forced = false;
+        if !matches!(self.child.try_wait(), Ok(Some(_))) {
+            self.request_stop();
+            while self.closed < 2 {
+                match self.events.recv_timeout(STOP_TIMEOUT) {
+                    Ok(Event::Closed) => self.closed += 1,
+                    Ok(_) => {}
+                    Err(_) => {
+                        let _ = self.child.kill();
+                        forced = true;
+                        break;
+                    }
                 }
             }
         }
-        let _ = self.child.wait();
+        let status = self.child.wait();
+        if forced {
+            return Err(self.crash_report(
+                "Server did not stop in time and was killed; the world may not be fully saved",
+            ));
+        }
+        match status {
+            Ok(status) if status.success() => Ok(()),
+            Ok(status) => Err(self.crash_report(&format!(
+                "Server exited with {status} while stopping; the world may not be fully saved"
+            ))),
+            Err(error) => Err(self.crash_report(&format!(
+                "Cannot confirm the server stopped ({error}); the world may not be fully saved"
+            ))),
+        }
     }
 }
 
 impl Drop for Server {
+    /// Best effort: failures are only reported by an explicit `stop`.
     fn drop(&mut self) {
-        self.stop();
+        let _ = self.stop();
     }
 }
 
@@ -842,11 +877,61 @@ pub(crate) struct Launch<'a> {
     pub view_distance: u8,
 }
 
-fn free_port() -> Result<u16, String> {
-    std::net::TcpListener::bind("127.0.0.1:0")
-        .and_then(|l| l.local_addr())
-        .map(|a| a.port())
-        .map_err(|e| format!("no free local port: {e}"))
+/// `solaris-launcher` next to this executable, else `$SOLARIS_LAUNCHER_BIN`.
+fn launcher_binary() -> Option<PathBuf> {
+    if let Some(custom) = std::env::var_os("SOLARIS_LAUNCHER_BIN").map(PathBuf::from)
+        && custom.is_file()
+    {
+        return Some(custom);
+    }
+    let beside = exe_dir()?.join(exe_name("solaris-launcher"));
+    beside.is_file().then_some(beside)
+}
+
+/// Singleplayer's first run needs the Minecraft server jar and a JDK for the content import;
+/// multiplayer players never download them. The launcher owns the downloads (hash-checked,
+/// resumable), so run it in its runtime-only mode and relay its progress lines.
+fn fetch_runtime(root: &Path, cancel: &Cancel, progress: &dyn Fn(String)) -> Result<(), String> {
+    let launcher = launcher_binary().ok_or_else(|| {
+        "Singleplayer needs the Minecraft server and a Java runtime (first run only), which \
+         solaris-launcher downloads. It was not found next to the client: run \
+         `solaris-launcher --singleplayer-runtime` once, or set SOLARIS_LAUNCHER_BIN."
+            .to_owned()
+    })?;
+    let (read, write) = std::io::pipe().map_err(|e| format!("cannot create pipe: {e}"))?;
+    let mut child = Command::new(&launcher)
+        .arg("--singleplayer-runtime")
+        .arg("--data-dir")
+        .arg(root)
+        .stdin(Stdio::null())
+        .stdout(write.try_clone().map_err(|e| e.to_string())?)
+        .stderr(write)
+        .spawn()
+        .map_err(|e| format!("cannot start {}: {e}", launcher.display()))?;
+    let mut tail = VecDeque::new();
+    for line in BufReader::new(read).lines().map_while(Result::ok) {
+        if tail.len() == 6 {
+            tail.pop_front();
+        }
+        tail.push_back(strip_ansi(&line));
+        // Stage lines look like `[1/2] Downloading Java toolchain (Temurin JDK)`.
+        if line.starts_with('[') {
+            progress(format!("Preparing Java runtime (first run only): {line}"));
+        }
+        if cancel.cancelled() {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err("Cancelled".into());
+        }
+    }
+    let status = child.wait().map_err(|e| e.to_string())?;
+    if !status.success() {
+        return Err(format!(
+            "Downloading the Java runtime failed ({status}).\n{}",
+            tail.iter().cloned().collect::<Vec<_>>().join("\n")
+        ));
+    }
+    Ok(())
 }
 
 /// First-run import of the server's content cache from the Mojang server jar.
@@ -861,18 +946,18 @@ fn ensure_content(
         return Ok(cache);
     }
     let jar = root.join("mojang/versions").join(GAME_VERSION).join("server.jar");
-    if !jar.is_file() {
-        return Err(format!(
-            "Minecraft server.jar is missing ({}). Run solaris-launcher once to download it.",
-            jar.display()
-        ));
-    }
-    let jdk = find_jdk(root).ok_or_else(|| {
-        format!(
-            "JDK 25 is missing under {}. Run solaris-launcher once to download it.",
-            root.join("jdk").display()
-        )
-    })?;
+    let jdk = match find_jdk(root) {
+        Some(jdk) if jar.is_file() => jdk,
+        _ => {
+            fetch_runtime(root, cancel, progress)?;
+            if !jar.is_file() {
+                return Err(format!("Minecraft server.jar is missing ({})", jar.display()));
+            }
+            find_jdk(root).ok_or_else(|| {
+                format!("JDK 25 is missing under {}", root.join("jdk").display())
+            })?
+        }
+    };
     progress("Preparing server data (first run only, takes a few minutes)".into());
     let log_path = root.join("logs/singleplayer-import.log");
     fs::create_dir_all(log_path.parent().expect("log has parent"))
@@ -930,14 +1015,12 @@ pub(crate) fn prepare_world(
     launch: &Launch,
     vanilla: &Path,
     plugins: Option<&Path>,
-    port: u16,
 ) -> Result<(PathBuf, WorldMeta), String> {
     let dir = worlds_dir(launch.root).join(launch.world_dir);
     let mut meta = read_meta(&dir).ok_or_else(|| format!("{} is not a Solaris world", dir.display()))?;
     let world_storage = dir.join("world");
     let config = server_config(&ConfigSpec {
         name: &meta.name,
-        port,
         view_distance: launch.view_distance,
         seed: meta.seed,
         world_dir: &world_storage,
@@ -968,14 +1051,12 @@ pub(crate) fn start(
     }
     progress("Starting world server".into());
     let plugins = sync_plugins(launch.root)?;
-    let port = free_port()?;
-    let (dir, meta) = prepare_world(launch, &vanilla, plugins.as_deref(), port)?;
+    let (dir, meta) = prepare_world(launch, &vanilla, plugins.as_deref())?;
     let server = spawn_server(
         &binary,
         &dir.join("server.toml"),
         &dir,
         &dir.join("logs/server.log"),
-        port,
         cancel,
         events,
     )?;
@@ -1015,7 +1096,6 @@ mod tests {
     fn config_binds_loopback_offline_with_requested_distances() {
         let text = server_config(&ConfigSpec {
             name: "My \"World\"",
-            port: 40123,
             view_distance: 12,
             seed: -5,
             world_dir: Path::new("/data/worlds/w/world"),
@@ -1027,7 +1107,7 @@ mod tests {
             "view_distance = 12",
             "simulation_distance = 8",
             "bind_address = \"127.0.0.1\"",
-            "port = 40123",
+            "port = 0",
             "online_mode = false",
             "enabled = false",
             "directory = \"/data/servers/sp-plugins\"",
@@ -1040,7 +1120,6 @@ mod tests {
         assert!(!text.contains("require_plugin_login"));
         let no_plugins = server_config(&ConfigSpec {
             name: "w",
-            port: 1,
             view_distance: 1,
             seed: 0,
             world_dir: Path::new("w"),
@@ -1094,10 +1173,10 @@ mod tests {
             username: "Steve",
             view_distance: 6,
         };
-        let (dir, meta) = prepare_world(&launch, &root.join("content"), None, 41000).unwrap();
+        let (dir, meta) = prepare_world(&launch, &root.join("content"), None).unwrap();
         assert!(meta.last_played_ms >= world.meta.last_played_ms);
         let config = fs::read_to_string(dir.join("server.toml")).unwrap();
-        assert!(config.contains("port = 41000"));
+        assert!(config.contains("port = 0"));
         assert!(config.contains(&format!("seed = {}", 12345)));
         let ops = fs::read_to_string(dir.join("ops.json")).unwrap();
         assert!(ops.contains("Steve"));
@@ -1120,6 +1199,16 @@ mod tests {
         sync_plugins(&root).unwrap();
         assert!(!dest.join("old").exists());
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn listening_port_is_read_from_the_servers_ready_line() {
+        let line = "2026-10-19T02:00:00Z  INFO solaris_v2: Solaris is listening (edge v2) \
+                    addr=127.0.0.1:41567 name=My World";
+        assert_eq!(listening_port(line), Some(41567));
+        assert_eq!(listening_port("Solaris is listening (edge v2) addr=[::1]:7 name=w"), Some(7));
+        assert_eq!(listening_port("Solaris is listening (edge v2)"), None);
+        assert_eq!(listening_port("Solaris is listening addr=nonsense"), None);
     }
 
     #[test]
@@ -1165,7 +1254,6 @@ mod tests {
             &root.join("server.toml"),
             root,
             &root.join("logs/server.log"),
-            1,
             &cancel,
             events,
         )
@@ -1177,13 +1265,14 @@ mod tests {
         let root = temp_root("life");
         let binary = fake_server(
             &root,
-            "echo 'Solaris is listening (edge v2)'\n\
+            "echo 'Solaris is listening (edge v2) addr=127.0.0.1:41234 name=w'\n\
              trap 'echo checkpoint written > \"$PWD/checkpoint\"; exit 0' TERM\n\
              while :; do sleep 1 & wait $!; done",
         );
         let mut server = launch_fake(&root, &binary).unwrap();
         assert!(server.exited().is_none());
-        server.stop();
+        assert_eq!(server.port, 41234);
+        server.stop().unwrap();
         // `stop` returned only after the process ran its TERM handler to the end.
         assert_eq!(
             fs::read_to_string(root.join("checkpoint")).unwrap().trim(),
@@ -1191,6 +1280,25 @@ mod tests {
         );
         let log = fs::read_to_string(root.join("logs/server.log")).unwrap();
         assert!(log.contains("is listening"));
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn stop_reports_a_server_that_exits_unsuccessfully() {
+        let root = temp_root("badstop");
+        let binary = fake_server(
+            &root,
+            "echo 'is listening addr=127.0.0.1:41236'\n\
+             trap 'echo save failed >&2; exit 3' TERM\n\
+             while :; do sleep 1 & wait $!; done",
+        );
+        let mut server = launch_fake(&root, &binary).unwrap();
+        let report = server.stop().unwrap_err();
+        assert!(report.contains("may not be fully saved"), "{report}");
+        assert!(report.contains("save failed"), "{report}");
+        assert!(report.contains("server.log"), "{report}");
+        assert!(server.stop().is_ok(), "a second stop is a no-op");
         let _ = fs::remove_dir_all(root);
     }
 
@@ -1212,7 +1320,7 @@ mod tests {
         let root = temp_root("midgame");
         let binary = fake_server(
             &root,
-            "echo 'is listening'\nread line < /dev/null\necho 'panic: tick failed' >&2\nexit 101",
+            "echo 'is listening addr=127.0.0.1:41235'\nread line < /dev/null\necho 'panic: tick failed' >&2\nexit 101",
         );
         let mut server = launch_fake(&root, &binary).unwrap();
         // The script exits right away; the report waits for the exit to finish.
@@ -1240,7 +1348,6 @@ mod tests {
             &root.join("server.toml"),
             &root,
             &root.join("logs/server.log"),
-            1,
             &cancel,
             events,
         )

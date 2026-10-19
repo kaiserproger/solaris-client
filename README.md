@@ -11,15 +11,14 @@ A Rust/wgpu client for Minecraft Java Edition **26.1.2**, with a small launcher 
 3. Run the launcher: `./solaris-launcher` (Linux) or double-click `solaris-launcher.exe` (Windows).
    Linux desktop entry (optional): `./install-desktop.sh` adds "Solaris Launcher" to your application menu; `./install-desktop.sh --uninstall` removes it.
 4. Pick or type an **offline username**, pick a server (the **Solaris test** server is pre-filled) and press **PLAY**.
-5. **First run only:** the launcher downloads about **670 MB** and unpacks about **1 GB** into your data folder (see below), with a progress bar and a log. Later launches go straight into the game without touching the network.
+5. **First run only:** the launcher downloads about **480 MB** and unpacks about **1 GB** into your data folder (see below), with a progress bar and a log. Later launches go straight into the game without touching the network. No Java is needed to play on a server.
 
 The download is not bundled with the launcher: no Mojang files are ever shipped in this project's releases or repository. On first run your machine fetches them itself:
 
 | What | From | Size |
 |---|---|---|
-| Minecraft 26.1.2 client jar (textures, models, fonts, lang) and server jar | Mojang (`piston-meta.mojang.com`, SHA-1 verified) | ~95 MB |
+| Minecraft 26.1.2 client jar (textures, models, fonts, lang) | Mojang (`piston-meta.mojang.com`, SHA-1 verified) | ~38 MB |
 | Game assets (sounds, languages) | Mojang (`resources.download.minecraft.net`, SHA-1 verified) | ~440 MB |
-| Temurin JDK 25 (one-off, derives entity models from your own client jar) | Adoptium (`api.adoptium.net`, SHA-256 verified) | ~135 MB |
 | Solaris data tables (block/item facts, collision shapes) | Solaris static server (SHA-256 **pinned inside the launcher**) | ~1 MB |
 
 Downloads are parallel, resumable (an interrupted run continues from the partial files) and every file is hash-checked. If anything is damaged use **Settings → Verify / repair game files**.
@@ -34,7 +33,7 @@ Without the launcher: `solaris-client --server 135.106.208.217:25565 --username 
 
 **Singleplayer** on the title screen lists your worlds (`worlds/<name>` in the data folder) with last-played time and size; **Create New World** takes a name, an optional seed (blank = random, text is hashed like vanilla), game mode (survival/creative) and difficulty. **Play Selected World** starts the bundled Solaris server (`solaris-v2`, next to the client or in `servers/`) on a free loopback port, joins it as the title screen's username and makes that player the operator. **Delete** asks for confirmation, **Open Folder** opens `worlds/`. In game, the pause menu's **Save & Quit to Title** stops the server gracefully so the world is saved.
 
-The first Play derives the server's content cache from the `server.jar` and JDK the launcher downloaded (a few minutes, shown on a progress screen; run the launcher once first). Each world's server log is `worlds/<name>/logs/server.log`; if the server dies, the error screen shows the end of that log. Mode and difficulty are applied once with ordinary operator commands on the first join; later changes are yours via `/gamemode` and `/difficulty`. The bundled plugin pack is loaded without `solaris-auth` (offline, local operator).
+The first Play derives the server's content cache from the Mojang `server.jar` with a Java runtime (a few minutes, shown on a progress screen). A server player never downloads either: on that first singleplayer Play the client asks `solaris-launcher --singleplayer-runtime` (next to the client) to fetch the server jar (~60 MB) and a Temurin JDK 25 (~135 MB), once. The server binds an OS-assigned loopback port and the client reads the real port from its `is listening` line. If stopping the server fails or has to be killed, the error screen shows the end of its log ("world may not be fully saved"). Each world's server log is `worlds/<name>/logs/server.log`; if the server dies, the error screen shows the end of that log. Mode and difficulty are applied once with ordinary operator commands on the first join; later changes are yours via `/gamemode` and `/difficulty`. The bundled plugin pack is loaded without `solaris-auth` (offline, local operator).
 
 ## System requirements
 
@@ -48,11 +47,12 @@ The first Play derives the server's content cache from the `server.jar` and JDK 
 The data folder is `$XDG_DATA_HOME/solaris-client` (default `~/.local/share/solaris-client`) on Linux and `%APPDATA%\solaris-client` on Windows; Settings → **Open** shows it. Override with `solaris-launcher --data-dir DIR`.
 
 ```
-facts/ entities/ data/vanilla/        Solaris data tables + entity data derived on your machine
+facts/ data/vanilla/                  Solaris data tables (entity metadata and models ship inside the client)
 resources/assets/                     textures/models/fonts unpacked from your client.jar
 assets/asset-index.json, objects/     Mojang asset index and sound/language objects
-mojang/versions/26.1.2/               official version json, client.jar, server.jar
-jdk/                                  managed Temurin JDK (also runs the singleplayer content import)
+mojang/versions/26.1.2/               official version json and client.jar
+mojang/versions/26.1.2/server.jar     singleplayer only: fetched on its first Play (with `jdk/`)
+jdk/                                  singleplayer only: managed Temurin JDK that runs the content import
 servers/                              singleplayer: derived server content cache, plugin copy, optional solaris-v2
 worlds/<name>/                        singleplayer worlds (world data, server.toml, ops.json, logs/server.log)
 launcher.json  client-settings.json   your profiles/servers, and in-game Options
@@ -68,7 +68,7 @@ Render distance and fullscreen in the launcher's Settings write the same `client
 - **Wayland vs X11 (Linux).** Both work. If a window is missing, scaled wrongly or has no input under Wayland, force X11 with `WAYLAND_DISPLAY= WINIT_UNIX_BACKEND=x11 ./solaris-launcher`; to force Wayland unset `DISPLAY`. The game inherits the launcher's environment.
 - **Download fails / stalls.** Press PLAY again: it resumes. Behind a proxy set `HTTPS_PROXY`/`HTTP_PROXY` (also used for the Solaris data download over plain HTTP). **Verify / repair** re-checks every file. The full log is in the Logs tab and `logs/launcher.log`.
 - **"refusing content bundle … does not match the hash pinned in this launcher".** The Solaris data on the server changed after this launcher was built. Download the newest launcher release. The launcher never installs a bundle it was not built to trust.
-- **"Temurin JDK" step fails.** It needs `api.adoptium.net`. Or point `SOLARIS_JDK` at an existing JDK 25 (a folder with `bin/java`, `javac`, `javap`).
+- **Singleplayer's first Play fails while downloading the Java runtime.** Only singleplayer needs it (multiplayer never does): the client runs `solaris-launcher --singleplayer-runtime` from beside itself, which needs `api.adoptium.net`. Or point `SOLARIS_JDK` at an existing JDK 25 (a folder with `bin/java` and `javac`) and set `SOLARIS_LAUNCHER_BIN` if the launcher is not next to the client.
 - **Windows SmartScreen warns about an unsigned app.** The preview is unsigned: "More info → Run anyway".
 - **`Client exited with …`.** See the Logs tab; the client's output is prefixed `[client]`.
 - **Start fresh.** Quit everything and delete the data folder.
@@ -103,7 +103,7 @@ The launcher installs exactly one data bundle, pinned by name and SHA-256 in `la
 tools/publish_facts.sh <rev>      # builds target/publish/solaris-facts-26.1.2-r<rev>.tar.zst + solaris-content.json
 ```
 
-Upload both files to `http://135.106.208.217:8080/static/`, then set `FACTS_NAME`/`FACTS_SHA256` in `launcher/src/pins.rs` to the printed values and release a new launcher. The bundle holds only pure data tables (block/item/interaction facts, collision shapes, registry and item-default reports); entity models, meshes, textures and sounds are never published: they are derived on each user's machine from their own downloaded client.
+Upload both files to `http://135.106.208.217:8080/static/`, then set `FACTS_NAME`/`FACTS_SHA256` in `launcher/src/pins.rs` to the printed values and release a new launcher. The bundle holds only pure data tables (block/item/interaction facts, collision shapes, registry and item-default reports); textures and sounds are never published (they come from the user's own downloaded client), and entity models/metadata are Solaris-authored data inside the client binary.
 
 ### Developer content setup (no launcher)
 

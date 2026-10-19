@@ -9,9 +9,12 @@ on:
 env:
   CARGO_TERM_COLOR: always
   # Singleplayer ships the Solaris server and the default plugin pack. Both are
-  # pinned here, like the server's own CI pins its siblings; bump deliberately.
-  SOLARIS_REVISION: v0.0.8
-  SOLARIS_PLUGINS_REVISION: 8b9c4252e3183f9f00a12138c8f4256019ec29db
+  # pinned to FULL commit SHAs (never tags), like the server's own CI pins its
+  # siblings; bump deliberately. The server must contain the SDK/WIT and the
+  # `local_addr` listening-line change the singleplayer port discovery relies on.
+  # PLACEHOLDER until Main supplies the final pushed SHAs (all-zero fails checkout).
+  SOLARIS_REVISION: 0000000000000000000000000000000000000000
+  SOLARIS_PLUGINS_REVISION: 0000000000000000000000000000000000000000
 
 permissions:
   contents: read

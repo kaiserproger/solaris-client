@@ -448,13 +448,10 @@ impl Session {
                         Content::load_state()?
                     };
                     eprintln!("session startup: loading entity metadata");
-                    let path = std::env::var_os("SOLARIS_CLIENT_ENTITY_MODELS").ok_or(
-                        "SOLARIS_CLIENT_ENTITY_MODELS required for verified entity resources",
-                    )?;
                     let models = Arc::new(if presentation {
-                        crate::entities::Models::load(std::path::Path::new(&path), &content)?
+                        crate::entities::Models::load(&content)?
                     } else {
-                        crate::entities::Models::load_state(std::path::Path::new(&path), &content)?
+                        crate::entities::Models::load_state(&content)?
                     });
                     eprintln!("session startup: connecting network");
                     let network = Network::connect(endpoint, username, view_distance, wake.clone())?;

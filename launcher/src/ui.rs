@@ -643,7 +643,7 @@ impl App {
                     self.start_install(ctx, false, true);
                 }
                 ui.label(
-                    RichText::new("Re-checks every download against its hash and re-derives local data.")
+                    RichText::new("Re-checks every download against its hash.")
                         .color(TEXT_DIM)
                         .size(12.5),
                 );

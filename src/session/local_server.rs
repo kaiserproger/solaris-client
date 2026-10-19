@@ -25,19 +25,38 @@ pub(super) struct Setup {
 
 /// Stops servers off the UI thread, one after another, and always finishes
 /// the last stop before the session goes away so the world is checkpointed.
-#[derive(Default)]
-pub(super) struct Stopper(Option<JoinHandle<()>>);
+/// A stop that fails (forced kill, non-zero exit) is reported through `failures`.
+pub(super) struct Stopper {
+    handle: Option<JoinHandle<()>>,
+    report: mpsc::Sender<String>,
+    failures: mpsc::Receiver<String>,
+}
+
+impl Default for Stopper {
+    fn default() -> Self {
+        let (report, failures) = mpsc::channel();
+        Self {
+            handle: None,
+            report,
+            failures,
+        }
+    }
+}
 
 impl Stopper {
-    fn stop(&mut self, server: Server) {
-        let previous = self.0.take();
-        self.0 = thread::Builder::new()
+    fn stop(&mut self, mut server: Server) {
+        let previous = self.handle.take();
+        let report = self.report.clone();
+        self.handle = thread::Builder::new()
             .name("singleplayer-stop".into())
             .spawn(move || {
                 if let Some(previous) = previous {
                     let _ = previous.join();
                 }
-                drop(server);
+                if let Err(failure) = server.stop() {
+                    eprintln!("singleplayer: {failure}");
+                    let _ = report.send(failure);
+                }
             })
             .ok();
     }
@@ -45,7 +64,7 @@ impl Stopper {
 
 impl Drop for Stopper {
     fn drop(&mut self) {
-        if let Some(handle) = self.0.take() {
+        if let Some(handle) = self.handle.take() {
             let _ = handle.join();
         }
     }
@@ -67,7 +86,7 @@ impl Session {
             .render_distance
             .clamp(UiState::MIN_RENDER_DISTANCE, UiState::MAX_RENDER_DISTANCE)
             as u8;
-        let previous_stop = self.local_stopper.0.take();
+        let previous_stop = self.local_stopper.handle.take();
         let (cancel, events) = singleplayer::start_channel();
         let (tx, rx) = mpsc::channel();
         let wake = self.wake_callback();
@@ -160,6 +179,13 @@ impl Session {
             }
         }
         if let Some(report) = self.local_server.as_mut().and_then(Server::exited) {
+            changed = true;
+            self.fail_local(report);
+        } else if self.local_start.is_none()
+            && self.local_server.is_none()
+            && let Some(report) = self.local_stopper.failures.try_recv().ok()
+        {
+            // An explicit Save & Quit whose server had to be killed or exited badly.
             changed = true;
             self.fail_local(report);
         }
@@ -259,7 +285,7 @@ mod tests {
         // The "checkpoint" takes a moment: only a stop that waits sees the file.
         let server = singleplayer::spawn_fake_server(
             &root,
-            "echo 'Solaris is listening'\n\
+            "echo 'Solaris is listening addr=127.0.0.1:41240'\n\
              trap 'sleep 0.3; echo done > \"$PWD/checkpoint\"; exit 0' TERM\n\
              while :; do sleep 1 & wait $!; done",
         )
@@ -281,7 +307,7 @@ mod tests {
         let root = temp_root("crash");
         let server = singleplayer::spawn_fake_server(
             &root,
-            "echo 'Solaris is listening'\necho 'panic: tick failed' >&2\nexit 7",
+            "echo 'Solaris is listening addr=127.0.0.1:41241'\necho 'panic: tick failed' >&2\nexit 7",
         )
         .unwrap();
         let mut session = Session::new_mode("local-crash".into(), false);
@@ -299,6 +325,35 @@ mod tests {
         assert!(error.contains("stopped unexpectedly"), "{error}");
         assert!(error.contains("panic: tick failed"), "{error}");
         assert!(session.local_server.is_none());
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn a_failed_save_and_quit_shows_the_server_error_screen() {
+        let root = temp_root("badsave");
+        let server = singleplayer::spawn_fake_server(
+            &root,
+            "echo 'Solaris is listening addr=127.0.0.1:41242'\n\
+             trap 'echo disk full >&2; exit 5' TERM\n\
+             while :; do sleep 1 & wait $!; done",
+        )
+        .unwrap();
+        let mut session = Session::new_mode("local-badsave".into(), false);
+        session.local_server = Some(server);
+        session.disconnect();
+        assert!(session.local_server.is_none());
+        // The stop runs on its own thread; poll until its failure is reported.
+        for _ in 0..10_000_000 {
+            if session.phase() == "error" {
+                break;
+            }
+            session.poll_local_server();
+            std::thread::yield_now();
+        }
+        assert_eq!(session.phase(), "error");
+        let error = session.error.clone().expect("stop failure is recorded");
+        assert!(error.contains("may not be fully saved"), "{error}");
+        assert!(error.contains("disk full"), "{error}");
         let _ = std::fs::remove_dir_all(root);
     }
 }

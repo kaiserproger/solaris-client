@@ -1,16 +1,16 @@
 //! Name-tag geometry from the local 26.1.2 NameTagFeatureRenderer$Storage,
 //! PlayerTeam.getFormattedName and Camera.setRotation javap evidence.
 use super::{
-    Handle, PresentationStats, Store,
     nameplates::{self, NameSource, Nameplate, NameplateView},
+    Handle, PresentationStats, Store,
 };
 use crate::{
     api::{DynamicGeometry, EntityMaterial},
-    protocol::{Result, content::Content},
+    protocol::{content::Content, Result},
     ui::{
-        ScoreboardState, TeamParameters,
         render::{TextRenderer, WorldTextOptions},
         shaping::TextLayout,
+        ScoreboardState, TeamParameters,
     },
 };
 use glam::{EulerRot, Mat4, Quat, Vec3};
@@ -367,7 +367,7 @@ mod tests {
     use super::*;
     use crate::{
         api::Vertex,
-        entities::{Entity, Metadata, Models, Transform, resources::EntitySchema},
+        entities::{resources::EntitySchema, Entity, Metadata, Models, Transform},
         ui::{ScoreTeam, TeamCollision, TeamVisibility},
     };
     use std::collections::BTreeSet;
@@ -411,8 +411,7 @@ mod tests {
             attributes: BTreeMap::new(),
             attribute_ids: BTreeMap::new(),
             digest: String::new(),
-            presentation: BTreeMap::new(),
-            animations: BTreeMap::new(),
+            armor_models: BTreeMap::new(),
             motion: BTreeMap::new(),
         }));
         (content, store)
@@ -578,17 +577,13 @@ mod tests {
         let normal = &out.indices[EntityMaterial::Text as usize];
         let through = &out.indices[EntityMaterial::TextSeeThrough as usize];
         assert!(!normal.is_empty() && !through.is_empty());
-        assert!(
-            normal
-                .iter()
-                .all(|&i| out.vertices[i as usize].light == [2., 7.]
-                    && out.vertices[i as usize].alpha == 1.)
-        );
-        assert!(
-            through
-                .iter()
-                .all(|&i| i > 0 && out.vertices[i as usize].light == [0., 7.])
-        );
+        assert!(normal
+            .iter()
+            .all(|&i| out.vertices[i as usize].light == [2., 7.]
+                && out.vertices[i as usize].alpha == 1.));
+        assert!(through
+            .iter()
+            .all(|&i| i > 0 && out.vertices[i as usize].light == [0., 7.]));
         assert!(through.iter().all(|&i| i < normal[0]));
         // The actual first quad is the received-options background, not a fake
         // glyph/material record. NORMAL has no background for ordinary names.
@@ -598,10 +593,9 @@ mod tests {
         }
         let dim = &out.vertices[5..normal[0] as usize];
         assert!(!dim.is_empty());
-        assert!(
-            dim.iter()
-                .all(|v| v.color == [1.; 3] && v.alpha == 128. / 255.)
-        );
+        assert!(dim
+            .iter()
+            .all(|v| v.color == [1.; 3] && v.alpha == 128. / 255.));
         let width = store.nameplate_cache.layouts[&handle].layout.width;
         close(
             out.vertices[1].position[0],
@@ -620,22 +614,18 @@ mod tests {
         assert!(discrete.indices[EntityMaterial::TextSeeThrough as usize].is_empty());
         assert!(!discrete.indices[EntityMaterial::Text as usize].is_empty());
         assert!(discrete.vertices.iter().all(|v| v.light == [0., 7.]));
-        assert!(
-            discrete.vertices[4..]
-                .iter()
-                .all(|v| v.alpha == 128. / 255.)
-        );
+        assert!(discrete.vertices[4..]
+            .iter()
+            .all(|v| v.alpha == 128. / 255.));
         let without_background = draw(&mut store, &content, &board, 0.);
         assert_eq!(
             without_background.vertices.len() + 4,
             discrete.vertices.len()
         );
-        assert!(
-            without_background
-                .vertices
-                .iter()
-                .all(|v| v.color == [1.; 3])
-        );
+        assert!(without_background
+            .vertices
+            .iter()
+            .all(|v| v.color == [1.; 3]));
     }
 
     #[test]
@@ -755,18 +745,14 @@ mod tests {
             store.nameplate_cache.layouts[&handle].layout.glyphs.len(),
             3
         );
-        assert!(
-            initial
-                .vertices
-                .iter()
-                .any(|v| v.color == [1., 85. / 255., 85. / 255.])
-        );
-        assert!(
-            initial
-                .vertices
-                .iter()
-                .any(|v| v.color == [85. / 255., 85. / 255., 1.])
-        );
+        assert!(initial
+            .vertices
+            .iter()
+            .any(|v| v.color == [1., 85. / 255., 85. / 255.]));
+        assert!(initial
+            .vertices
+            .iter()
+            .any(|v| v.color == [85. / 255., 85. / 255., 1.]));
         let glyphs = store.nameplate_cache.layouts[&handle]
             .layout
             .glyphs
@@ -792,12 +778,10 @@ mod tests {
             6
         );
         assert!(changed.vertices.len() > initial.vertices.len());
-        assert!(
-            changed
-                .vertices
-                .iter()
-                .any(|v| v.color == [85. / 255., 1., 85. / 255.])
-        );
+        assert!(changed
+            .vertices
+            .iter()
+            .any(|v| v.color == [85. / 255., 1., 85. / 255.]));
         board.membership.clear();
         let removed = draw(&mut store, &content, &board, 0.25);
         assert!(store.nameplate_cache.layouts[&handle].team.is_none());
@@ -805,12 +789,10 @@ mod tests {
             store.nameplate_cache.layouts[&handle].layout.glyphs.len(),
             1
         );
-        assert!(
-            removed
-                .vertices
-                .iter()
-                .all(|v| v.color == [0.; 3] || v.color == [1.; 3])
-        );
+        assert!(removed
+            .vertices
+            .iter()
+            .all(|v| v.color == [0.; 3] || v.color == [1.; 3]));
     }
 
     #[test]
@@ -952,11 +934,9 @@ mod tests {
         assert_eq!(cache.layouts[&handle].layout.glyphs.len(), 10);
         assert!(renamed.vertices.len() > original.vertices.len());
         assert!(renamed.indices[EntityMaterial::TextSeeThrough as usize].is_empty());
-        assert!(
-            renamed
-                .vertices
-                .iter()
-                .all(|vertex| vertex.light == [3., 2.])
-        );
+        assert!(renamed
+            .vertices
+            .iter()
+            .all(|vertex| vertex.light == [3., 2.]));
     }
 }
