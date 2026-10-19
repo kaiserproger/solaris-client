@@ -1,0 +1,25 @@
+{
+  "schema": 1,
+  "id": "standing_banner",
+  "texture": {"path": "entity/banner/banner_base.png", "size": [64, 64]},
+  "bones": [
+    {
+      "name": "pole", "pivot": [0, 0, 0],
+      "cubes": [
+        {"faces": {"back": [46, 2, 48, 42], "front": [44, 2, 46, 42], "left": [48, 2, 50, 42], "right": [50, 2, 52, 42], "down": [48, 0, 50, 2], "up": [46, 0, 48, 2]}, "origin": [-1, -16, 1], "size": [2, 40, 2]}
+      ]
+    },
+    {
+      "name": "bar", "pivot": [0, 0, 0],
+      "cubes": [
+        {"origin": [-10, -18, -1], "size": [20, 2, 2], "uv": [0, 42]}
+      ]
+    },
+    {
+      "name": "flag", "pivot": [0, -16, 0],
+      "cubes": [
+        {"origin": [-10, 0, -0.5], "size": [20, 39, 1], "uv": [0, 1]}
+      ]
+    }
+  ]
+}

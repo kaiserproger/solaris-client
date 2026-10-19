@@ -1,0 +1,67 @@
+{
+  "schema": 1,
+  "id": "happy_ghast",
+  "texture": {"path": "entity/ghast/happy_ghast.png", "size": [128, 128]},
+  "bones": [
+    {
+      "name": "body", "pivot": [0, -6, 0],
+      "cubes": [
+        {"origin": [-16, -16, -8], "size": [32, 32, 16], "uv": [16, 16]}
+      ]
+    },
+    {
+      "name": "tentacle_0", "pivot": [-10, 6, -6],
+      "cubes": [
+        {"origin": [-2, 4, -2], "size": [4, 14, 4], "uv": [32, 0]}
+      ]
+    },
+    {
+      "name": "tentacle_1", "pivot": [-5, 6, -6],
+      "cubes": [
+        {"origin": [-2, 4, -2], "size": [4, 14, 4], "uv": [44, 0]}
+      ]
+    },
+    {
+      "name": "tentacle_2", "pivot": [0, 6, -6],
+      "cubes": [
+        {"origin": [-2, 4, -2], "size": [4, 14, 4], "uv": [56, 0]}
+      ]
+    },
+    {
+      "name": "tentacle_3", "pivot": [5, 6, -6],
+      "cubes": [
+        {"origin": [-2, 4, -2], "size": [4, 14, 4], "uv": [68, 0]}
+      ]
+    },
+    {
+      "name": "tentacle_4", "pivot": [10, 6, -6],
+      "cubes": [
+        {"origin": [-2, 4, -2], "size": [4, 14, 4], "uv": [80, 0]}
+      ]
+    },
+    {
+      "name": "tentacle_5", "pivot": [-7, 6, 6],
+      "cubes": [
+        {"origin": [-2, 4, -2], "size": [4, 14, 4], "uv": [0, 4]}
+      ]
+    },
+    {
+      "name": "tentacle_6", "pivot": [7, 6, 6],
+      "cubes": [
+        {"origin": [-2, 4, -2], "size": [4, 14, 4], "uv": [0, 18]}
+      ]
+    },
+    {
+      "name": "tentacle_7", "pivot": [-2, 6, 6],
+      "cubes": [
+        {"origin": [-2, 4, -2], "size": [4, 14, 4], "uv": [0, 32]}
+      ]
+    },
+    {
+      "name": "tentacle_8", "pivot": [2, 6, 6],
+      "cubes": [
+        {"origin": [-2, 4, -2], "size": [4, 14, 4], "uv": [0, 46]}
+      ]
+    }
+  ]
+}

@@ -93,10 +93,7 @@ impl Cache {
         let Some(key) = key else {
             return Ok(false);
         };
-        let rig = models
-            .rigs
-            .get(key)
-            .ok_or_else(|| format!("armor rig not activated: {key}"))?;
+        let rig = models.rig(key);
         self.activate(content, asset);
         let layers = self.assets[asset].as_ref().map_err(Clone::clone)?;
         let kind = if baby {

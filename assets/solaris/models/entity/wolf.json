@@ -1,0 +1,63 @@
+{
+  "schema": 1,
+  "id": "wolf",
+  "texture": {"path": "entity/wolf/wolf.png", "size": [64, 32]},
+  "roles": {
+    "head": ["head"],
+    "right_leg": ["right_hind_leg", "left_front_leg"],
+    "left_leg": ["left_hind_leg", "right_front_leg"]
+  },
+  "bones": [
+    {
+      "name": "head", "pivot": [0, 13, -7],
+      "cubes": [
+        {"origin": [-3, -3, -4], "size": [6, 6, 4], "uv": [0, 0]},
+        {"origin": [-3, -5, -2], "size": [2, 2, 1], "uv": [16, 14]},
+        {"origin": [1, -5, -2], "size": [2, 2, 1], "uv": [16, 14], "mirror": true},
+        {"origin": [-1.5, -0.02, -7], "size": [3, 3, 4], "uv": [0, 10]}
+      ]
+    },
+    {
+      "name": "body", "pivot": [0, 14, 2], "rotation": [90, 0, 0],
+      "cubes": [
+        {"origin": [-3, -2, -3], "size": [6, 9, 6], "uv": [18, 14]}
+      ]
+    },
+    {
+      "name": "mane", "pivot": [0, 14, -3], "rotation": [90, 0, 0],
+      "cubes": [
+        {"origin": [-4, -3, -3], "size": [8, 6, 7], "uv": [21, 0]}
+      ]
+    },
+    {
+      "name": "right_hind_leg", "pivot": [-2.5, 16, 7],
+      "cubes": [
+        {"origin": [-1, 0, -1], "size": [2, 8, 2], "uv": [0, 18]}
+      ]
+    },
+    {
+      "name": "left_hind_leg", "pivot": [2.5, 16, 7],
+      "cubes": [
+        {"origin": [-1, 0, -1], "size": [2, 8, 2], "uv": [0, 18], "mirror": true}
+      ]
+    },
+    {
+      "name": "right_front_leg", "pivot": [-2.5, 16, -4],
+      "cubes": [
+        {"origin": [-1, 0, -1], "size": [2, 8, 2], "uv": [0, 18]}
+      ]
+    },
+    {
+      "name": "left_front_leg", "pivot": [2.5, 16, -4],
+      "cubes": [
+        {"origin": [-1, 0, -1], "size": [2, 8, 2], "uv": [0, 18], "mirror": true}
+      ]
+    },
+    {
+      "name": "tail", "pivot": [0, 12, 8], "rotation": [55, 0, 0],
+      "cubes": [
+        {"origin": [-1, 0, -1], "size": [2, 8, 2], "uv": [9, 18]}
+      ]
+    }
+  ]
+}

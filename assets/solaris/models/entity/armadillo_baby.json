@@ -1,0 +1,54 @@
+{
+  "schema": 1,
+  "id": "armadillo_baby",
+  "texture": {"path": "entity/armadillo/armadillo_baby.png", "size": [64, 64]},
+  "roles": {
+    "head": ["head"],
+    "right_leg": ["right_hind_leg", "left_front_leg"],
+    "left_leg": ["left_hind_leg", "right_front_leg"]
+  },
+  "bones": [
+    {
+      "name": "head", "pivot": [0, 17, -6],
+      "cubes": [
+        {"origin": [-1.5, -2.5, -1.5], "size": [3, 5, 3], "uv": [6, 18]}
+      ]
+    },
+    {
+      "name": "body", "pivot": [0, 16, 2],
+      "cubes": [
+        {"origin": [-4, -3.5, -3.5], "size": [8, 7, 7], "uv": [7, 0]}
+      ]
+    },
+    {
+      "name": "tail", "pivot": [0, 18, 5],
+      "cubes": [
+        {"origin": [-1.5, -1, 0], "size": [3, 2, 5], "uv": [0, 32]}
+      ]
+    },
+    {
+      "name": "right_hind_leg", "pivot": [-2.5, 20, 4],
+      "cubes": [
+        {"origin": [-1.5, 0, -1.5], "size": [3, 4, 3], "uv": [6, 26]}
+      ]
+    },
+    {
+      "name": "left_hind_leg", "pivot": [2.5, 20, 4],
+      "cubes": [
+        {"origin": [-1.5, 0, -1.5], "size": [3, 4, 3], "uv": [6, 26], "mirror": true}
+      ]
+    },
+    {
+      "name": "right_front_leg", "pivot": [-2.5, 20, 0],
+      "cubes": [
+        {"origin": [-1.5, 0, -1.5], "size": [3, 4, 3], "uv": [6, 26]}
+      ]
+    },
+    {
+      "name": "left_front_leg", "pivot": [2.5, 20, 0],
+      "cubes": [
+        {"origin": [-1.5, 0, -1.5], "size": [3, 4, 3], "uv": [6, 26], "mirror": true}
+      ]
+    }
+  ]
+}

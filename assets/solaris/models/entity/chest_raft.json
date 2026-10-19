@@ -1,0 +1,87 @@
+{
+  "schema": 1,
+  "id": "chest_raft",
+  "texture": {"path": "entity/chest_boat/bamboo.png", "size": [128, 128]},
+  "bones": [
+    {
+      "name": "bottom", "pivot": [0, 16, 0],
+      "cubes": [
+        {"origin": [-8, 0, -14], "size": [16, 2, 14], "uv": [0, 0]},
+        {"origin": [-8, 0, 0], "size": [16, 2, 14], "uv": [0, 0], "mirror": true}
+      ]
+    },
+    {
+      "name": "left_wall", "pivot": [-9, 14, -1],
+      "cubes": [
+        {"origin": [-1, -7, -12], "size": [2, 7, 11], "uv": [0, 0]},
+        {"origin": [-1, -7, -1], "size": [2, 7, 11], "uv": [0, 0], "mirror": true}
+      ]
+    },
+    {
+      "name": "right_wall", "pivot": [9, 14, -1],
+      "cubes": [
+        {"origin": [-1, -7, -12], "size": [2, 7, 11], "uv": [0, 0], "mirror": true},
+        {"origin": [-1, -7, -1], "size": [2, 7, 11], "uv": [0, 0]}
+      ]
+    },
+    {
+      "name": "stern", "pivot": [0, 14, 13],
+      "cubes": [
+        {"origin": [-10, -7, 0], "size": [20, 7, 2], "uv": [4, 0]}
+      ]
+    },
+    {
+      "name": "bow", "pivot": [0, 14, -15],
+      "cubes": [
+        {"origin": [-6, -7, 0], "size": [12, 7, 2], "uv": [4, 0]}
+      ]
+    },
+    {
+      "name": "bow_sprit", "pivot": [0, 10, -16],
+      "cubes": [
+        {"origin": [-1, -1, 0], "size": [2, 2, 3], "uv": [4, 0]}
+      ]
+    },
+    {
+      "name": "left_rim", "pivot": [-9, 7, -1],
+      "cubes": [
+        {"origin": [-1, -2, -12], "size": [2, 2, 12], "uv": [4, 0]},
+        {"origin": [-1, -2, 0], "size": [2, 2, 12], "uv": [4, 0], "mirror": true}
+      ]
+    },
+    {
+      "name": "right_rim", "pivot": [9, 7, -1],
+      "cubes": [
+        {"origin": [-1, -2, -12], "size": [2, 2, 12], "uv": [4, 0], "mirror": true},
+        {"origin": [-1, -2, 0], "size": [2, 2, 12], "uv": [4, 0]}
+      ]
+    },
+    {
+      "name": "bench_front", "pivot": [0, 12, -8],
+      "cubes": [
+        {"origin": [-6, 0, 0], "size": [12, 2, 4], "uv": [0, 0]}
+      ]
+    },
+    {
+      "name": "left_paddle", "pivot": [-10, 6, 0],
+      "cubes": [
+        {"origin": [-1, -1, -8], "size": [2, 2, 14], "uv": [0, 0]},
+        {"origin": [-1, 0, 6], "size": [2, 1, 5], "uv": [0, 0]}
+      ]
+    },
+    {
+      "name": "right_paddle", "pivot": [10, 6, 0],
+      "cubes": [
+        {"origin": [-1, -1, -8], "size": [2, 2, 14], "uv": [0, 0], "mirror": true},
+        {"origin": [-1, 0, 6], "size": [2, 1, 5], "uv": [0, 0], "mirror": true}
+      ]
+    },
+    {
+      "name": "chest", "pivot": [0, 13, 6],
+      "cubes": [
+        {"origin": [-6, -1, -5], "size": [12, 6, 10], "uv": [4, 80]},
+        {"origin": [-6, -5, -5], "size": [12, 4, 10], "uv": [4, 63]}
+      ]
+    }
+  ]
+}

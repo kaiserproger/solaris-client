@@ -1,0 +1,50 @@
+{
+  "schema": 1,
+  "id": "copper_golem",
+  "texture": {"path": "entity/copper_golem/copper_golem.png", "size": [64, 64]},
+  "roles": {
+    "head": ["head"],
+    "right_arm": ["right_arm"],
+    "left_arm": ["left_arm"],
+    "right_leg": ["right_leg"],
+    "left_leg": ["left_leg"]
+  },
+  "bones": [
+    {
+      "name": "head", "pivot": [0, 10, -2],
+      "cubes": [
+        {"origin": [-8, -4, -4], "size": [16, 6, 8], "uv": [2, 0], "faces": {"up": [23, 0, 39, 8], "down": [23, 0, 39, 8], "right": [15, 10, 23, 15], "front": [15, 10, 31, 15], "left": [15, 10, 23, 15], "back": [15, 10, 31, 15]}}
+      ]
+    },
+    {
+      "name": "body", "pivot": [0, 14, 2],
+      "cubes": [
+        {"origin": [-4, -2, -3], "size": [8, 8, 6], "uv": [6, 15], "faces": {"up": [6, 15, 14, 21], "down": [6, 15, 14, 21], "right": [6, 21, 12, 29], "front": [12, 21, 20, 29], "left": [20, 21, 26, 29], "back": [12, 21, 20, 29]}}
+      ]
+    },
+    {
+      "name": "left_arm", "pivot": [-6, 14, 2],
+      "cubes": [
+        {"origin": [-1, 0, -2], "size": [3, 8, 3], "uv": [40, 16], "faces": {"up": [40, 16, 43, 19], "down": [40, 16, 43, 19], "right": [40, 19, 43, 27], "front": [43, 19, 46, 27], "left": [40, 19, 43, 27], "back": [43, 19, 46, 27]}}
+      ]
+    },
+    {
+      "name": "right_arm", "pivot": [6, 14, 2],
+      "cubes": [
+        {"origin": [-2, 0, -2], "size": [3, 8, 3], "uv": [54, 16], "faces": {"up": [54, 16, 57, 19], "down": [54, 16, 57, 19], "right": [54, 19, 57, 27], "front": [57, 19, 60, 27], "left": [54, 19, 57, 27], "back": [57, 19, 60, 27]}}
+      ]
+    },
+    {
+      "name": "left_leg", "pivot": [-2, 16, 2],
+      "cubes": [
+        {"origin": [-2, 0, -1], "size": [3, 8, 3], "uv": [4, 27], "faces": {"up": [4, 27, 7, 30], "down": [4, 27, 7, 30], "right": [4, 30, 7, 38], "front": [7, 30, 10, 38], "left": [4, 30, 7, 38], "back": [7, 30, 10, 38]}}
+      ]
+    },
+    {
+      "name": "right_leg", "pivot": [2, 16, 2],
+      "cubes": [
+        {"origin": [-1, 0, -1], "size": [3, 8, 3], "uv": [20, 27], "faces": {"up": [20, 27, 23, 30], "down": [20, 27, 23, 30], "right": [20, 30, 23, 38], "front": [23, 30, 26, 38], "left": [20, 30, 23, 38], "back": [23, 30, 26, 38]}}
+      ]
+    }
+  ]
+}

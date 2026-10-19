@@ -1,0 +1,48 @@
+{
+  "schema": 1,
+  "id": "creeper",
+  "texture": {"path": "entity/creeper/creeper.png", "size": [64, 32]},
+  "roles": {
+    "head": ["head"],
+    "right_leg": ["right_hind_leg", "left_front_leg"],
+    "left_leg": ["left_hind_leg", "right_front_leg"]
+  },
+  "bones": [
+    {
+      "name": "head", "pivot": [0, 6, 0],
+      "cubes": [
+        {"origin": [-4, -8, -4], "size": [8, 8, 8], "uv": [0, 0]}
+      ]
+    },
+    {
+      "name": "body", "pivot": [0, 6, 0],
+      "cubes": [
+        {"origin": [-4, 0, -2], "size": [8, 12, 4], "uv": [16, 16]}
+      ]
+    },
+    {
+      "name": "right_hind_leg", "pivot": [-2, 18, 4],
+      "cubes": [
+        {"origin": [-2, 0, -2], "size": [4, 6, 4], "uv": [0, 16]}
+      ]
+    },
+    {
+      "name": "left_hind_leg", "pivot": [2, 18, 4],
+      "cubes": [
+        {"origin": [-2, 0, -2], "size": [4, 6, 4], "uv": [0, 16], "mirror": true}
+      ]
+    },
+    {
+      "name": "right_front_leg", "pivot": [-2, 18, -4],
+      "cubes": [
+        {"origin": [-2, 0, -2], "size": [4, 6, 4], "uv": [0, 16]}
+      ]
+    },
+    {
+      "name": "left_front_leg", "pivot": [2, 18, -4],
+      "cubes": [
+        {"origin": [-2, 0, -2], "size": [4, 6, 4], "uv": [0, 16], "mirror": true}
+      ]
+    }
+  ]
+}

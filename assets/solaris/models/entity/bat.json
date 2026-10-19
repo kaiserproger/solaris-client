@@ -1,0 +1,65 @@
+{
+  "schema": 1,
+  "id": "bat",
+  "texture": {"path": "entity/bat/bat.png", "size": [32, 32]},
+  "roles": {
+    "head": ["head"],
+    "wing": ["left_wing", "right_wing"]
+  },
+  "bones": [
+    {
+      "name": "body", "pivot": [0, 18, 0],
+      "cubes": [
+        {"origin": [-2, -2, -2], "size": [4, 4, 4], "uv": [12, 10]}
+      ]
+    },
+    {
+      "name": "head", "pivot": [0, 15, -1],
+      "cubes": [
+        {"origin": [-2, -2, -2], "size": [4, 4, 4], "uv": [0, 9]}
+      ]
+    },
+    {
+      "name": "right_ear", "pivot": [-2, 13, -1],
+      "cubes": [
+        {"origin": [-1, -4, -1], "size": [2, 4, 2], "uv": [2, 2]}
+      ]
+    },
+    {
+      "name": "left_ear", "pivot": [2, 13, -1],
+      "cubes": [
+        {"origin": [-1, -4, -1], "size": [2, 4, 2], "uv": [2, 2], "mirror": true}
+      ]
+    },
+    {
+      "name": "feet", "pivot": [0, 22, 0],
+      "cubes": [
+        {"origin": [-2, 0, -1], "size": [4, 2, 2], "uv": [2, 15]}
+      ]
+    },
+    {
+      "name": "left_wing", "pivot": [2, 17, 1],
+      "cubes": [
+        {"origin": [0, -2, -0.5], "size": [6, 4, 1], "uv": [12, 12]}
+      ]
+    },
+    {
+      "name": "left_wingtip", "pivot": [8, 17, 1],
+      "cubes": [
+        {"origin": [0, -2, -0.5], "size": [6, 4, 1], "uv": [18, 14], "mirror": true}
+      ]
+    },
+    {
+      "name": "right_wing", "pivot": [-2, 17, 1],
+      "cubes": [
+        {"origin": [-6, -2, -0.5], "size": [6, 4, 1], "uv": [12, 12]}
+      ]
+    },
+    {
+      "name": "right_wingtip", "pivot": [-8, 17, 1],
+      "cubes": [
+        {"origin": [-6, -2, -0.5], "size": [6, 4, 1], "uv": [18, 14]}
+      ]
+    }
+  ]
+}

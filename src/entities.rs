@@ -22,6 +22,8 @@ mod render_special;
 mod resources;
 mod source_commands;
 mod source_state;
+mod sheep;
+mod solaris_models;
 mod villagers;
 use crate::{
     api::DynamicGeometry,

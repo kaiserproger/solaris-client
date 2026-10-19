@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "id": "evoker_fangs",
+  "texture": {"path": "entity/illager/evoker_fangs.png", "size": [64, 32]},
+  "bones": [
+    {
+      "name": "fang", "pivot": [0, 22, 0],
+      "cubes": [
+        {"origin": [-5, 0, -5], "size": [10, 14, 10], "uv": [0, 0]}
+      ]
+    },
+    {
+      "name": "spike", "pivot": [0, 2, 0],
+      "cubes": [
+        {"origin": [-4, 0, -4], "size": [8, 12, 8], "uv": [2, 2], "mirror": true}
+      ]
+    }
+  ]
+}

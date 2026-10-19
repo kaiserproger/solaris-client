@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "id": "boat_water_patch",
+  "texture": {"path": "entity/boat/oak.png", "size": [128, 64]},
+  "bones": [
+    {
+      "name": "patch", "pivot": [0, 20, 0],
+      "cubes": [
+        {"origin": [-8, 0, -14], "size": [16, 1, 28], "uv": [0, 35]}
+      ]
+    }
+  ]
+}

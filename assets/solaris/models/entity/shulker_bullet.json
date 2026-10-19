@@ -1,0 +1,25 @@
+{
+  "schema": 1,
+  "id": "shulker_bullet",
+  "texture": {"path": "entity/shulker/spark.png", "size": [64, 32]},
+  "bones": [
+    {
+      "name": "core", "pivot": [0, 0, 0],
+      "cubes": [
+        {"origin": [-2, -2, -2], "size": [4, 4, 4], "uv": [28, 0]}
+      ]
+    },
+    {
+      "name": "wisp_v", "pivot": [0, 0, 0],
+      "cubes": [
+        {"origin": [-1, -5, 0], "size": [2, 10, 0], "uv": [8, 10], "faces": {"up": [8, 12, 10, 13], "down": [10, 12, 12, 13], "right": [8, 13, 9, 22], "front": [8, 12, 10, 22], "left": [9, 13, 10, 22], "back": [8, 12, 10, 22]}}
+      ]
+    },
+    {
+      "name": "wisp_h", "pivot": [0, 0, 0],
+      "cubes": [
+        {"origin": [-1, 0, -5], "size": [2, 0, 10], "uv": [8, 10], "faces": {"up": [8, 12, 10, 22], "down": [8, 12, 10, 22], "right": [8, 21, 9, 22], "front": [9, 21, 10, 22], "left": [10, 21, 11, 22], "back": [11, 21, 12, 22]}}
+      ]
+    }
+  ]
+}

@@ -1,0 +1,63 @@
+{
+  "schema": 1,
+  "id": "wolf_baby",
+  "texture": {"path": "entity/wolf/wolf_baby.png", "size": [32, 32]},
+  "roles": {
+    "head": ["head"],
+    "right_leg": ["right_hind_leg", "left_front_leg"],
+    "left_leg": ["left_hind_leg", "right_front_leg"]
+  },
+  "bones": [
+    {
+      "name": "head", "pivot": [0, 15, -5],
+      "cubes": [
+        {"origin": [-2, -3, -1], "size": [4, 6, 2], "uv": [5, 0]},
+        {"origin": [-1, -5, -2], "size": [1, 2, 1], "uv": [2, 0]},
+        {"origin": [0, -5, -2], "size": [1, 2, 1], "uv": [22, 0], "mirror": true},
+        {"origin": [-1, 0, -2], "size": [2, 2, 1], "uv": [19, 11]}
+      ]
+    },
+    {
+      "name": "mane", "pivot": [0, 14, 0],
+      "cubes": [
+        {"origin": [-2, 0, -1], "size": [4, 4, 2], "uv": [8, 6]}
+      ]
+    },
+    {
+      "name": "body", "pivot": [0, 19, 0],
+      "cubes": [
+        {"origin": [-3, 0, -2], "size": [6, 3, 4], "uv": [1, 14]}
+      ]
+    },
+    {
+      "name": "right_hind_leg", "pivot": [-1.5, 22, 2],
+      "cubes": [
+        {"origin": [-1, 0, -1], "size": [2, 2, 2], "uv": [22, 20]}
+      ]
+    },
+    {
+      "name": "left_hind_leg", "pivot": [1.5, 22, 2],
+      "cubes": [
+        {"origin": [-1, 0, -1], "size": [2, 2, 2], "uv": [22, 20], "mirror": true}
+      ]
+    },
+    {
+      "name": "right_front_leg", "pivot": [-1.5, 22, -2],
+      "cubes": [
+        {"origin": [-0.5, 0, -0.5], "size": [1, 2, 1], "uv": [2, 21]}
+      ]
+    },
+    {
+      "name": "left_front_leg", "pivot": [1.5, 22, -2],
+      "cubes": [
+        {"origin": [-0.5, 0, -0.5], "size": [1, 2, 1], "uv": [10, 21], "mirror": true}
+      ]
+    },
+    {
+      "name": "tail", "pivot": [0, 18, 3], "rotation": [-60, 0, 0],
+      "cubes": [
+        {"origin": [-0.5, 0, -1], "size": [1, 2, 1], "uv": [24, 15]}
+      ]
+    }
+  ]
+}

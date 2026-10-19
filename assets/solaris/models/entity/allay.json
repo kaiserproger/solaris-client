@@ -1,0 +1,54 @@
+{
+  "schema": 1,
+  "id": "allay",
+  "texture": {"path": "entity/allay/allay.png", "size": [32, 32]},
+  "roles": {
+    "head": ["head"],
+    "wing": ["left_wing", "right_wing"]
+  },
+  "bones": [
+    {
+      "name": "head", "pivot": [0, 8, 0],
+      "cubes": [
+        {"origin": [-2, -4, -2], "size": [4, 4, 4], "uv": [0, 0]}
+      ]
+    },
+    {
+      "name": "body", "pivot": [0, 14, 0],
+      "cubes": [
+        {"origin": [-2, -2, -2], "size": [4, 3, 4], "uv": [0, 11]}
+      ]
+    },
+    {
+      "name": "right_arm", "pivot": [-3.5, 12, 0],
+      "cubes": [
+        {"origin": [-1, -2, -1], "size": [2, 4, 2], "uv": [0, 5]}
+      ]
+    },
+    {
+      "name": "left_arm", "pivot": [3.5, 12, 0],
+      "cubes": [
+        {"origin": [-1, -2, -1], "size": [2, 4, 2], "uv": [0, 5], "mirror": true}
+      ]
+    },
+    {
+      "name": "right_wing", "pivot": [-2, 12, 2],
+      "cubes": [
+        {"origin": [-1.5, -4, 0], "size": [3, 8, 1], "uv": [23, 0]}
+      ]
+    },
+    {
+      "name": "left_wing", "pivot": [2, 12, 2],
+      "cubes": [
+        {"origin": [-1.5, -4, 0], "size": [3, 8, 1], "uv": [23, 0], "mirror": true}
+      ]
+    },
+    {
+      "name": "legs", "pivot": [0, 15, 0],
+      "cubes": [
+        {"origin": [-1.5, 0, -1.5], "size": [3, 4, 3], "uv": [14, 18]},
+        {"origin": [-1, 4, -1], "size": [2, 5, 2], "uv": [16, 22]}
+      ]
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "id": "wither_skeleton_skull",
+  "texture": {"path": "entity/skeleton/wither_skeleton.png", "size": [64, 32]},
+  "bones": [
+    {
+      "name": "head", "pivot": [0, 0, 0],
+      "cubes": [
+        {"origin": [-4, -8, -4], "size": [8, 8, 8], "uv": [0, 0]}
+      ]
+    }
+  ]
+}

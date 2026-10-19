@@ -454,9 +454,7 @@ fn around(point: Vec3, rotation: Mat4) -> Mat4 {
     Mat4::from_translation(point) * rotation * Mat4::from_translation(-point)
 }
 fn rig<'a>(m: &'a Models, key: &str) -> Result<&'a Rig> {
-    m.rigs
-        .get(key)
-        .ok_or_else(|| format!("source block entity rig not activated: {key}"))
+    Ok(m.rig(key))
 }
 fn paint_rig(
     r: &Rig,

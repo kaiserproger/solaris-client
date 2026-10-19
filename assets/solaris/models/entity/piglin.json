@@ -1,0 +1,70 @@
+{
+  "schema": 1,
+  "id": "piglin",
+  "texture": {"path": "entity/piglin/piglin.png", "size": [64, 64]},
+  "roles": {
+    "head": ["head"],
+    "right_arm": ["right_arm"],
+    "left_arm": ["left_arm"],
+    "right_leg": ["right_leg"],
+    "left_leg": ["left_leg"]
+  },
+  "bones": [
+    {
+      "name": "head", "pivot": [0, 2, 0],
+      "cubes": [
+        {"origin": [-5, -8, -4], "size": [10, 8, 8], "uv": [0, 0]},
+        {"origin": [-2, -6, -8], "size": [4, 4, 4], "uv": [27, 2]},
+        {"origin": [-5, -5, -3], "size": [2, 7, 2], "uv": [1, 0]}
+      ],
+      "bones": [
+        {
+          "name": "right_ear", "pivot": [-4, -4, 0],
+          "cubes": [
+            {"origin": [-1, -1, -1], "size": [2, 7, 2], "uv": [1, 0]},
+            {"origin": [-1, -2, -0.5], "size": [2, 4, 1], "uv": [43, 6]},
+            {"origin": [-2, -2, -1], "size": [4, 4, 2], "uv": [39, 10]}
+          ]
+        },
+        {
+          "name": "left_ear", "pivot": [4, -4, 0],
+          "cubes": [
+            {"origin": [-1, -1, -1], "size": [2, 7, 2], "uv": [1, 0], "mirror": true},
+            {"origin": [-1, -2, -0.5], "size": [2, 4, 1], "uv": [55, 6]},
+            {"origin": [-2, -2, -1], "size": [4, 4, 2], "uv": [51, 10]}
+          ]
+        }
+      ]
+    },
+    {
+      "name": "body", "pivot": [0, 2, 0],
+      "cubes": [
+        {"origin": [-4, 0, -2], "size": [8, 12, 4], "uv": [16, 16]}
+      ]
+    },
+    {
+      "name": "right_arm", "pivot": [-6, 4, -1],
+      "cubes": [
+        {"origin": [-2, -2, -2], "size": [4, 12, 4], "uv": [40, 16]}
+      ]
+    },
+    {
+      "name": "left_arm", "pivot": [6, 4, -1],
+      "cubes": [
+        {"origin": [-2, -2, -2], "size": [4, 12, 4], "uv": [0, 16]}
+      ]
+    },
+    {
+      "name": "right_leg", "pivot": [-2, 14, 0],
+      "cubes": [
+        {"origin": [-2, 0, -2], "size": [4, 12, 4], "uv": [16, 48]}
+      ]
+    },
+    {
+      "name": "left_leg", "pivot": [2, 14, 0],
+      "cubes": [
+        {"origin": [-2, 0, -2], "size": [4, 12, 4], "uv": [32, 48]}
+      ]
+    }
+  ]
+}

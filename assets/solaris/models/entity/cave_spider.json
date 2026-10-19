@@ -1,0 +1,81 @@
+{
+  "schema": 1,
+  "id": "cave_spider",
+  "texture": {"path": "entity/spider/cave_spider.png", "size": [64, 32]},
+  "bones": [
+    {
+      "name": "neck", "pivot": [0, 15, 0],
+      "cubes": [
+        {"origin": [-3, -3, -3], "size": [6, 6, 6], "uv": [0, 0]}
+      ]
+    },
+    {
+      "name": "body", "pivot": [0, 15, 9],
+      "cubes": [
+        {"origin": [-5, -4, -6], "size": [10, 8, 12], "uv": [0, 12]}
+      ]
+    },
+    {
+      "name": "head", "pivot": [0, 15, -3],
+      "cubes": [
+        {"origin": [-4, -4, -8], "size": [8, 8, 8], "uv": [32, 4]}
+      ]
+    },
+    {
+      "name": "leg0", "pivot": [-4, 15, 2], "rotation": [0, 45, -15],
+      "cubes": [
+        {"origin": [-15, -1, -1], "size": [16, 2, 2], "uv": [18, 0]},
+        {"origin": [-15, 0, -1], "size": [3, 10, 2], "uv": [12, 12]}
+      ]
+    },
+    {
+      "name": "leg1", "pivot": [4, 15, 2], "rotation": [0, -45, 15],
+      "cubes": [
+        {"origin": [-1, -1, -1], "size": [16, 2, 2], "uv": [18, 0], "mirror": true},
+        {"origin": [12, 0, -1], "size": [3, 10, 2], "uv": [12, 12], "mirror": true}
+      ]
+    },
+    {
+      "name": "leg2", "pivot": [-4, 15, 1], "rotation": [0, 20, -12],
+      "cubes": [
+        {"origin": [-15, -1, -1], "size": [16, 2, 2], "uv": [18, 0]},
+        {"origin": [-15, 0, -1], "size": [3, 10, 2], "uv": [12, 12]}
+      ]
+    },
+    {
+      "name": "leg3", "pivot": [4, 15, 1], "rotation": [0, -20, 12],
+      "cubes": [
+        {"origin": [-1, -1, -1], "size": [16, 2, 2], "uv": [18, 0], "mirror": true},
+        {"origin": [12, 0, -1], "size": [3, 10, 2], "uv": [12, 12], "mirror": true}
+      ]
+    },
+    {
+      "name": "leg4", "pivot": [-4, 15, -1], "rotation": [0, -20, -12],
+      "cubes": [
+        {"origin": [-15, -1, -1], "size": [16, 2, 2], "uv": [18, 0]},
+        {"origin": [-15, 0, -1], "size": [3, 10, 2], "uv": [12, 12]}
+      ]
+    },
+    {
+      "name": "leg5", "pivot": [4, 15, -1], "rotation": [0, 20, 12],
+      "cubes": [
+        {"origin": [-1, -1, -1], "size": [16, 2, 2], "uv": [18, 0], "mirror": true},
+        {"origin": [12, 0, -1], "size": [3, 10, 2], "uv": [12, 12], "mirror": true}
+      ]
+    },
+    {
+      "name": "leg6", "pivot": [-4, 15, -2], "rotation": [0, -45, -15],
+      "cubes": [
+        {"origin": [-15, -1, -1], "size": [16, 2, 2], "uv": [18, 0]},
+        {"origin": [-15, 0, -1], "size": [3, 10, 2], "uv": [12, 12]}
+      ]
+    },
+    {
+      "name": "leg7", "pivot": [4, 15, -2], "rotation": [0, 45, 15],
+      "cubes": [
+        {"origin": [-1, -1, -1], "size": [16, 2, 2], "uv": [18, 0], "mirror": true},
+        {"origin": [12, 0, -1], "size": [3, 10, 2], "uv": [12, 12], "mirror": true}
+      ]
+    }
+  ]
+}

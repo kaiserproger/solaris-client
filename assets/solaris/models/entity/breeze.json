@@ -1,0 +1,24 @@
+{
+  "schema": 1,
+  "id": "breeze",
+  "texture": {"path": "entity/breeze/breeze.png", "size": [32, 32]},
+  "roles": {
+    "head": ["head"]
+  },
+  "bones": [
+    {
+      "name": "head", "pivot": [0, 10, -2],
+      "cubes": [
+        {"origin": [-4, -4, -4], "size": [8, 4, 8], "uv": [8, 0], "faces": {"up": [8, 0, 16, 4], "down": [16, 0, 24, 4], "right": [8, 4, 12, 8], "front": [12, 4, 20, 8], "left": [20, 4, 24, 8], "back": [12, 4, 20, 8]}}
+      ]
+    },
+    {
+      "name": "body", "pivot": [0, 16, 0],
+      "cubes": [
+        {"origin": [-2, -2, -2], "size": [4, 4, 4], "uv": [8, 8]},
+        {"origin": [-5, -3, -1], "size": [2, 6, 2], "uv": [0, 8]},
+        {"origin": [3, -3, -1], "size": [2, 6, 2], "uv": [24, 8]}
+      ]
+    }
+  ]
+}

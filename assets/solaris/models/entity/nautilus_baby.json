@@ -1,0 +1,87 @@
+{
+  "schema": 1,
+  "id": "nautilus_baby",
+  "texture": {"path": "entity/nautilus/nautilus_baby.png", "size": [64, 64]},
+  "bones": [
+    {
+      "name": "shell", "pivot": [0, 8, -4],
+      "cubes": [
+        {"origin": [-1.5, 0, -2], "size": [3, 4, 4], "uv": [3, 3]}
+      ]
+    },
+    {
+      "name": "head", "pivot": [0, 15, -2],
+      "cubes": [
+        {"origin": [-6, 0, -1], "size": [12, 2, 2], "uv": [0, 7]}
+      ],
+      "bones": [
+        {
+          "name": "arm0", "pivot": [0.8, 1, 1.8],
+          "cubes": [
+            {"origin": [-0.5, 0, -0.5], "size": [1, 2, 1], "uv": [16, 16]}
+          ]
+        },
+        {
+          "name": "arm1", "pivot": [1.8, 1, 0.8],
+          "cubes": [
+            {"origin": [-0.5, 0, -0.5], "size": [1, 2, 1], "uv": [16, 16]}
+          ]
+        },
+        {
+          "name": "arm2", "pivot": [1.8, 1, -0.8],
+          "cubes": [
+            {"origin": [-0.5, 0, -0.5], "size": [1, 2, 1], "uv": [16, 16]}
+          ]
+        },
+        {
+          "name": "arm3", "pivot": [0.8, 1, -1.8],
+          "cubes": [
+            {"origin": [-0.5, 0, -0.5], "size": [1, 2, 1], "uv": [16, 16]}
+          ]
+        },
+        {
+          "name": "arm4", "pivot": [-0.8, 1, -1.8],
+          "cubes": [
+            {"origin": [-0.5, 0, -0.5], "size": [1, 2, 1], "uv": [16, 16]}
+          ]
+        },
+        {
+          "name": "arm5", "pivot": [-1.8, 1, -0.8],
+          "cubes": [
+            {"origin": [-0.5, 0, -0.5], "size": [1, 2, 1], "uv": [16, 16]}
+          ]
+        },
+        {
+          "name": "arm6", "pivot": [-1.8, 1, 0.8],
+          "cubes": [
+            {"origin": [-0.5, 0, -0.5], "size": [1, 2, 1], "uv": [16, 16]}
+          ]
+        },
+        {
+          "name": "arm7", "pivot": [-0.8, 1, 1.8],
+          "cubes": [
+            {"origin": [-0.5, 0, -0.5], "size": [1, 2, 1], "uv": [16, 16]}
+          ]
+        }
+      ]
+    },
+    {
+      "name": "body", "pivot": [0, 17, -4],
+      "cubes": [
+        {"origin": [-3, 0, -3], "size": [6, 2, 2], "uv": [2, 20]}
+      ]
+    },
+    {
+      "name": "tail_base", "pivot": [0, 18, 0],
+      "cubes": [
+        {"origin": [-1.5, 0, -2], "size": [3, 2, 4], "uv": [7, 26]}
+      ]
+    },
+    {
+      "name": "tail", "pivot": [0, 18, 3],
+      "cubes": [
+        {"origin": [-2, 0, -1], "size": [4, 3, 2], "uv": [5, 30]}
+      ]
+    }
+  ]
+}

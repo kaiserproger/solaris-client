@@ -1,0 +1,98 @@
+{
+  "schema": 1,
+  "id": "parched",
+  "texture": {"path": "entity/skeleton/parched.png", "size": [64, 64]},
+  "roles": {
+    "head": ["head"],
+    "right_arm": ["right_arm"],
+    "left_arm": ["left_arm"],
+    "right_leg": ["right_leg"],
+    "left_leg": ["left_leg"]
+  },
+  "bones": [
+    {
+      "name": "head", "pivot": [0, 0, 0],
+      "cubes": [
+        {"origin": [-4, -8, -4], "size": [8, 8, 8], "uv": [0, 0]}
+      ],
+      "bones": [
+        {
+          "name": "hat", "pivot": [0, 0, 0],
+          "cubes": [
+            {"origin": [-4, -8, -4], "size": [8, 4, 8], "uv": [32, 0], "inflate": 0.5}
+          ]
+        }
+      ]
+    },
+    {
+      "name": "body", "pivot": [0, 0, 0],
+      "cubes": [
+        {"origin": [-4, 0, -2], "size": [8, 12, 4], "uv": [16, 16]}
+      ],
+      "bones": [
+        {
+          "name": "jacket", "pivot": [0, 0, 0],
+          "cubes": [
+            {"origin": [-4, 0, -2], "size": [8, 12, 4], "uv": [16, 32], "inflate": 0.25}
+          ]
+        }
+      ]
+    },
+    {
+      "name": "right_arm", "pivot": [-5, 2, 0],
+      "cubes": [
+        {"origin": [-1, -2, -1], "size": [2, 12, 2], "uv": [40, 16]}
+      ],
+      "bones": [
+        {
+          "name": "right_sleeve", "pivot": [0, 0, 0],
+          "cubes": [
+            {"origin": [-1, -2, -1], "size": [2, 12, 2], "uv": [40, 32], "inflate": 0.25}
+          ]
+        }
+      ]
+    },
+    {
+      "name": "left_arm", "pivot": [5, 2, 0],
+      "cubes": [
+        {"origin": [-1, -2, -1], "size": [2, 12, 2], "uv": [40, 16]}
+      ],
+      "bones": [
+        {
+          "name": "left_sleeve", "pivot": [0, 0, 0],
+          "cubes": [
+            {"origin": [-1, -2, -1], "size": [2, 12, 2], "uv": [40, 32], "inflate": 0.25}
+          ]
+        }
+      ]
+    },
+    {
+      "name": "right_leg", "pivot": [-2, 12, 0],
+      "cubes": [
+        {"origin": [-1, 0, -1], "size": [2, 12, 2], "uv": [0, 16]}
+      ],
+      "bones": [
+        {
+          "name": "right_wrap", "pivot": [0, 0, 0],
+          "cubes": [
+            {"origin": [-1, 0, -1], "size": [2, 12, 2], "uv": [0, 32], "inflate": 0.25}
+          ]
+        }
+      ]
+    },
+    {
+      "name": "left_leg", "pivot": [2, 12, 0],
+      "cubes": [
+        {"origin": [-1, 0, -1], "size": [2, 12, 2], "uv": [0, 16]}
+      ],
+      "bones": [
+        {
+          "name": "left_wrap", "pivot": [0, 0, 0],
+          "cubes": [
+            {"origin": [-1, 0, -1], "size": [2, 12, 2], "uv": [0, 32], "inflate": 0.25}
+          ]
+        }
+      ]
+    }
+  ]
+}

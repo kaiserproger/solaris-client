@@ -1,0 +1,54 @@
+{
+  "schema": 1,
+  "id": "pig_baby",
+  "texture": {"path": "entity/pig/pig_temperate_baby.png", "size": [32, 32]},
+  "roles": {
+    "head": ["head"],
+    "right_leg": ["right_hind_leg", "left_front_leg"],
+    "left_leg": ["left_hind_leg", "right_front_leg"]
+  },
+  "bones": [
+    {
+      "name": "head", "pivot": [0, 16, -2],
+      "cubes": [
+        {"origin": [-3, -6, -9], "size": [7, 6, 9], "uv": [0, 0]},
+        {"origin": [-3, -2, -15], "size": [7, 4, 6], "uv": [0, 15]},
+        {"origin": [-1, 2, -13], "size": [2, 2, 2], "uv": [5, 26]},
+        {"origin": [-5, -8, -6], "size": [2, 2, 2], "uv": [0, 0]},
+        {"origin": [-5, -6, -6], "size": [2, 2, 2], "uv": [0, 4]},
+        {"origin": [3, -8, -6], "size": [2, 2, 2], "uv": [23, 0], "mirror": true},
+        {"origin": [3, -6, -6], "size": [2, 2, 2], "uv": [23, 4], "mirror": true}
+      ]
+    },
+    {
+      "name": "body", "pivot": [0, 15, 5], "rotation": [90, 0, 0],
+      "cubes": [
+        {"origin": [-3, -5, -6], "size": [7, 6, 6], "uv": [0, 15]}
+      ]
+    },
+    {
+      "name": "right_hind_leg", "pivot": [-2, 21, 4],
+      "cubes": [
+        {"origin": [-1, 0, -1], "size": [3, 3, 2], "uv": [13, 21]}
+      ]
+    },
+    {
+      "name": "left_hind_leg", "pivot": [2, 21, 4],
+      "cubes": [
+        {"origin": [-2, 0, -1], "size": [3, 3, 2], "uv": [13, 21], "mirror": true}
+      ]
+    },
+    {
+      "name": "right_front_leg", "pivot": [-2, 21, 1],
+      "cubes": [
+        {"origin": [-1, 0, -1], "size": [3, 3, 2], "uv": [4, 21]}
+      ]
+    },
+    {
+      "name": "left_front_leg", "pivot": [2, 21, 1],
+      "cubes": [
+        {"origin": [-2, 0, -1], "size": [3, 3, 2], "uv": [4, 21], "mirror": true}
+      ]
+    }
+  ]
+}

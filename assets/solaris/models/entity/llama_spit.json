@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "id": "llama_spit",
+  "texture": {"path": "entity/llama/llama_spit.png", "size": [64, 32]},
+  "bones": [
+    {
+      "name": "spit", "pivot": [0, 0, 0],
+      "cubes": [
+        {"origin": [-1, -1, -1], "size": [2, 2, 2], "uv": [0, 0]}
+      ]
+    }
+  ]
+}

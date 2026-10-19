@@ -1,0 +1,60 @@
+{
+  "schema": 1,
+  "id": "frog",
+  "texture": {"path": "entity/frog/frog_temperate.png", "size": [48, 48]},
+  "roles": {
+    "head": ["head"],
+    "right_leg": ["right_hind_leg", "left_front_leg"],
+    "left_leg": ["left_hind_leg", "right_front_leg"]
+  },
+  "bones": [
+    {
+      "name": "head", "pivot": [0, 18, -5],
+      "cubes": [
+        {"origin": [-3, -2, -2], "size": [6, 3, 4], "uv": [3, 8]}
+      ]
+    },
+    {
+      "name": "left_eye", "pivot": [3, 14, -6],
+      "cubes": [
+        {"origin": [-1, -4, -1], "size": [2, 6, 2], "uv": [15, 0]}
+      ]
+    },
+    {
+      "name": "right_eye", "pivot": [-3, 14, -6],
+      "cubes": [
+        {"origin": [-1, -4, -1], "size": [2, 6, 2], "uv": [3, 0], "mirror": true}
+      ]
+    },
+    {
+      "name": "body", "pivot": [0, 18, 1],
+      "cubes": [
+        {"origin": [-2.5, -2.5, -4], "size": [5, 5, 8], "uv": [9, 22]}
+      ]
+    },
+    {
+      "name": "right_hind_leg", "pivot": [-4, 18, 4],
+      "cubes": [
+        {"origin": [-1.5, 0, -1.5], "size": [3, 6, 3], "uv": [30, 22]}
+      ]
+    },
+    {
+      "name": "left_hind_leg", "pivot": [4, 18, 4],
+      "cubes": [
+        {"origin": [-1.5, 0, -1.5], "size": [3, 6, 3], "uv": [30, 22], "mirror": true}
+      ]
+    },
+    {
+      "name": "right_front_leg", "pivot": [-3, 19, -2],
+      "cubes": [
+        {"origin": [-1, 0, -1], "size": [2, 5, 2], "uv": [28, 34]}
+      ]
+    },
+    {
+      "name": "left_front_leg", "pivot": [3, 19, -2],
+      "cubes": [
+        {"origin": [-1, 0, -1], "size": [2, 5, 2], "uv": [28, 34], "mirror": true}
+      ]
+    }
+  ]
+}

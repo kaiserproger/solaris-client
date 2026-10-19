@@ -33,10 +33,7 @@ pub(super) fn append_arrow(
         .families
         .get(&entity.type_name)
         .ok_or("projectile Source model family missing")?;
-    let rig = models
-        .rigs
-        .get(&family.rig)
-        .ok_or("projectile Source baked rig missing")?;
+    let rig = models.rig(&family.rig);
     let is_trident = family.renderer_class.as_deref()
         == Some("net.minecraft.client.renderer.entity.ThrownTridentRenderer");
     let transform = entity.presented_transform(tick, partial);

@@ -1,0 +1,56 @@
+{
+  "schema": 1,
+  "id": "enderman",
+  "texture": {"path": "entity/enderman/enderman.png", "size": [64, 32]},
+  "roles": {
+    "head": ["head", "hat"],
+    "right_arm": ["right_arm"],
+    "left_arm": ["left_arm"],
+    "right_leg": ["right_leg"],
+    "left_leg": ["left_leg"]
+  },
+  "bones": [
+    {
+      "name": "head", "pivot": [0, -18, 0],
+      "cubes": [
+        {"origin": [-4, -8, -4], "size": [8, 8, 8], "uv": [0, 0]}
+      ]
+    },
+    {
+      "name": "hat", "pivot": [0, -18, 0],
+      "cubes": [
+        {"origin": [-4, -8, -4], "size": [8, 8, 8], "uv": [0, 16], "inflate": -0.5}
+      ]
+    },
+    {
+      "name": "body", "pivot": [0, -18, 0],
+      "cubes": [
+        {"origin": [-4, 0, -2], "size": [8, 12, 4], "uv": [32, 16]}
+      ]
+    },
+    {
+      "name": "right_arm", "pivot": [-5, -16, 0],
+      "cubes": [
+        {"origin": [-1, 0, -1], "size": [2, 30, 2], "uv": [56, 0]}
+      ]
+    },
+    {
+      "name": "left_arm", "pivot": [5, -16, 0],
+      "cubes": [
+        {"origin": [-1, 0, -1], "size": [2, 30, 2], "uv": [56, 0], "mirror": true}
+      ]
+    },
+    {
+      "name": "right_leg", "pivot": [-2, -6, 0],
+      "cubes": [
+        {"origin": [-1, 0, -1], "size": [2, 30, 2], "uv": [56, 0]}
+      ]
+    },
+    {
+      "name": "left_leg", "pivot": [2, -6, 0],
+      "cubes": [
+        {"origin": [-1, 0, -1], "size": [2, 30, 2], "uv": [56, 0], "mirror": true}
+      ]
+    }
+  ]
+}

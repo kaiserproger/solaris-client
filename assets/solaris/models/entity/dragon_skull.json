@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "id": "dragon_skull",
+  "texture": {"path": "entity/enderdragon/dragon.png", "size": [256, 256]},
+  "bones": [
+    {
+      "name": "head", "pivot": [0, -4, 0],
+      "cubes": [
+        {"origin": [-8, -8, -14], "size": [16, 14, 16], "uv": [64, 6]}
+      ]
+    },
+    {
+      "name": "jaw", "pivot": [0, 4, -6],
+      "cubes": [
+        {"origin": [-6, 0, -14], "size": [12, 4, 16], "uv": [64, 32]}
+      ]
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "id": "conduit_shell",
+  "texture": {"path": "entity/conduit/base.png", "size": [32, 16]},
+  "bones": [
+    {
+      "name": "shell", "pivot": [0.0, 0.0, 0.0],
+      "cubes": [
+        {"origin": [-3.0, -3.0, -3.0], "size": [6, 6, 6], "uv": [0, 0]}
+      ]
+    }
+  ]
+}

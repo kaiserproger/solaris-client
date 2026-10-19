@@ -1,4 +1,5 @@
 use super::render_living::{AnimationDefinition, MotionFacts};
+use super::solaris_models;
 use crate::protocol::{Result, content::Content};
 use glam::{Mat4, Vec3};
 use serde::Deserialize;
@@ -11,7 +12,6 @@ struct Document {
     schema: u32,
     game_version: String,
     client_sha256: String,
-    roots: BTreeMap<String, Part>,
     entities: BTreeMap<String, EntitySchema>,
     families: BTreeMap<String, Family>,
     simple_particles: Vec<String>,
@@ -37,7 +37,6 @@ struct PresentationDocument {
     schema: u32,
     game_version: String,
     client_sha256: String,
-    roots: BTreeMap<String, Part>,
     families: BTreeMap<String, Value>,
     animations: BTreeMap<String, AnimationDefinition>,
 }
@@ -47,16 +46,6 @@ struct MotionDocument {
     game_version: String,
     client_sha256: String,
     entities: BTreeMap<String, MotionFacts>,
-}
-#[derive(Deserialize)]
-struct Part {
-    name: String,
-    pivot: [f32; 3],
-    rotation: [f32; 3],
-    scale: [f32; 3],
-    quads: Vec<[[f32; 5]; 4]>,
-    normals: Vec<[f32; 3]>,
-    children: Vec<Part>,
 }
 #[derive(Deserialize, Debug)]
 pub struct DefaultSkin {
@@ -261,7 +250,7 @@ impl Models {
         if provenance["models_sha256"].as_str() != Some(&digest) {
             return Err("entity model cache digest mismatch".into());
         }
-        let mut doc: Document = serde_json::from_slice(&bytes)
+        let doc: Document = serde_json::from_slice(&bytes)
             .map_err(|e| format!("entity model cache schema: {e}"))?;
         if doc.schema != 2
             || doc.game_version != "26.1.2"
@@ -269,7 +258,7 @@ impl Models {
         {
             return Err("entity model source/target mismatch".into());
         }
-        if doc.roots.len() > 1024 || doc.entities.len() > 1024 {
+        if doc.entities.len() > 1024 {
             return Err("entity model catalog bound".into());
         }
         if doc.default_skins.len() != 18 || doc.poses.len() != 18 {
@@ -302,7 +291,7 @@ impl Models {
         if presentation.schema != 2
             || presentation.game_version != doc.game_version
             || presentation.client_sha256 != doc.client_sha256
-            || presentation.roots.len() > 1024
+            || presentation.families.len() > 1024
             || presentation.families.len() != doc.entities.len()
             || presentation
                 .families
@@ -310,11 +299,6 @@ impl Models {
                 .any(|kind| !doc.entities.contains_key(kind))
         {
             return Err("entity presentation source or holder coverage mismatch".into());
-        }
-        for (name, root) in presentation.roots {
-            if doc.roots.insert(name, root).is_some() {
-                return Err("duplicate entity presentation rig identifier".into());
-            }
         }
         let motion_path = std::env::var_os("SOLARIS_CLIENT_ENTITY_MOTION_FACTS")
             .map(std::path::PathBuf::from)
@@ -342,20 +326,22 @@ impl Models {
         resource_digest.update(&bytes);
         resource_digest.update(&presentation_bytes);
         resource_digest.update(&motion_bytes);
+        resource_digest.update(solaris_models::embedded_digest());
+        // Geometry is Solaris-authored (`solaris_models`); the cache carries no meshes. A family
+        // whose rig has no authored model gets a visible entity-sized placeholder box.
         let digest = format!("{:x}", resource_digest.finalize());
         let mut rigs = BTreeMap::new();
-        let mut total_quads = 0;
-        for (name, root) in doc.roots {
-            let mut bones = Vec::new();
-            flatten(root, None, 0, &mut bones, &mut total_quads)?;
-            let part_by_name = part_lookup(&bones);
-            rigs.insert(
-                name,
-                Rig {
-                    bones,
-                    part_by_name,
-                },
-            );
+        for (kind, family) in &doc.families {
+            let (width, height) = doc
+                .entities
+                .get(kind)
+                .map_or((0.6, 1.8), |schema| (schema.width, schema.height));
+            for key in std::iter::once(&family.rig).chain(family.baby_rig.as_ref()) {
+                if solaris_models::authored(key).is_none() {
+                    rigs.entry(key.clone())
+                        .or_insert_with(|| solaris_models::placeholder(width, height));
+                }
+            }
         }
         Ok(Self {
             rigs,
@@ -376,6 +362,21 @@ impl Models {
             animations: presentation.animations,
             motion: motion.entities,
         })
+    }
+    /// Geometry for a renderer rig key: explicit entry, else Solaris-authored model, else a
+    /// placeholder box. Never fails; a missing model must not stop the frame.
+    pub(crate) fn rig(&self, key: &str) -> &Rig {
+        static FALLBACK: std::sync::LazyLock<Rig> =
+            std::sync::LazyLock::new(|| solaris_models::placeholder(0.75, 0.75));
+        self.rigs
+            .get(key)
+            .or_else(|| solaris_models::authored(key))
+            .unwrap_or(&FALLBACK)
+    }
+    /// Whether a real (non-placeholder) model exists for the key.
+    pub(crate) fn has_authored_rig(&self, key: &str) -> bool {
+        self.rigs.get(key).is_some_and(|rig| !rig.is_placeholder())
+            || (!self.rigs.contains_key(key) && solaris_models::authored(key).is_some())
     }
     pub fn accessor(&self, kind: &str, name: &str) -> Option<u8> {
         self.schemas
@@ -590,66 +591,7 @@ impl Models {
         ))
     }
 }
-fn flatten(
-    part: Part,
-    parent: Option<usize>,
-    depth: usize,
-    bones: &mut Vec<Bone>,
-    total: &mut usize,
-) -> Result<()> {
-    if depth > 32 || bones.len() >= 1024 {
-        return Err("entity rig hierarchy bound".into());
-    }
-    *total += part.quads.len();
-    if *total > 200_000 {
-        return Err("entity rig geometry bound".into());
-    }
-    if part
-        .pivot
-        .iter()
-        .chain(part.rotation.iter())
-        .chain(part.scale.iter())
-        .any(|n| !n.is_finite())
-        || part
-            .quads
-            .iter()
-            .flatten()
-            .flatten()
-            .any(|n| !n.is_finite())
-        || part.normals.len() != part.quads.len()
-        || part.normals.iter().any(|normal| {
-            normal.iter().any(|value| !value.is_finite())
-                || (normal.iter().map(|value| value * value).sum::<f32>() - 1.0).abs() > 1e-5
-        })
-    {
-        return Err("nonfinite entity rig geometry".into());
-    }
-    let role = match part.name.as_str() {
-        "head" | "head_main" => BoneRole::Head,
-        "right_arm" => BoneRole::RightArm,
-        "left_arm" => BoneRole::LeftArm,
-        "right_leg" | "right_hind_leg" | "left_front_leg" => BoneRole::RightLeg,
-        "left_leg" | "left_hind_leg" | "right_front_leg" => BoneRole::LeftLeg,
-        "left_wing" | "right_wing" => BoneRole::Wing,
-        _ => BoneRole::Fixed,
-    };
-    let index = bones.len();
-    bones.push(Bone {
-        parent,
-        pivot: Vec3::from_array(part.pivot),
-        rotation: Vec3::from_array(part.rotation),
-        scale: Vec3::from_array(part.scale),
-        role,
-        name: part.name,
-        quads: part.quads,
-        normals: part.normals,
-    });
-    for child in part.children {
-        flatten(child, Some(index), depth + 1, bones, total)?;
-    }
-    Ok(())
-}
-fn part_lookup(bones: &[Bone]) -> BTreeMap<String, usize> {
+pub(super) fn part_lookup(bones: &[Bone]) -> BTreeMap<String, usize> {
     if bones.is_empty() {
         return BTreeMap::new();
     }

@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "id": "conduit_wind",
+  "texture": {"path": "entity/conduit/wind.png", "size": [64, 704]},
+  "bones": [
+    {
+      "name": "wind", "pivot": [0.0, 0.0, 0.0],
+      "cubes": [
+        {"faces": {"back": [4, 232, 60, 248], "down": [4, 232, 60, 248], "front": [4, 232, 60, 248], "left": [4, 232, 60, 248], "right": [4, 232, 60, 248], "up": [4, 232, 60, 248]}, "origin": [-14.0, -14.0, -14.0], "size": [28, 28, 28], "uv": [4, 232]}
+      ]
+    }
+  ]
+}

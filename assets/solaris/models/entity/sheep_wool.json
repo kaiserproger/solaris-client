@@ -1,0 +1,48 @@
+{
+  "schema": 1,
+  "id": "sheep_wool",
+  "texture": {"path": "entity/sheep/sheep_wool.png", "size": [64, 32]},
+  "roles": {
+    "head": ["head"],
+    "right_leg": ["right_hind_leg", "left_front_leg"],
+    "left_leg": ["left_hind_leg", "right_front_leg"]
+  },
+  "bones": [
+    {
+      "name": "head", "pivot": [0, 10, -8],
+      "cubes": [
+        {"origin": [-3, -4, -6], "size": [6, 6, 6], "uv": [0, 0], "inflate": 0.5}
+      ]
+    },
+    {
+      "name": "body", "pivot": [0, 10, 2], "rotation": [90, 0, 0],
+      "cubes": [
+        {"origin": [-4, -8, -8], "size": [8, 16, 6], "uv": [28, 8], "inflate": 0.5}
+      ]
+    },
+    {
+      "name": "right_hind_leg", "pivot": [-3, 12, 6],
+      "cubes": [
+        {"origin": [-2, 0, -2], "size": [4, 6, 4], "uv": [0, 16], "inflate": 0.5}
+      ]
+    },
+    {
+      "name": "left_hind_leg", "pivot": [3, 12, 6],
+      "cubes": [
+        {"origin": [-2, 0, -2], "size": [4, 6, 4], "uv": [0, 16], "mirror": true, "inflate": 0.5}
+      ]
+    },
+    {
+      "name": "right_front_leg", "pivot": [-3, 12, -2],
+      "cubes": [
+        {"origin": [-2, 0, -2], "size": [4, 6, 4], "uv": [0, 16], "inflate": 0.5}
+      ]
+    },
+    {
+      "name": "left_front_leg", "pivot": [3, 12, -2],
+      "cubes": [
+        {"origin": [-2, 0, -2], "size": [4, 6, 4], "uv": [0, 16], "mirror": true, "inflate": 0.5}
+      ]
+    }
+  ]
+}

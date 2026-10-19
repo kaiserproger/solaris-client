@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "id": "hanging_sign_wall",
+  "texture": {"path": "entity/signs/hanging/oak.png", "size": [64, 32]},
+  "bones": [
+    {
+      "name": "board", "pivot": [0, 6, 0],
+      "cubes": [
+        {"origin": [-8, -6, -1], "size": [16, 10, 2], "uv": [0, 14]}
+      ]
+    },
+    {
+      "name": "bracket", "pivot": [0, 6, 0],
+      "cubes": [
+        {"origin": [-1.5, 2, -1], "size": [3, 2, 8], "uv": [8, 4]}
+      ]
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "id": "wind_charge",
+  "texture": {"path": "entity/projectiles/wind_charge.png", "size": [64, 32]},
+  "bones": [
+    {
+      "name": "core", "pivot": [0, 0, 0],
+      "cubes": [
+        {"origin": [-3, -3, -3], "size": [6, 6, 6], "uv": [0, 0]}
+      ]
+    },
+    {
+      "name": "wisp", "pivot": [0, 0, 0],
+      "cubes": [
+        {"origin": [-5, 0, -1], "size": [7, 1, 2], "uv": [19, 17], "faces": {"up": [19, 17, 26, 18], "down": [19, 17, 26, 18], "right": [11, 16, 12, 17], "front": [31, 16, 38, 17], "left": [16, 16, 17, 17], "back": [50, 16, 57, 17]}}
+      ]
+    }
+  ]
+}

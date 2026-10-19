@@ -1,0 +1,67 @@
+{
+  "schema": 1,
+  "id": "phantom",
+  "texture": {"path": "entity/phantom/phantom.png", "size": [64, 64]},
+  "roles": {
+    "head": ["head"],
+    "wing": ["left_wing", "right_wing", "left_wing_tip", "right_wing_tip"]
+  },
+  "bones": [
+    {
+      "name": "body", "pivot": [0, 12, 0],
+      "cubes": [
+        {"origin": [-2.5, -2, -8], "size": [5, 3, 9], "uv": [0, 8]}
+      ],
+      "bones": [
+        {
+          "name": "head", "pivot": [0, 1, -7],
+          "cubes": [
+            {"origin": [-3.5, -2, -5], "size": [7, 3, 5], "uv": [0, 0]}
+          ]
+        },
+        {
+          "name": "left_wing", "pivot": [2, -2, -2],
+          "cubes": [
+            {"origin": [0, 0, 0], "size": [6, 2, 9], "uv": [23, 12]}
+          ],
+          "bones": [
+            {
+              "name": "left_wing_tip", "pivot": [6, 0, 0],
+              "cubes": [
+                {"origin": [0, 0, 0], "size": [13, 1, 9], "uv": [16, 24]}
+              ]
+            }
+          ]
+        },
+        {
+          "name": "right_wing", "pivot": [-2, -2, -2],
+          "cubes": [
+            {"origin": [-6, 0, 0], "size": [6, 2, 9], "uv": [23, 12], "mirror": true}
+          ],
+          "bones": [
+            {
+              "name": "right_wing_tip", "pivot": [-6, 0, 0],
+              "cubes": [
+                {"origin": [-13, 0, 0], "size": [13, 1, 9], "uv": [16, 24], "mirror": true}
+              ]
+            }
+          ]
+        },
+        {
+          "name": "tail", "pivot": [0, -2, 1],
+          "cubes": [
+            {"origin": [-1.5, 0, 0], "size": [3, 2, 6], "uv": [3, 20]}
+          ],
+          "bones": [
+            {
+              "name": "tail2", "pivot": [0, 0.5, 6],
+              "cubes": [
+                {"origin": [-0.5, 0, 0], "size": [1, 1, 6], "uv": [4, 29]}
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,58 @@
+{
+  "schema": 1,
+  "id": "parrot",
+  "texture": {"path": "entity/parrot/parrot_red_blue.png", "size": [32, 32]},
+  "roles": {
+    "head": ["head"],
+    "wing": ["left_wing", "right_wing"],
+    "right_leg": ["right_leg"],
+    "left_leg": ["left_leg"]
+  },
+  "bones": [
+    {
+      "name": "head", "pivot": [0, 15.7, -2.8],
+      "cubes": [
+        {"origin": [-1, -1.5, -1], "size": [2, 3, 2], "uv": [2, 2]},
+        {"origin": [-1, -2.5, -3], "size": [2, 1, 4], "uv": [10, 0]},
+        {"origin": [-0.5, 0, -2], "size": [1, 2, 1], "uv": [11, 7]},
+        {"origin": [-0.5, 0, -2], "size": [1, 2, 1], "uv": [16, 7], "mirror": true}
+      ]
+    },
+    {
+      "name": "body", "pivot": [0, 16.5, -3], "rotation": [24, 0, 0],
+      "cubes": [
+        {"origin": [-1.5, 0, -1.5], "size": [3, 6, 3], "uv": [2, 8]}
+      ]
+    },
+    {
+      "name": "tail", "pivot": [0, 21, 1.2],
+      "cubes": [
+        {"origin": [-1.5, 0, -0.5], "size": [3, 4, 1], "uv": [22, 1]}
+      ]
+    },
+    {
+      "name": "left_wing", "pivot": [1.5, 17, -2.8],
+      "cubes": [
+        {"origin": [0, -0.5, -1.5], "size": [1, 5, 3], "uv": [19, 8]}
+      ]
+    },
+    {
+      "name": "right_wing", "pivot": [-1.5, 17, -2.8],
+      "cubes": [
+        {"origin": [-1, -0.5, -1.5], "size": [1, 5, 3], "uv": [19, 8], "mirror": true}
+      ]
+    },
+    {
+      "name": "right_leg", "pivot": [-1, 22, -1],
+      "cubes": [
+        {"origin": [-0.5, 0, -0.5], "size": [1, 2, 1], "uv": [14, 18]}
+      ]
+    },
+    {
+      "name": "left_leg", "pivot": [1, 22, -1],
+      "cubes": [
+        {"origin": [-0.5, 0, -0.5], "size": [1, 2, 1], "uv": [14, 18], "mirror": true}
+      ]
+    }
+  ]
+}

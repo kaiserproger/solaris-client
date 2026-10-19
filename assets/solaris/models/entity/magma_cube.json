@@ -1,0 +1,61 @@
+{
+  "schema": 1,
+  "id": "magma_cube",
+  "texture": {"path": "entity/slime/magmacube.png", "size": [64, 64]},
+  "bones": [
+    {
+      "name": "segment0", "pivot": [0, 16, 0],
+      "cubes": [
+        {"origin": [-4, 0, -4], "size": [8, 1, 8], "uv": [0, 0]}
+      ]
+    },
+    {
+      "name": "segment1", "pivot": [0, 17, 0],
+      "cubes": [
+        {"origin": [-4, 0, -4], "size": [8, 1, 8], "uv": [32, 0]}
+      ]
+    },
+    {
+      "name": "segment2", "pivot": [0, 18, 0],
+      "cubes": [
+        {"origin": [-4, 0, -4], "size": [8, 1, 8], "uv": [0, 9]}
+      ]
+    },
+    {
+      "name": "segment3", "pivot": [0, 19, 0],
+      "cubes": [
+        {"origin": [-4, 0, -4], "size": [8, 1, 8], "uv": [32, 9]}
+      ]
+    },
+    {
+      "name": "segment4", "pivot": [0, 20, 0],
+      "cubes": [
+        {"origin": [-4, 0, -4], "size": [8, 1, 8], "uv": [0, 18]}
+      ]
+    },
+    {
+      "name": "segment5", "pivot": [0, 21, 0],
+      "cubes": [
+        {"origin": [-4, 0, -4], "size": [8, 1, 8], "uv": [32, 18]}
+      ]
+    },
+    {
+      "name": "segment6", "pivot": [0, 22, 0],
+      "cubes": [
+        {"origin": [-4, 0, -4], "size": [8, 1, 8], "uv": [0, 27]}
+      ]
+    },
+    {
+      "name": "segment7", "pivot": [0, 23, 0],
+      "cubes": [
+        {"origin": [-4, 0, -4], "size": [8, 1, 8], "uv": [32, 27]}
+      ]
+    },
+    {
+      "name": "core", "pivot": [0, 21, 0],
+      "cubes": [
+        {"origin": [-3, -3, -3], "size": [6, 6, 6], "uv": [24, 40]}
+      ]
+    }
+  ]
+}

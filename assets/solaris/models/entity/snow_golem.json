@@ -1,0 +1,38 @@
+{
+  "schema": 1,
+  "id": "snow_golem",
+  "texture": {"path": "entity/snow_golem/snow_golem.png", "size": [64, 64]},
+  "roles": {
+    "head": ["head"],
+    "right_arm": ["right_arm"],
+    "left_arm": ["left_arm"]
+  },
+  "bones": [
+    {
+      "name": "head", "pivot": [0, -6, 0],
+      "cubes": [
+        {"origin": [-4, 0, -4], "size": [8, 8, 8], "uv": [0, 0]},
+        {"origin": [-6, -1, -6], "size": [12, 1, 12], "uv": [32, 0], "faces": {"up": [32, 0, 60, 4], "down": [32, 0, 60, 4], "front": [32, 0, 60, 4], "back": [32, 0, 60, 4], "right": [32, 0, 60, 4], "left": [32, 0, 60, 4]}}
+      ]
+    },
+    {
+      "name": "body", "pivot": [0, 2, 0],
+      "cubes": [
+        {"origin": [-5, 0, -5], "size": [10, 10, 10], "uv": [0, 16]},
+        {"origin": [-6, 10, -6], "size": [12, 12, 12], "uv": [0, 36]}
+      ]
+    },
+    {
+      "name": "right_arm", "pivot": [-6, 4, 0], "rotation": [0, 0, 12],
+      "cubes": [
+        {"origin": [0, 0, -0.5], "size": [1, 8, 1], "uv": [5, 38]}
+      ]
+    },
+    {
+      "name": "left_arm", "pivot": [6, 4, 0], "rotation": [0, 0, -12],
+      "cubes": [
+        {"origin": [-1, 0, -0.5], "size": [1, 8, 1], "uv": [12, 38]}
+      ]
+    }
+  ]
+}

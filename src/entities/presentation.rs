@@ -1,14 +1,14 @@
 use super::{
-    resources::{self, BoneRole, Rig},
     Entity, Metadata, Models, Store,
+    resources::{self, BoneRole, Rig},
 };
 use crate::{
     api::{DynamicGeometry, EntityMaterial, RenderLayer, Vertex},
     inventory::Stack,
     protocol::{
+        Result,
         content::{Content, TextureRegion},
         models::{BakedModel, BakedQuad, TintKind},
-        Result,
     },
 };
 use glam::{Mat4, Vec3};
@@ -244,7 +244,7 @@ pub(super) fn material(
                     e.type_name.split(':').nth(1).unwrap_or(""),
                     if baby { "_baby" } else { "" }
                 );
-                if models.rigs.contains_key(&candidate) {
+                if models.has_authored_rig(&candidate) {
                     rig = candidate;
                 }
             }
@@ -449,7 +449,7 @@ pub fn append(
         let start = out.vertices.len();
         match entity.binding.as_ref().unwrap() {
             Ok(binding) => {
-                let rig = &models.rigs[&binding.rig];
+                let rig = models.rig(&binding.rig);
                 let tex = binding.texture;
                 let t = entity.presented_transform(tick, partial);
                 let body_yaw = entity
@@ -595,6 +595,21 @@ pub fn append(
                     out,
                     &mut stats,
                 )?;
+                if !invisible {
+                    super::sheep::append(
+                        entity,
+                        &models,
+                        content,
+                        boolean(&models, entity, "DATA_BABY_ID"),
+                        rig,
+                        tick,
+                        partial,
+                        matrix,
+                        &mut store.transforms,
+                        light,
+                        out,
+                    )?;
+                }
             }
             Err(reason) => {
                 if !append_item_entity(
@@ -735,6 +750,12 @@ pub(super) fn emit_rig(
     if rig.bones.len() != transforms.len() {
         return Err("entity rig transform cardinality mismatch".into());
     }
+    // A missing model must be unmistakable: placeholder boxes are tinted magenta.
+    let color = if rig.is_placeholder() {
+        [1., 0., 1.]
+    } else {
+        color
+    };
     for (bone, matrix) in rig.bones.iter().zip(transforms) {
         let normal_matrix = matrix.inverse().transpose();
         for (quad, normal) in bone.quads.iter().zip(&bone.normals) {

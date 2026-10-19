@@ -1,0 +1,66 @@
+{
+  "schema": 1,
+  "id": "vex",
+  "texture": {"path": "entity/illager/vex.png", "size": [32, 32]},
+  "roles": {
+    "head": ["head"],
+    "right_arm": ["right_arm"],
+    "left_arm": ["left_arm"],
+    "right_leg": ["right_leg"],
+    "left_leg": ["left_leg"]
+  },
+  "bones": [
+    {
+      "name": "head", "pivot": [0, 8, 0],
+      "cubes": [
+        {"origin": [-4, -4, -2], "size": [8, 8, 4], "uv": [0, 0]}
+      ],
+      "bones": [
+        {
+          "name": "right_ear", "pivot": [-3, -4, 0],
+          "cubes": [
+            {"origin": [-1, -1, -1], "size": [2, 5, 2], "uv": [23, 0]},
+            {"origin": [-1, 2, -1], "size": [2, 6, 2], "uv": [23, 5]}
+          ]
+        },
+        {
+          "name": "left_ear", "pivot": [3, -4, 0],
+          "cubes": [
+            {"origin": [-1, -1, -1], "size": [2, 5, 2], "uv": [23, 0], "mirror": true},
+            {"origin": [-1, 2, -1], "size": [2, 6, 2], "uv": [23, 5], "mirror": true}
+          ]
+        }
+      ]
+    },
+    {
+      "name": "body", "pivot": [0, 15, 0],
+      "cubes": [
+        {"origin": [-2, 0, -1], "size": [4, 2, 2], "uv": [2, 12], "faces": {"up": [0, 12, 4, 14], "down": [4, 12, 8, 14], "front": [0, 14, 2, 16], "back": [2, 14, 6, 16], "right": [6, 14, 8, 16], "left": [8, 14, 10, 16]}}
+      ]
+    },
+    {
+      "name": "right_arm", "pivot": [-4, 15, -0.5],
+      "cubes": [
+        {"origin": [-1, 0, -1], "size": [4, 3, 2], "uv": [1, 18], "faces": {"up": [0, 18, 4, 20], "down": [4, 18, 8, 20], "front": [0, 20, 2, 23], "back": [2, 20, 6, 23], "right": [6, 20, 8, 23], "left": [8, 20, 10, 23]}}
+      ]
+    },
+    {
+      "name": "left_arm", "pivot": [4, 15, -0.5],
+      "cubes": [
+        {"origin": [-3, 0, -1], "size": [4, 3, 2], "uv": [1, 18], "mirror": true, "faces": {"up": [0, 18, 4, 20], "down": [4, 18, 8, 20], "front": [0, 20, 2, 23], "back": [2, 20, 6, 23], "right": [6, 20, 8, 23], "left": [8, 20, 10, 23]}}
+      ]
+    },
+    {
+      "name": "right_leg", "pivot": [-1.5, 17, 0],
+      "cubes": [
+        {"origin": [-1.5, 0, -1], "size": [3, 5, 2], "uv": [15, 22]}
+      ]
+    },
+    {
+      "name": "left_leg", "pivot": [1.5, 17, 0],
+      "cubes": [
+        {"origin": [-1.5, 0, -1], "size": [3, 5, 2], "uv": [15, 22], "mirror": true}
+      ]
+    }
+  ]
+}

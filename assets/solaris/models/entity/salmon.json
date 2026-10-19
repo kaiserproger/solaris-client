@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "id": "salmon",
+  "texture": {"path": "entity/fish/salmon.png", "size": [32, 32]},
+  "bones": [
+    {
+      "name": "head", "pivot": [0, 15, 0],
+      "cubes": [
+        {"origin": [-3.5, 0, -4], "size": [3, 4, 3], "uv": [19, 0]}
+      ]
+    },
+    {
+      "name": "head_right", "pivot": [0, 15.5, 0], "rotation": [0, 180, 0],
+      "cubes": [
+        {"origin": [0, 0, -2], "size": [2, 3, 2], "uv": [22, 1]}
+      ]
+    },
+    {
+      "name": "body_front", "pivot": [0, 15, -4],
+      "cubes": [
+        {"origin": [-1.5, 0, -4], "size": [3, 4, 4], "uv": [4, 4]}
+      ]
+    },
+    {
+      "name": "body_rear", "pivot": [0, 14.5, -8],
+      "cubes": [
+        {"origin": [-1, 0, -5], "size": [2, 5, 5], "uv": [5, 16]}
+      ]
+    },
+    {
+      "name": "tail", "pivot": [0, 15, -13],
+      "cubes": [
+        {"origin": [-0.5, -1, -2], "size": [1, 3, 4], "uv": [26, 16], "faces": {"right": [26, 17, 30, 20], "left": [26, 17, 30, 20], "up": [26, 17, 27, 20], "down": [26, 17, 27, 20], "front": [26, 17, 27, 20], "back": [26, 17, 27, 20]}}
+      ]
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "schema": 1,
+  "id": "armor_baby_head",
+  "texture": {"path": "entity/equipment/humanoid_baby/iron.png", "size": [64, 64]},
+  "roles": {
+    "head": ["head"]
+  },
+  "bones": [
+    {
+      "name": "head", "pivot": [0.0, 10.0, 0.0],
+      "cubes": [
+        {"origin": [-4.0, -6.0, -4.0], "size": [8, 8, 8], "uv": [0, 0], "inflate": 1.0}
+      ]
+    }
+  ]
+}

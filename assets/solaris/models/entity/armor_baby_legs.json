@@ -1,0 +1,29 @@
+{
+  "schema": 1,
+  "id": "armor_baby_legs",
+  "texture": {"path": "entity/equipment/humanoid_baby/iron.png", "size": [64, 64]},
+  "roles": {
+    "right_leg": ["right_leg"],
+    "left_leg": ["left_leg"]
+  },
+  "bones": [
+    {
+      "name": "body", "pivot": [0.0, 16.0, 0.0],
+      "cubes": [
+        {"origin": [-3.5, 0.5, -1.5], "size": [7, 3, 3], "uv": [8, 17], "inflate": 0.5}
+      ]
+    },
+    {
+      "name": "right_leg", "pivot": [-2.0, 18.0, 0.0],
+      "cubes": [
+        {"origin": [-2.0, 0.0, -2.0], "size": [4, 5, 4], "uv": [2, 16], "inflate": 0.5}
+      ]
+    },
+    {
+      "name": "left_leg", "pivot": [2.0, 18.0, 0.0],
+      "cubes": [
+        {"origin": [-2.0, 0.0, -2.0], "size": [4, 5, 4], "uv": [2, 16], "inflate": 0.5, "mirror": true}
+      ]
+    }
+  ]
+}

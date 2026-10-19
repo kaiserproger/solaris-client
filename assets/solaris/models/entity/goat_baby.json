@@ -1,0 +1,66 @@
+{
+  "schema": 1,
+  "id": "goat_baby",
+  "texture": {"path": "entity/goat/goat_baby.png", "size": [64, 64]},
+  "roles": {
+    "head": ["head"],
+    "right_leg": ["right_hind_leg", "left_front_leg"],
+    "left_leg": ["left_hind_leg", "right_front_leg"]
+  },
+  "bones": [
+    {
+      "name": "head", "pivot": [0, 13, -4],
+      "cubes": [
+        {"origin": [-2, -3, -2], "size": [4, 6, 4], "uv": [6, 0]}
+      ]
+    },
+    {
+      "name": "muzzle", "pivot": [0, 15, -7],
+      "cubes": [
+        {"origin": [-2, -2, -2], "size": [4, 4, 4], "uv": [6, 10]}
+      ]
+    },
+    {
+      "name": "right_horn", "pivot": [-2, 9, -5],
+      "cubes": [
+        {"origin": [-1, -2, -1], "size": [2, 4, 2], "uv": [20, 0]}
+      ]
+    },
+    {
+      "name": "left_horn", "pivot": [2, 9, -5],
+      "cubes": [
+        {"origin": [-1, -2, -1], "size": [2, 4, 2], "uv": [20, 0], "mirror": true}
+      ]
+    },
+    {
+      "name": "body", "pivot": [0, 14, 2],
+      "cubes": [
+        {"origin": [-4, -3, -3], "size": [8, 8, 6], "uv": [6, 20]}
+      ]
+    },
+    {
+      "name": "right_hind_leg", "pivot": [-2.5, 18, 5],
+      "cubes": [
+        {"origin": [-1.5, 0, -1.5], "size": [3, 6, 3], "uv": [8, 32]}
+      ]
+    },
+    {
+      "name": "left_hind_leg", "pivot": [2.5, 18, 5],
+      "cubes": [
+        {"origin": [-1.5, 0, -1.5], "size": [3, 6, 3], "uv": [8, 32], "mirror": true}
+      ]
+    },
+    {
+      "name": "right_front_leg", "pivot": [-2.5, 18, 0],
+      "cubes": [
+        {"origin": [-1.5, 0, -1.5], "size": [3, 6, 3], "uv": [8, 32]}
+      ]
+    },
+    {
+      "name": "left_front_leg", "pivot": [2.5, 18, 0],
+      "cubes": [
+        {"origin": [-1.5, 0, -1.5], "size": [3, 6, 3], "uv": [8, 32], "mirror": true}
+      ]
+    }
+  ]
+}

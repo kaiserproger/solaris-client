@@ -1,0 +1,62 @@
+{
+  "schema": 1,
+  "id": "armor_stand",
+  "texture": {"path": "entity/armorstand/armorstand.png", "size": [64, 64]},
+  "roles": {
+    "head": ["head"],
+    "right_arm": ["right_arm"],
+    "left_arm": ["left_arm"],
+    "right_leg": ["right_leg"],
+    "left_leg": ["left_leg"]
+  },
+  "bones": [
+    {
+      "name": "head", "pivot": [0.0, 1.0, 0.0],
+      "cubes": [
+        {"origin": [-1.0, -6.0, -1.0], "size": [2, 7, 2], "uv": [0, 0]}
+      ]
+    },
+    {
+      "name": "body", "pivot": [0.0, 0.0, 0.0],
+      "cubes": [
+        {"origin": [-1.0, 0.0, -0.5], "size": [2, 13, 1], "uv": [32, 16]}
+      ]
+    },
+    {
+      "name": "right_arm", "pivot": [-5.0, 2.0, 0.0],
+      "cubes": [
+        {"origin": [-1.0, 0.0, -1.0], "size": [2, 12, 2], "uv": [32, 16]}
+      ]
+    },
+    {
+      "name": "left_arm", "pivot": [5.0, 2.0, 0.0],
+      "cubes": [
+        {"origin": [-1.0, 0.0, -1.0], "size": [2, 12, 2], "uv": [32, 16]}
+      ]
+    },
+    {
+      "name": "right_leg", "pivot": [-1.9, 11.0, 0.0],
+      "cubes": [
+        {"origin": [-1.0, 0.0, -1.0], "size": [2, 13, 2], "uv": [0, 48]}
+      ]
+    },
+    {
+      "name": "left_leg", "pivot": [1.9, 11.0, 0.0],
+      "cubes": [
+        {"origin": [-1.0, 0.0, -1.0], "size": [2, 13, 2], "uv": [0, 48]}
+      ]
+    },
+    {
+      "name": "base_plate", "pivot": [0.0, 0.0, 0.0],
+      "cubes": [
+        {"origin": [-6.0, 11.0, -6.0], "size": [12, 1, 12], "uv": [0, 32]}
+      ]
+    },
+    {
+      "name": "shoulder_sticks", "pivot": [0.0, 0.0, 0.0],
+      "cubes": [
+        {"origin": [-6.0, 4.5, -0.5], "size": [12, 1, 1], "uv": [16, 32]}
+      ]
+    }
+  ]
+}

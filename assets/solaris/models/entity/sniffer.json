@@ -1,0 +1,72 @@
+{
+  "schema": 1,
+  "id": "sniffer",
+  "texture": {"path": "entity/sniffer/sniffer.png", "size": [192, 192]},
+  "roles": {
+    "head": ["head"],
+    "right_leg": ["right_hind_leg", "left_front_leg"],
+    "left_leg": ["left_hind_leg", "right_front_leg"]
+  },
+  "bones": [
+    {
+      "name": "head", "pivot": [0, 10, -20],
+      "cubes": [
+        {"origin": [-7, -6, -6], "size": [14, 12, 12], "uv": [8, 4]}
+      ]
+    },
+    {
+      "name": "snout", "pivot": [0, 14, -30],
+      "cubes": [
+        {"origin": [-5, -5, -5], "size": [10, 10, 10], "uv": [19, 36]}
+      ]
+    },
+    {
+      "name": "right_ear", "pivot": [-12, 8, -18],
+      "cubes": [
+        {"origin": [-3, -5, -2], "size": [6, 10, 4], "uv": [2, 7]}
+      ]
+    },
+    {
+      "name": "left_ear", "pivot": [12, 8, -18],
+      "cubes": [
+        {"origin": [-3, -5, -2], "size": [6, 10, 4], "uv": [44, 7], "mirror": true}
+      ]
+    },
+    {
+      "name": "body", "pivot": [0, 8, 8],
+      "cubes": [
+        {"origin": [-12, -6, -10], "size": [24, 12, 20], "uv": [62, 8]}
+      ]
+    },
+    {
+      "name": "belly", "pivot": [0, 12, 8],
+      "cubes": [
+        {"origin": [-12, -2, -10], "size": [24, 20, 20], "uv": [62, 95]}
+      ]
+    },
+    {
+      "name": "right_hind_leg", "pivot": [-8, 6, 14],
+      "cubes": [
+        {"origin": [-4, 0, -4], "size": [8, 18, 8], "uv": [8, 87]}
+      ]
+    },
+    {
+      "name": "left_hind_leg", "pivot": [8, 6, 14],
+      "cubes": [
+        {"origin": [-4, 0, -4], "size": [8, 18, 8], "uv": [8, 87], "mirror": true}
+      ]
+    },
+    {
+      "name": "right_front_leg", "pivot": [-8, 6, -6],
+      "cubes": [
+        {"origin": [-4, 0, -4], "size": [8, 18, 8], "uv": [40, 87]}
+      ]
+    },
+    {
+      "name": "left_front_leg", "pivot": [8, 6, -6],
+      "cubes": [
+        {"origin": [-4, 0, -4], "size": [8, 18, 8], "uv": [40, 87], "mirror": true}
+      ]
+    }
+  ]
+}

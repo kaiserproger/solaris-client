@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "id": "conduit_eye",
+  "texture": {"path": "entity/conduit/open_eye.png", "size": [16, 16]},
+  "bones": [
+    {
+      "name": "eye", "pivot": [0.0, 0.0, 0.0],
+      "cubes": [
+        {"faces": {"back": [0, 0, 8, 8], "down": [0, 0, 8, 8], "front": [0, 0, 8, 8], "left": [0, 0, 8, 8], "right": [0, 0, 8, 8], "up": [0, 0, 8, 8]}, "origin": [-4.0, -4.0, 0.0], "size": [8, 8, 0], "uv": [0, 0]}
+      ]
+    }
+  ]
+}

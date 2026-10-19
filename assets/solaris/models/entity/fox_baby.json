@@ -1,0 +1,57 @@
+{
+  "schema": 1,
+  "id": "fox_baby",
+  "texture": {"path": "entity/fox/fox_baby.png", "size": [32, 32]},
+  "roles": {
+    "head": ["head"],
+    "right_leg": ["right_hind_leg", "left_front_leg"],
+    "left_leg": ["left_hind_leg", "right_front_leg"]
+  },
+  "bones": [
+    {
+      "name": "head", "pivot": [0, 14, -3],
+      "cubes": [
+        {"origin": [-2, -2, -2], "size": [4, 4, 4], "uv": [5, 0]},
+        {"origin": [-2, -1, -4], "size": [1, 2, 1], "uv": [10, 0]},
+        {"origin": [1, -1, -4], "size": [1, 2, 1], "uv": [10, 0], "mirror": true},
+        {"origin": [-1, 1, -5], "size": [2, 2, 2], "uv": [6, 9]}
+      ]
+    },
+    {
+      "name": "body", "pivot": [0, 18, 0], "rotation": [90, 0, 0],
+      "cubes": [
+        {"origin": [-2, -4, -2], "size": [4, 6, 4], "uv": [6, 16]}
+      ]
+    },
+    {
+      "name": "right_hind_leg", "pivot": [-1.5, 18, 2],
+      "cubes": [
+        {"origin": [-1, 0, -1], "size": [2, 6, 2], "uv": [6, 20]}
+      ]
+    },
+    {
+      "name": "left_hind_leg", "pivot": [1.5, 18, 2],
+      "cubes": [
+        {"origin": [-1, 0, -1], "size": [2, 6, 2], "uv": [6, 20], "mirror": true}
+      ]
+    },
+    {
+      "name": "right_front_leg", "pivot": [-1.5, 18, -3],
+      "cubes": [
+        {"origin": [-1, 0, -1], "size": [2, 6, 2], "uv": [20, 20]}
+      ]
+    },
+    {
+      "name": "left_front_leg", "pivot": [1.5, 18, -3],
+      "cubes": [
+        {"origin": [-1, 0, -1], "size": [2, 6, 2], "uv": [20, 20], "mirror": true}
+      ]
+    },
+    {
+      "name": "tail", "pivot": [0, 17, 3], "rotation": [-60, 0, 0],
+      "cubes": [
+        {"origin": [-1.5, 0, -1], "size": [3, 3, 3], "uv": [18, 20]}
+      ]
+    }
+  ]
+}

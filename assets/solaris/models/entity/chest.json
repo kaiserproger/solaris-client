@@ -1,0 +1,25 @@
+{
+  "schema": 1,
+  "id": "chest",
+  "texture": {"path": "entity/chest/normal.png", "size": [64, 64]},
+  "bones": [
+    {
+      "name": "body", "pivot": [0.0, 0.0, 0.0],
+      "cubes": [
+        {"origin": [-7.0, 9.0, -7.0], "size": [14, 9, 14], "uv": [0, 19]}
+      ]
+    },
+    {
+      "name": "lid", "pivot": [0.0, 9.0, 7.0],
+      "cubes": [
+        {"origin": [-7.0, -5.0, -14.0], "size": [14, 5, 14], "uv": [0, 0]}
+      ]
+    },
+    {
+      "name": "lock", "pivot": [0.0, 9.0, 7.0],
+      "cubes": [
+        {"faces": {"front": [1, 0, 3, 4]}, "origin": [-1.0, -4.0, -15.0], "size": [2, 4, 1], "uv": [1, 0]}
+      ]
+    }
+  ]
+}

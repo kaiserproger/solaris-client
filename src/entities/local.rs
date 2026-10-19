@@ -207,13 +207,7 @@ impl Store {
             .unwrap()
             .as_ref()
             .map_err(Clone::clone)?;
-        let rig = self
-            .models
-            .as_ref()
-            .unwrap()
-            .rigs
-            .get(&binding.rig)
-            .ok_or("local player rig is not activated")?;
+        let rig = self.models.as_ref().unwrap().rig(&binding.rig);
         let name = if right { "right_arm" } else { "left_arm" };
         let bone = rig
             .bones

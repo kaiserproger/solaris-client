@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "id": "trident",
+  "texture": {"path": "entity/trident/trident.png", "size": [32, 32]},
+  "bones": [
+    {
+      "name": "pole", "pivot": [0, 0, 0],
+      "cubes": [
+        {"origin": [-1, -22, 0], "size": [2, 30, 0], "uv": [0, 1], "faces": {"up": [0, 0, 1, 1], "down": [0, 0, 1, 1], "right": [0, 0, 1, 1], "left": [0, 0, 1, 1]}},
+        {"origin": [0, -22, -1], "size": [0, 30, 2], "uv": [0, 0], "faces": {"up": [0, 0, 1, 1], "down": [0, 0, 1, 1], "front": [0, 0, 1, 1], "back": [0, 0, 1, 1]}}
+      ]
+    },
+    {
+      "name": "head", "pivot": [0, 8, 0],
+      "cubes": [
+        {"origin": [-2, -18, -1], "size": [3, 4, 1], "uv": [0, 4], "faces": {}},
+        {"origin": [-5, -14, 0], "size": [2, 6, 0], "uv": [0, 0], "faces": {"front": [4, 4, 6, 8], "back": [4, 4, 6, 8], "up": [4, 4, 6, 5], "down": [4, 7, 6, 8], "right": [4, 4, 5, 8], "left": [5, 4, 6, 8]}},
+        {"origin": [3, -14, 0], "size": [2, 6, 0], "uv": [0, 0], "mirror": true, "faces": {"front": [4, 4, 6, 8], "back": [4, 4, 6, 8], "up": [4, 4, 6, 5], "down": [4, 7, 6, 8], "right": [4, 4, 5, 8], "left": [5, 4, 6, 8]}},
+        {"origin": [-1, -14, 0], "size": [2, 6, 0], "uv": [0, 0], "faces": {"front": [2, 4, 4, 8], "back": [2, 4, 4, 8], "up": [2, 4, 4, 5], "down": [2, 7, 4, 8], "right": [2, 4, 3, 8], "left": [3, 4, 4, 8]}}
+      ]
+    }
+  ]
+}

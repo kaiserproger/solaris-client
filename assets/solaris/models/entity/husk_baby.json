@@ -1,0 +1,50 @@
+{
+  "schema": 1,
+  "id": "husk_baby",
+  "texture": {"path": "entity/zombie/husk_baby.png", "size": [64, 64]},
+  "roles": {
+    "head": ["head"],
+    "right_arm": ["right_arm"],
+    "left_arm": ["left_arm"],
+    "right_leg": ["right_leg"],
+    "left_leg": ["left_leg"]
+  },
+  "bones": [
+    {
+      "name": "head", "pivot": [0, 8, 0],
+      "cubes": [
+        {"origin": [-4, -6, -2], "size": [8, 6, 4], "uv": [9, 3]}
+      ]
+    },
+    {
+      "name": "body", "pivot": [0, 8, 0],
+      "cubes": [
+        {"origin": [-4, 0, -2], "size": [8, 6, 4], "uv": [16, 16]}
+      ]
+    },
+    {
+      "name": "right_arm", "pivot": [-5, 9, 0],
+      "cubes": [
+        {"origin": [-2, -1, -1], "size": [3, 6, 2], "uv": [0, 16]}
+      ]
+    },
+    {
+      "name": "left_arm", "pivot": [5, 9, 0],
+      "cubes": [
+        {"origin": [-1, -1, -1], "size": [3, 6, 2], "uv": [0, 16]}
+      ]
+    },
+    {
+      "name": "right_leg", "pivot": [-2, 14, 0],
+      "cubes": [
+        {"origin": [-2, 0, -2], "size": [4, 10, 4], "uv": [28, 16]}
+      ]
+    },
+    {
+      "name": "left_leg", "pivot": [2, 14, 0],
+      "cubes": [
+        {"origin": [-2, 0, -2], "size": [4, 10, 4], "uv": [28, 16]}
+      ]
+    }
+  ]
+}

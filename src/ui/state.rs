@@ -822,10 +822,7 @@ impl UiState {
             crate::entities::PlayerModel::Slim => "minecraft:player_slim#main",
             crate::entities::PlayerModel::Wide => "minecraft:player#main",
         };
-        let rig = models
-            .rigs
-            .get(rig_name)
-            .ok_or("player preview rig not activated")?;
+        let rig = models.rig(rig_name);
         let mut matrices = Vec::with_capacity(rig.bones.len());
         let mut quads = Vec::new();
         for bone in &rig.bones {

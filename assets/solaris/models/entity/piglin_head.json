@@ -1,0 +1,25 @@
+{
+  "schema": 1,
+  "id": "piglin_head",
+  "texture": {"path": "entity/piglin/piglin.png", "size": [64, 64]},
+  "bones": [
+    {
+      "name": "head", "pivot": [0, 0, 0],
+      "cubes": [
+        {"origin": [-4, -8, -4], "size": [8, 8, 8], "uv": [0, 0]}
+      ]
+    },
+    {
+      "name": "right_ear", "pivot": [-4, -6, 0],
+      "cubes": [
+        {"origin": [-3, -2, -1.5], "size": [3, 5, 1], "uv": [31, 1]}
+      ]
+    },
+    {
+      "name": "left_ear", "pivot": [4, -6, 0],
+      "cubes": [
+        {"origin": [0, -2, -1.5], "size": [3, 5, 1], "uv": [31, 1], "mirror": true}
+      ]
+    }
+  ]
+}

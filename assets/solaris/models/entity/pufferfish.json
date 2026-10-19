@@ -1,0 +1,25 @@
+{
+  "schema": 1,
+  "id": "pufferfish",
+  "texture": {"path": "entity/fish/pufferfish.png", "size": [32, 32]},
+  "bones": [
+    {
+      "name": "body", "pivot": [0, 14, 0],
+      "cubes": [
+        {"origin": [-4, 0, -4], "size": [8, 8, 8], "uv": [0, 0]}
+      ]
+    },
+    {
+      "name": "tail_base", "pivot": [0, 15, 4],
+      "cubes": [
+        {"origin": [-1.5, 0, -2], "size": [3, 3, 5], "uv": [16, 22]}
+      ]
+    },
+    {
+      "name": "tail", "pivot": [0, 14.5, 9],
+      "cubes": [
+        {"origin": [-0.5, 0, -4], "size": [1, 5, 8], "uv": [12, 24], "faces": {"right": [12, 27, 20, 32], "left": [12, 27, 20, 32], "up": [12, 27, 13, 32], "down": [12, 27, 13, 32], "front": [12, 27, 13, 32], "back": [12, 27, 13, 32]}}
+      ]
+    }
+  ]
+}

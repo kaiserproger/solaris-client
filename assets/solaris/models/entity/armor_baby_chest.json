@@ -1,0 +1,29 @@
+{
+  "schema": 1,
+  "id": "armor_baby_chest",
+  "texture": {"path": "entity/equipment/humanoid_baby/iron.png", "size": [64, 64]},
+  "roles": {
+    "right_arm": ["right_arm"],
+    "left_arm": ["left_arm"]
+  },
+  "bones": [
+    {
+      "name": "body", "pivot": [0.0, 16.0, 0.0],
+      "cubes": [
+        {"origin": [-4.0, 0.0, -2.0], "size": [8, 4, 4], "uv": [0, 16], "inflate": 1.0}
+      ]
+    },
+    {
+      "name": "right_arm", "pivot": [-5.0, 17.0, -1.0],
+      "cubes": [
+        {"origin": [-2.0, -2.0, -2.0], "size": [4, 5, 4], "uv": [0, 16], "inflate": 1.0}
+      ]
+    },
+    {
+      "name": "left_arm", "pivot": [5.0, 17.0, -1.0],
+      "cubes": [
+        {"origin": [-2.0, -2.0, -2.0], "size": [4, 5, 4], "uv": [0, 16], "inflate": 1.0, "mirror": true}
+      ]
+    }
+  ]
+}

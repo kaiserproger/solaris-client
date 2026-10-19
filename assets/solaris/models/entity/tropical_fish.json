@@ -1,0 +1,25 @@
+{
+  "schema": 1,
+  "id": "tropical_fish",
+  "texture": {"path": "entity/fish/tropical_a.png", "size": [32, 32]},
+  "bones": [
+    {
+      "name": "body", "pivot": [0, 16, 0],
+      "cubes": [
+        {"origin": [-1, 0, -3], "size": [2, 3, 6], "uv": [0, 0]}
+      ]
+    },
+    {
+      "name": "dorsal", "pivot": [0, 14, -2],
+      "cubes": [
+        {"origin": [-0.5, 0, -2], "size": [1, 2, 4], "uv": [6, 0]}
+      ]
+    },
+    {
+      "name": "tail", "pivot": [0, 16, 3],
+      "cubes": [
+        {"origin": [-0.5, -1, -1], "size": [1, 4, 2], "uv": [2, 12]}
+      ]
+    }
+  ]
+}

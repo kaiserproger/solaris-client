@@ -1,0 +1,57 @@
+{
+  "schema": 1,
+  "id": "ocelot_baby",
+  "texture": {"path": "entity/cat/ocelot_baby.png", "size": [32, 32]},
+  "roles": {
+    "head": ["head"],
+    "right_leg": ["right_hind_leg", "left_front_leg"],
+    "left_leg": ["left_hind_leg", "right_front_leg"]
+  },
+  "bones": [
+    {
+      "name": "head", "pivot": [0, 15, -2],
+      "cubes": [
+        {"origin": [-2, -2, -1], "size": [4, 4, 2], "uv": [4, 0]},
+        {"origin": [-2, -1, -3], "size": [1, 1, 1], "uv": [20, 0]},
+        {"origin": [1, -1, -3], "size": [1, 1, 1], "uv": [20, 0], "mirror": true},
+        {"origin": [-1, 0, -4], "size": [2, 2, 1], "uv": [7, 8]}
+      ]
+    },
+    {
+      "name": "body", "pivot": [0, 18, 0], "rotation": [90, 0, 0],
+      "cubes": [
+        {"origin": [-1, -4, -3], "size": [2, 6, 4], "uv": [0, 15]}
+      ]
+    },
+    {
+      "name": "right_hind_leg", "pivot": [-1.5, 18, 2],
+      "cubes": [
+        {"origin": [-1, 0, -1], "size": [2, 6, 2], "uv": [5, 18]}
+      ]
+    },
+    {
+      "name": "left_hind_leg", "pivot": [1.5, 18, 2],
+      "cubes": [
+        {"origin": [-1, 0, -1], "size": [2, 6, 2], "uv": [5, 18], "mirror": true}
+      ]
+    },
+    {
+      "name": "right_front_leg", "pivot": [-1.5, 18, -3],
+      "cubes": [
+        {"origin": [-1, 0, -1], "size": [2, 6, 2], "uv": [12, 20]}
+      ]
+    },
+    {
+      "name": "left_front_leg", "pivot": [1.5, 18, -3],
+      "cubes": [
+        {"origin": [-1, 0, -1], "size": [2, 6, 2], "uv": [12, 24], "mirror": true}
+      ]
+    },
+    {
+      "name": "tail", "pivot": [0, 17, 3], "rotation": [-30, 0, 0],
+      "cubes": [
+        {"origin": [-0.5, 0, -1], "size": [1, 4, 1], "uv": [0, 23]}
+      ]
+    }
+  ]
+}

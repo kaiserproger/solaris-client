@@ -1,0 +1,20 @@
+{
+  "schema": 1,
+  "id": "shield",
+  "texture": {"path": "entity/shield/shield_base.png", "size": [64, 64]},
+  "bones": [
+    {
+      "name": "plate", "pivot": [0, 0, 0],
+      "cubes": [
+        {"origin": [-5, -8, -0.5], "size": [10, 16, 1], "uv": [0, 6]}
+      ]
+    },
+    {
+      "name": "grip", "pivot": [0, 0, 0],
+      "cubes": [
+        {"origin": [-1, -3, 0.5], "size": [2, 6, 2], "uv": [0, 0]},
+        {"origin": [-3, -1, 0.5], "size": [6, 2, 2], "uv": [8, 0]}
+      ]
+    }
+  ]
+}

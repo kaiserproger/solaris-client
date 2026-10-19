@@ -1,0 +1,22 @@
+{
+  "schema": 1,
+  "id": "bee_baby",
+  "texture": {"path": "entity/bee/bee_baby.png", "size": [32, 32]},
+  "roles": {
+    "head": ["head"]
+  },
+  "bones": [
+    {
+      "name": "head", "pivot": [0, 20, -2],
+      "cubes": [
+        {"origin": [-2, -2, -2.5], "size": [4, 4, 5], "uv": [4, 0]}
+      ]
+    },
+    {
+      "name": "body", "pivot": [0, 21, 3],
+      "cubes": [
+        {"origin": [-2, -1, -2], "size": [4, 2, 4], "uv": [0, 10]}
+      ]
+    }
+  ]
+}
