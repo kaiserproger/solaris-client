@@ -39,7 +39,9 @@ mesh dumps are copied.
   (swapped corners flip) for flat planes.
 * `roles` lists the bones the generic animation drives: `head` (look pitch/yaw), `right_leg` /
   `left_leg` (opposite swing phase; quadrupeds list diagonal pairs), `right_arm` / `left_arm`,
-  `wing` (flap). Bone names must be unique; code also special-cases `body` (sneak) and the
+  `wing` (flap), `crossed_arms` (villager-family arms bone: held-item anchor of the source
+  `CrossedArmsItemLayer`; not animated) and `nose` (witch nose: the potion anchor, tilts forward
+  while the main hand holds an item). Bone names must be unique; code also special-cases `body` (sneak) and the
   humanoid names for armor stands and first-person arms.
 
 ## Rig keys

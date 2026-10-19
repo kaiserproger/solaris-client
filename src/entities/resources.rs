@@ -108,6 +108,10 @@ pub enum BoneRole {
     RightLeg,
     LeftLeg,
     Wing,
+    /// Villager-family `arms` bone: the main-hand item rests across it (`CrossedArmsItemLayer`).
+    CrossedArms,
+    /// Witch nose: a held potion hangs from it.
+    Nose,
 }
 pub struct Bone {
     pub parent: Option<usize>,

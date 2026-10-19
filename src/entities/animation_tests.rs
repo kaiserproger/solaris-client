@@ -567,3 +567,69 @@ fn first_person_local_avatar_ignores_empty_equipment_stacks() {
     assert_eq!(equipment[0].as_ref().map(|s| s.id), Some(1));
     assert!(equipment[1..].iter().all(Option::is_none));
 }
+
+/// The villager family has no per-hand arm bones, only the crossed `arms`: the main-hand item
+/// (a witch's potion hangs from the nose) must still be emitted, at that anchor.
+#[test]
+fn crossed_arms_rigs_emit_the_held_item_at_the_source_anchor() {
+    use crate::protocol::content::Content;
+    let (models, mut entity) = fixture();
+    let content = {
+        let mut content = Content::test_cube();
+        content.item_names.insert(1, "minecraft:stick".into());
+        content.item_names.insert(2, "minecraft:potion".into());
+        content
+    };
+    let cube = Content::test_cube().models[0].clone();
+    for (kind, item, anchor) in [
+        ("minecraft:villager", 1, "arms"),
+        ("minecraft:wandering_trader", 1, "arms"),
+        ("minecraft:witch", 1, "arms"),
+        ("minecraft:witch", 2, "nose"),
+    ] {
+        let rig = solaris_models::authored(kind).unwrap();
+        let mut items = crate::ui::items::ItemModels::new();
+        items.insert_test_model("test:held", cube.clone());
+        let mut stack = Stack::default();
+        stack.id = item;
+        stack.count = 1;
+        stack.components = Arc::new(BTreeMap::from([(
+            "minecraft:item_model".into(),
+            serde_json::json!("test:held"),
+        )]));
+        entity.type_name = kind.into();
+        entity.equipment[0] = Some(stack);
+        let mut transforms = vec![];
+        presentation::evaluate_rig(rig, &entity, &models, 0, 0., Mat4::IDENTITY, &mut transforms);
+        let mut out = DynamicGeometry::default();
+        let mut stats = presentation::PresentationStats::default();
+        presentation::append_equipment(
+            &entity,
+            rig,
+            &transforms,
+            &mut items,
+            &mut equipment::Cache::default(),
+            Mat4::IDENTITY,
+            &content,
+            &models,
+            0,
+            0.,
+            [15., 0.],
+            &mut out,
+            &mut stats,
+        )
+        .unwrap();
+        assert!(stats.unrendered.is_empty(), "{kind}: {:?}", stats.unrendered);
+        assert_eq!(out.vertices.len(), 24, "{kind} item {item} emitted");
+        let centroid = out
+            .vertices
+            .iter()
+            .fold(Vec3::ZERO, |sum, v| sum + Vec3::from_array(v.position))
+            / out.vertices.len() as f32;
+        let bone = transforms[rig.part_by_name[anchor]].transform_point3(Vec3::ZERO);
+        assert!(
+            (centroid - bone).length() < 0.45,
+            "{kind}: item at {centroid:?} not at {anchor} {bone:?}"
+        );
+    }
+}

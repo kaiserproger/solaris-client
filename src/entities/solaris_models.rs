@@ -55,6 +55,8 @@ pub(crate) struct Roles {
     pub right_leg: Vec<String>,
     pub left_leg: Vec<String>,
     pub wing: Vec<String>,
+    pub crossed_arms: Vec<String>,
+    pub nose: Vec<String>,
 }
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -174,6 +176,8 @@ impl ModelFile {
             (BoneRole::RightLeg, &self.roles.right_leg),
             (BoneRole::LeftLeg, &self.roles.left_leg),
             (BoneRole::Wing, &self.roles.wing),
+            (BoneRole::CrossedArms, &self.roles.crossed_arms),
+            (BoneRole::Nose, &self.roles.nose),
         ] {
             for name in names {
                 let index = part_by_name

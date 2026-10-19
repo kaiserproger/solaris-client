@@ -481,6 +481,16 @@ extra rotation or scale; only an empty hand draws the bare arm. Regressions:
 `entities::animation_tests::held_tool_points_forward_from_the_fist_not_along_the_arm`.
 Before/after captures are in `.analysis/issue1/shots/` (`held-*`, `villager-*`).
 
+The villager family (villager, wandering trader, witch) has no per-hand arm bones, only
+the crossed `arms` bone (model role `crossed_arms`; the witch also has the `nose` role). The
+main-hand item is a ground-context item at the source `CrossedArmsItemLayer` pose
+(`presentation::crossed_arms_attachment`); a witch's potion hangs from the nose with the
+`WitchItemLayer` pose (`witch_potion_attachment`) and a held item tilts the nose forward as
+in `WitchModel.setupAnim`. These layers never draw the off hand. Regression:
+`entities::animation_tests::crossed_arms_rigs_emit_the_held_item_at_the_source_anchor`;
+capture `.analysis/heldanchors/held-witch-villager-trader.png` (server
+`/summon ... {equipment:{mainhand:{...}}}`; the 26.1 NBT key is `equipment`, not `HandItems`).
+
 ## Terrain indirect submission and frame CPU measurements
 
 Opaque/cutout terrain uses a single growable vertex arena and index arena.

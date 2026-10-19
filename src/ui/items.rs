@@ -68,6 +68,15 @@ impl ItemModels {
         self.entities = Some(models);
         self.selected.clear();
     }
+    /// Registers `model` under `id` with a one-node item graph (test fixtures only).
+    #[cfg(test)]
+    pub(crate) fn insert_test_model(&mut self, id: &str, model: BakedModel) {
+        self.definitions.insert(
+            id.into(),
+            Arc::new(serde_json::json!({"model":{"type":"minecraft:model","model":id}})),
+        );
+        self.baked.insert(id.into(), model);
+    }
     pub fn clear(&mut self) {
         self.definitions.clear();
         self.baked.clear();

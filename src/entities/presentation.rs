@@ -716,7 +716,12 @@ pub(super) fn evaluate_rig(
                 }
             }
             BoneRole::Wing => rotation.z += (tick as f32 * 0.3 + partial).sin() * 0.3,
-            BoneRole::Fixed => {}
+            // Source `WitchModel.setupAnim`: a held item pulls the nose forward and up.
+            BoneRole::Nose if e.equipment_value(0).is_some() => {
+                pivot = Vec3::new(0., 1., -1.5) / 16.;
+                rotation.x = -0.9;
+            }
+            BoneRole::Nose | BoneRole::CrossedArms | BoneRole::Fixed => {}
         }
         if crouch && bone.name == "body" {
             rotation.x += 0.5;
@@ -872,7 +877,24 @@ pub(super) fn held_item_attachment(bone: Mat4, slot: usize) -> Mat4 {
         * Mat4::from_rotation_x(-std::f32::consts::FRAC_PI_2)
         * Mat4::from_rotation_y(std::f32::consts::PI)
 }
-fn append_equipment(
+/// Source `CrossedArmsItemLayer.applyTranslation`: from the arms bone, rotate X 0.75 rad,
+/// scale 1.07, translate (0, 0.13, -0.34), then flip X by pi.
+pub(super) fn crossed_arms_attachment(arms: Mat4) -> Mat4 {
+    arms * Mat4::from_rotation_x(0.75)
+        * Mat4::from_scale(Vec3::splat(1.07))
+        * Mat4::from_translation(Vec3::new(0., 0.13, -0.34))
+        * Mat4::from_rotation_x(std::f32::consts::PI)
+}
+/// Source `WitchItemLayer.applyTranslation` for a held potion: from the nose bone, translate
+/// (1/16, 0.25, 0), then Z 180, X 140, Z 10 and X 180 degrees.
+pub(super) fn witch_potion_attachment(nose: Mat4) -> Mat4 {
+    nose * Mat4::from_translation(Vec3::new(0.0625, 0.25, 0.))
+        * Mat4::from_rotation_z(std::f32::consts::PI)
+        * Mat4::from_rotation_x(140f32.to_radians())
+        * Mat4::from_rotation_z(10f32.to_radians())
+        * Mat4::from_rotation_x(std::f32::consts::PI)
+}
+pub(super) fn append_equipment(
     e: &Entity,
     rig: &Rig,
     transforms: &[Mat4],
@@ -902,6 +924,50 @@ fn append_equipment(
                     .insert(format!("{}:equipment:{slot}", e.type_name), reason);
                 continue;
             }
+        }
+        // Villager-family rigs hold only the main-hand item, across the crossed arms (or on
+        // the witch's nose for a potion), displayed as a ground item (`HoldingEntityRenderState`).
+        if rig.bones.iter().any(|b| b.role == BoneRole::CrossedArms) && slot < 2 {
+            if slot == 0 {
+                let potion = e.type_name == "minecraft:witch"
+                    && content.item_names.get(&stack.id).map(String::as_str)
+                        == Some("minecraft:potion");
+                let role = if potion {
+                    BoneRole::Nose
+                } else {
+                    BoneRole::CrossedArms
+                };
+                let Some(bone) = rig
+                    .bones
+                    .iter()
+                    .zip(transforms)
+                    .find_map(|(b, m)| (b.role == role).then_some(*m))
+                else {
+                    stats.unrendered.insert(
+                        format!("{}:equipment:0", e.type_name),
+                        "rig has no matching equipment attachment".into(),
+                    );
+                    continue;
+                };
+                let mut state = crate::ui::items::ItemContext::default();
+                state.display = "ground".into();
+                match items.model_with(content, stack, &state) {
+                    Ok(model) => {
+                        let attachment = if potion {
+                            witch_potion_attachment(bone)
+                        } else {
+                            crossed_arms_attachment(bone)
+                        };
+                        append_baked(model, attachment * item_matrix(model, "ground"), light, out)?;
+                    }
+                    Err(reason) => {
+                        stats
+                            .unrendered
+                            .insert(format!("{}:equipment:0", e.type_name), reason);
+                    }
+                }
+            }
+            continue;
         }
         let target = match slot {
             0 => BoneRole::RightArm,
