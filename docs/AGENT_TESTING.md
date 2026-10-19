@@ -55,6 +55,8 @@ Opaque face shading samples the outward neighbor's received sky/block light, inc
 
 Outbound packets queue without a small fixed bound: a burst never ends a session (`outbound queue unavailable: sending on a full channel` was the pre-fix failure when a locked server flooded teleports). The I/O owner drains the queue between every received packet; only a genuinely stalled writer (backlog above 8192 packets, or the 2 s write timeout) is a terminal error.
 
+A missing biome sample never ends the session: after a long `/tp` the camera sits among chunks that have not arrived, and the environment blend simply drops unloaded samples (none loaded = the dimension's biome-less attributes; unloaded camera chunk or sky light = no rain fog) until the chunk arrives, as the vanilla client does. `environment biome sample unloaded` was the pre-fix terminal error for `/tp @s 518 130 64.5` from x 118; the fixed client survived 118→518→900→118 teleports on the local server (`.analysis/tpbiome/`).
+
 ### Native10 bounded Loader resources and navigation
 
 The Native10 source and integrated executable add the generic Loader sections `items`, `world_selection`, `world_previews` and `sounds` alongside views/actions/assets. This is **not full Settlements or graphical acceptance**: `.analysis/native10/handoff.json` records the exact executable, remaining live-package prerequisites and windowed receipts. `.analysis/native10/integrated-proof.json` records 27 focused Loader tests and nine navigation tests; scoped receipts also exercise actual Content model/atlas activation and the existing native audio mixer.

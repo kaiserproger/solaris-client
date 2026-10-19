@@ -554,7 +554,11 @@ impl Environment {
                             .clamp(dimension.min_y, dimension.min_y + dimension.height - 1),
                         (floor[2] - 2 + z as i32) * 4,
                     ];
-                    let id = world.biome(p).ok_or("environment biome sample unloaded")?;
+                    // A sample whose chunk has not arrived (long teleport, view
+                    // edge) is absent and only drops out of the blend; with none
+                    // loaded the dimension's biome-less attributes apply. It never
+                    // ends the session.
+                    let Some(id) = world.biome(p) else { continue };
                     if let Some(i) = sources[..length].iter().position(|v| v.0 == id) {
                         sources[i].1 += weight;
                     } else {
@@ -596,6 +600,24 @@ impl Environment {
             apply_weather(&mut values, self.rain, self.thunder * self.rain);
         }
         Ok(values)
+    }
+    /// Rain-fog target at the camera block. A camera chunk (or its sky light)
+    /// that has not arrived yet contributes no rain fog rather than failing the
+    /// session; the fog eases toward the real target once the data is received.
+    fn rain_fog_target(&self, world: &World, p: [i32; 3], weather: bool, rain: f32) -> Result<f32> {
+        let Some(biome) = world.biome(p) else {
+            return Ok(0.);
+        };
+        let sky = if weather && rain > 0. {
+            world.light_levels(p)[0].map_or(0., f32::from)
+        } else {
+            0.
+        };
+        let precip = *self
+            .precipitation
+            .get(biome as usize)
+            .ok_or("camera biome precipitation unknown")?;
+        Ok(rain * ((sky - 8.) / 7.).clamp(0., 1.) * if precip { 1. } else { 0.5 })
     }
     pub fn evaluate(
         &mut self,
@@ -716,17 +738,7 @@ impl Environment {
             && !facts.darkness_present
         {
             let p = camera.map(|v| v.floor() as i32);
-            let biome = world.biome(p).ok_or("camera biome unloaded")?;
-            let sky = if weather && rain > 0. {
-                world.light_levels(p)[0].ok_or("camera sky light unknown")? as f32
-            } else {
-                0.
-            };
-            let precip = *self
-                .precipitation
-                .get(biome as usize)
-                .ok_or("camera biome precipitation unknown")?;
-            let target = rain * ((sky - 8.) / 7.).clamp(0., 1.) * if precip { 1. } else { 0.5 };
+            let target = self.rain_fog_target(world, p, weather, rain)?;
             let time = self.client_tick as f64 + self.partial as f64;
             let delta = self.last_fog_time.map_or(0., |old| (time - old).max(0.)) as f32;
             self.last_fog_time = Some(time);
@@ -1121,5 +1133,87 @@ mod tests {
         };
         setup_fog(&mut out, &defaults(), [0.; 3], 0., 0., 128., 8, &facts);
         assert_eq!((out.fog_start, out.fog_end), (96., 128.));
+    }
+}
+
+#[cfg(test)]
+mod unloaded_biome_tests {
+    use super::*;
+    use crate::protocol::world::{Chunk, Palette, SurfaceHeightmap, empty_block_entities};
+    use serde_json::json;
+
+    const RED: u32 = 0xffff0000;
+
+    fn environment() -> Environment {
+        let mut e = Environment::new();
+        e.configure_registry(
+            "minecraft:worldgen/biome",
+            &[(
+                "minecraft:plains".into(),
+                json!({"has_precipitation": true, "attributes": {"minecraft:visual/fog_color": "#ff0000"}}),
+            )],
+        )
+        .unwrap();
+        e.activate_dimension(
+            "minecraft:overworld",
+            &json!({"min_y":0,"height":16,"has_skylight":false,"has_ceiling":true,"skybox":"none"}),
+            0,
+        )
+        .unwrap();
+        e
+    }
+    fn chunk() -> Chunk {
+        Chunk {
+            sections: vec![Arc::new(crate::protocol::world::Section {
+                blocks: Palette {
+                    bits: 0,
+                    values: vec![0],
+                    words: Vec::new(),
+                    size: 4096,
+                },
+                biomes: Palette {
+                    bits: 0,
+                    values: vec![0],
+                    words: Vec::new(),
+                    size: 64,
+                },
+                non_empty_block_count: 0,
+            })],
+            sky: BTreeMap::new(),
+            block: BTreeMap::new(),
+            block_entities: empty_block_entities(),
+            surface_heightmap: Arc::new(SurfaceHeightmap::new(16).unwrap()),
+            surface_heightmap_received: false,
+        }
+    }
+
+    /// Long teleports land the camera among chunks that have not arrived. The
+    /// vanilla client keeps rendering with chunk-less biome lookups; a missing
+    /// sample must not end the session.
+    #[test]
+    fn camera_among_unloaded_chunks_yields_neutral_environment() {
+        let e = environment();
+        let world = World::new(0, 16);
+        let values = e.camera_attributes(&world, [518.5, 130., 64.5]).unwrap();
+        assert_eq!(values, defaults());
+    }
+
+    #[test]
+    fn partially_loaded_neighborhood_blends_only_received_biomes() {
+        let e = environment();
+        let mut world = World::new(0, 16);
+        world.insert([0, 0], chunk()).unwrap();
+        let values = e.camera_attributes(&world, [8.5, 8., 8.5]).unwrap();
+        assert_eq!(values[A::FogColor as usize], Datum::Color(RED));
+    }
+
+    #[test]
+    fn unloaded_camera_chunk_holds_rain_fog_at_zero() {
+        let e = environment();
+        let world = World::new(0, 16);
+        assert_eq!(
+            e.rain_fog_target(&world, [518, 130, 64], true, 1.).unwrap(),
+            0.
+        );
     }
 }
