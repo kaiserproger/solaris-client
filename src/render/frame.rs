@@ -78,6 +78,14 @@ impl Renderer {
                 self.stats.culled_chunks += 1;
                 continue;
             }
+            // Frustum rejection precedes every per-frame submission: sections
+            // outside the frustum take no instance slot, no indirect candidate
+            // and no transparent sort. The GPU cull pass stays the backstop for
+            // stale CPU planes, but it must not be the only filter.
+            if !in_frustum {
+                self.stats.culled_chunks += 1;
+                continue;
+            }
             let instance = self.instance_data.len() as u32;
             self.instance_data
                 .push([offset.x, offset.y, offset.z, visibility]);
@@ -96,11 +104,6 @@ impl Renderer {
                         mdi.candidates[material].push(candidate);
                     }
                 }
-            }
-            if !in_frustum {
-                self.visible.pop();
-                self.stats.culled_chunks += 1;
-                continue;
             }
             let range = chunk.mesh.ranges[2].clone();
             if !range.is_empty() {
@@ -892,5 +895,72 @@ mod terrain_translucency_tests {
         for chunk in renderer.chunks.values() {
             assert_eq!(chunk.mesh.ranges, [0..6, 6..12, 12..36]);
         }
+    }
+    #[test]
+    fn frustum_rejection_precedes_instance_and_indirect_submission() {
+        let mut renderer = pollster::block_on(Renderer::new_offscreen(
+            32,
+            32,
+            PathBuf::from(".analysis/frustum-rejection"),
+        ))
+        .unwrap();
+        // Optimized mode (reference_mode off) so the real frustum gate runs.
+        let mut vertices = vec![crate::api::Vertex::zeroed(); 8];
+        for (index, vertex) in vertices.iter_mut().enumerate() {
+            vertex.position = [index as f32, 0., 4.];
+        }
+        let indices = vec![0, 1, 2, 0, 2, 3];
+        // Two residents far apart: the sparse-extents volume guard trips, so
+        // the occlusion flood is unavailable and every section falls through
+        // to the plain frustum test. The origin section overlaps the identity
+        // NDC cube; the distant one does not.
+        for (key, origin) in [([0, 0, 0], [0.; 3]), ([60, 60, 60], [960., 960., 960.])] {
+            let mesh = ResidentMesh::reserve(
+                &renderer.device,
+                &renderer.queue,
+                &mut renderer.vertex_arena,
+                &mut renderer.index_arena,
+                &vertices,
+                [&indices, &[], &[]],
+            )
+            .unwrap();
+            mesh.upload_geometry(
+                &renderer.queue,
+                &renderer.vertex_arena,
+                &renderer.index_arena,
+                &vertices,
+                [&indices, &[], &[]],
+            );
+            renderer.chunks.insert(
+                key,
+                ResidentChunk {
+                    revision: 1,
+                    origin,
+                    bounds_min: [0.; 3],
+                    bounds_max: [16.; 3],
+                    visibility_mask: (1u64 << 36) - 1,
+                    fade_duration_ms: Some(0),
+                    uploaded_time_ms: Some(0),
+                    visibility: None,
+                    mesh,
+                },
+            );
+        }
+        let scene = Scene::default();
+        renderer.prepare_visibility(&scene, Mat4::IDENTITY).unwrap();
+        assert_eq!(renderer.stats.visible_chunks, 1);
+        assert_eq!(renderer.stats.culled_chunks, 1);
+        // Two base instance slots (null + presentation origin) plus exactly
+        // the one visible section: the culled section takes no slot.
+        assert_eq!(renderer.instance_data.len(), 3);
+        // Same for indirect candidates: only the visible section submits one.
+        if let Some(mdi) = &renderer.mdi {
+            assert_eq!(
+                mdi.candidates.iter().map(Vec::len).sum::<usize>(),
+                1,
+                "off-frustum sections must not emit indirect candidates"
+            );
+        }
+        assert!(renderer.transparent.is_empty());
     }
 }

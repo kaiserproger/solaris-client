@@ -343,71 +343,92 @@ impl Player {
                 1.
             };
             let [hx, hy, hz] = view.hand.offset;
-            let root = camera_to_world
-                * Mat4::from_translation(Vec3::new(
-                    side * (0.38 - stroke * 0.16) * (1. - 0.65 * consume) + hx,
-                    -0.32 - (1. - equip) * 0.55
-                        + stroke * 0.1
-                        + view.bob[1]
-                        + use_bob
-                        + hy
-                        + consume * 0.1,
-                    -0.65 + stroke * 0.12 + hz + consume * 0.12,
-                ))
-                * Mat4::from_rotation_z(view.hand.roll_deg.to_radians())
-                * Mat4::from_rotation_y(side * (-stroke * 0.8))
-                * Mat4::from_rotation_x(
-                    -stroke * 0.9
-                        - (1. - equip) * 0.45
-                        - consume * if self.visual.consume_drink { 0.7 } else { 0.35 },
-                );
-            let shoulder = root
-                * Mat4::from_translation(Vec3::new(side * 0.14, -0.58, 0.))
-                * Mat4::from_rotation_z(side * 0.25)
-                * Mat4::from_rotation_x(-0.15);
-            entities.append_local_arm(content, right, shoulder, light, &mut scene.dynamic)?;
+            // `base` is the rest placement of the hand space in front of the camera
+            // (right, up, forward) and `drop` the lowered-hand travel while equipping.
+            // The swing, consume and view-motion deltas are shared by arm and item.
+            let hand_root = |base: Vec3, drop: f32| {
+                camera_to_world
+                    * Mat4::from_translation(Vec3::new(
+                        side * (base.x - stroke * 0.16) * (1. - 0.65 * consume) + hx,
+                        base.y - (1. - equip) * drop
+                            + stroke * 0.1
+                            + view.bob[1]
+                            + use_bob
+                            + hy
+                            + consume * 0.1,
+                        base.z + stroke * 0.12 + hz + consume * 0.12,
+                    ))
+                    * Mat4::from_rotation_z(view.hand.roll_deg.to_radians())
+                    * Mat4::from_rotation_y(side * (-stroke * 0.8))
+                    * Mat4::from_rotation_x(
+                        -stroke * 0.9
+                            - (1. - equip) * 0.45
+                            - consume * if self.visual.consume_drink { 0.7 } else { 0.35 },
+                    )
+            };
             // Ordinary item graphs and resource-pack first-person transforms;
             // the equipped stack is switched only while the hand is lowered.
-            if let Some(stack) = stack {
-                let display = if right {
-                    "firstperson_righthand"
-                } else {
-                    "firstperson_lefthand"
-                };
-                let ctx = ItemContext {
-                    display: display.into(),
-                    using_item: using.is_some(),
-                    use_ticks,
-                    fishing_cast: self.fishing_hook.is_some(),
-                    ..Default::default()
-                };
-                let model = self.visual.items.model_with(content, stack, &ctx)?;
-                let matrix = root
-                    * Mat4::from_translation(Vec3::new(0., 0.13, -0.12))
-                    * Mat4::from_rotation_y(std::f32::consts::PI)
-                    * Mat4::from_scale(Vec3::splat(0.6))
-                    * display_matrix(model, display);
-                for quad in &model.quads {
-                    let color = match quad.tint {
-                        crate::protocol::models::TintKind::Constant(color) => color,
-                        _ => [1.; 3],
+            let held_model = match stack {
+                Some(stack) => {
+                    let display = if right {
+                        "firstperson_righthand"
+                    } else {
+                        "firstperson_lefthand"
                     };
-                    crate::entities::presentation_emit(
-                        quad.positions
-                            .map(|p| matrix.transform_point3(Vec3::from_array(p)).to_array()),
-                        quad.uv,
-                        color,
-                        quad.texture_layer,
-                        if quad.layer == crate::api::RenderLayer::Translucent {
-                            EntityMaterial::ItemTranslucent
-                        } else {
-                            EntityMaterial::ItemCutout
-                        },
-                        quad.alpha,
-                        light,
-                        &mut scene.dynamic,
-                    )?;
+                    let ctx = ItemContext {
+                        display: display.into(),
+                        using_item: using.is_some(),
+                        use_ticks,
+                        fishing_cast: self.fishing_hook.is_some(),
+                        ..Default::default()
+                    };
+                    Some((display, self.visual.items.model_with(content, stack, &ctx)))
                 }
+                None => None,
+            };
+            let (item, failure) = match held_model {
+                None => (None, None),
+                Some((display, Ok(model))) => (Some((display, model)), None),
+                Some((_, Err(reason))) => (None, Some(reason)),
+            };
+            let Some((display, model)) = item else {
+                // Empty hand (or an item without geometry): the bare arm, as the
+                // source's renderPlayerArm; a model failure is still reported.
+                let shoulder = hand_root(Vec3::new(0.38, -0.32, -0.65), 0.55)
+                    * Mat4::from_translation(Vec3::new(side * 0.14, -0.58, 0.))
+                    * Mat4::from_rotation_z(side * 0.25)
+                    * Mat4::from_rotation_x(-0.15);
+                entities.append_local_arm(content, right, shoulder, light, &mut scene.dynamic)?;
+                match failure {
+                    Some(reason) => return Err(reason),
+                    None => continue,
+                }
+            };
+            // A held item replaces the arm (the source draws no arm for a non-empty
+            // hand): the item's own display transform is applied once, from the
+            // source's first-person hand anchor, with no extra rotation or scale.
+            let matrix =
+                hand_root(Vec3::new(0.56, -0.52, -0.72), 0.6) * display_matrix(model, display);
+            for quad in &model.quads {
+                let color = match quad.tint {
+                    crate::protocol::models::TintKind::Constant(color) => color,
+                    _ => [1.; 3],
+                };
+                crate::entities::presentation_emit(
+                    quad.positions
+                        .map(|p| matrix.transform_point3(Vec3::from_array(p)).to_array()),
+                    quad.uv,
+                    color,
+                    quad.texture_layer,
+                    if quad.layer == crate::api::RenderLayer::Translucent {
+                        EntityMaterial::ItemTranslucent
+                    } else {
+                        EntityMaterial::ItemCutout
+                    },
+                    quad.alpha,
+                    light,
+                    &mut scene.dynamic,
+                )?;
             }
         }
         Ok(())

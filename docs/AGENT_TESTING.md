@@ -446,7 +446,11 @@ Biome hat visibility follows resource-pack `villager.hat` texture metadata.
 The pinned 26.1.2 baby models use their baby base and biome textures and omit
 profession/badge passes; unemployed villagers omit profession and badge, while
 nitwits omit only the badge. Wandering traders and iron golems retain their own
-exported family geometry and textures, not the villager or player model.
+skins; the villager, wandering trader, witch and zombie-villager models share the
+vanilla villager unwrap (legs at texture `(0,22)`, jacket at `(0,38)`, crossed
+arms at `(44,22)`/`(40,38)`, hat rim at `(30,47)`). Legs sit inside the jacket and
+show only below its hem; the villager-model family swings them at half the
+humanoid amplitude, like the source `VillagerModel`.
 Focused tests are under `entities::villagers::tests`; these do not alone prove
 actual-window pixels or ordinary acquisition of a profession. Privileged
 profession summons and observer teleports must be labeled in capture receipts.
@@ -460,6 +464,20 @@ Farmer merchant title. `local-baby-villager-front.png` compares a labeled baby
 fixture with adult Farmer and wandering trader models. These captures are
 not full entity-family parity. The later live terrain residency-bound
 disconnect is retained separately and is not a villager-layer failure.
+
+## Held items
+
+Item display transforms follow the source `ItemTransform.apply`: translate, rotate by
+`rotationXYZ(rx, ry, rz)` (matrix `Rx * Ry * Rz`: a vertex is turned about Z first, X
+last), scale, recentre. `ui::items::display_matrix` is the single implementation for
+first/third-person hands, ground, fixed and shelf contexts. Third person attaches at the
+arm bone with the `ItemInHandLayer` pose (`entities::presentation::held_item_attachment`),
+so a handheld tool points forward out of the fist. First person draws a non-empty hand
+as the item alone at the source hand anchor (right 0.56, down 0.52, forward 0.72) with no
+extra rotation or scale; only an empty hand draws the bare arm. Regressions:
+`ui::items::tests::display_rotation_turns_about_z_first_then_y_then_x` and
+`entities::animation_tests::held_tool_points_forward_from_the_fist_not_along_the_arm`.
+Before/after captures are in `.analysis/issue1/shots/` (`held-*`, `villager-*`).
 
 ## Terrain indirect submission and frame CPU measurements
 

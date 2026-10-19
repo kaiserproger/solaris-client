@@ -185,6 +185,71 @@ fn animation_received_motion_swings_limbs_without_velocity_packets() {
 }
 
 #[test]
+fn animation_villager_model_family_swings_legs_at_half_amplitude() {
+    let (models, mut entity) = fixture();
+    let rig = rig();
+    tick_walk(&models, &mut entity, 0.2);
+    tick_walk(&models, &mut entity, 0.4);
+    let swing = |entity: &Entity| {
+        let mut matrices = vec![];
+        presentation::evaluate_rig(&rig, entity, &models, 2, 1., Mat4::IDENTITY, &mut matrices);
+        matrices[0].transform_vector3(Vec3::Y).z.asin()
+    };
+    let humanoid = swing(&entity);
+    assert!(humanoid.abs() > 0.05, "fixture must actually walk");
+    for name in [
+        "minecraft:villager",
+        "minecraft:wandering_trader",
+        "minecraft:witch",
+    ] {
+        entity.type_name = name.into();
+        let family = swing(&entity);
+        assert!(
+            (family - humanoid * 0.5).abs() < 1e-5,
+            "{name} legs {family} vs humanoid {humanoid}"
+        );
+    }
+}
+
+/// A handheld tool in an arm that hangs at the side must point forward out of the fist
+/// (source ItemInHandLayer + `rotationXYZ` display transform), not lie along the arm.
+#[test]
+fn held_tool_points_forward_from_the_fist_not_along_the_arm() {
+    use crate::protocol::models::{BakedModel, ModelTransform};
+    let mut model = BakedModel::default();
+    model.display.insert(
+        "thirdperson_righthand".into(),
+        ModelTransform {
+            rotation: [0., -90., 55.],
+            translation: [0., 4. / 16., 0.5 / 16.],
+            scale: [0.85; 3],
+        },
+    );
+    // Arm bone frame: +Y runs down the arm, model front is -Z.
+    let matrix = presentation::held_item_attachment(Mat4::IDENTITY, 0)
+        * presentation::item_matrix(&model, "thirdperson_righthand");
+    let handle = matrix.transform_point3(Vec3::new(0.1, 0.1, 0.5));
+    let tip = matrix.transform_point3(Vec3::new(0.95, 0.95, 0.5));
+    let blade = tip - handle;
+    assert!(
+        blade.z < -0.9,
+        "blade must point forward (-Z), got {blade:?}"
+    );
+    assert!(blade.x.abs() < 0.05, "no sideways lean, got {blade:?}");
+    assert!(
+        blade.y.abs() < 0.25,
+        "near level, not along the arm, got {blade:?}"
+    );
+    // The grip sits at the fist, 0.625 down the arm and 1/16 outboard of the right arm.
+    assert!(
+        (handle.y - 0.51).abs() < 0.05 && handle.x < 0.,
+        "{handle:?}"
+    );
+    let left = presentation::held_item_attachment(Mat4::IDENTITY, 1);
+    assert!(left.transform_point3(Vec3::ZERO).x > 0.);
+}
+
+#[test]
 fn animation_idle_is_not_driven_by_global_clock_or_stale_velocity() {
     let (models, mut entity) = fixture();
     entity.velocity = [0.5, 0., 0.];

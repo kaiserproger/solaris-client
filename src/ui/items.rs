@@ -222,12 +222,15 @@ impl ItemModels {
         Ok((&selected.1, selected.2))
     }
 }
+/// Source `ItemTransform.apply`: translate, rotate by the quaternion
+/// `rotationXYZ(rx, ry, rz)` (matrix `Rx * Ry * Rz`, so a vertex is turned about Z
+/// first and X last), scale, then recentre the unit-cube model on the origin.
 pub(crate) fn display_matrix(model: &BakedModel, context: &str) -> Mat4 {
     if let Some(t) = model.display.get(context) {
         Mat4::from_translation(Vec3::from_array(t.translation))
-            * Mat4::from_rotation_z(t.rotation[2].to_radians())
-            * Mat4::from_rotation_y(t.rotation[1].to_radians())
             * Mat4::from_rotation_x(t.rotation[0].to_radians())
+            * Mat4::from_rotation_y(t.rotation[1].to_radians())
+            * Mat4::from_rotation_z(t.rotation[2].to_radians())
             * Mat4::from_scale(Vec3::from_array(t.scale))
             * Mat4::from_translation(Vec3::splat(-0.5))
     } else {
@@ -553,7 +556,46 @@ fn apply_graph_transform(m: &mut BakedModel, t: &Value) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::protocol::models::ModelTransform;
     use serde_json::json;
+
+    fn display_fixture(context: &str, transform: ModelTransform) -> BakedModel {
+        let mut model = BakedModel::default();
+        model.display.insert(context.into(), transform);
+        model
+    }
+
+    /// Source `ItemTransform.apply` rotates by `rotationXYZ`, i.e. a vertex is turned about
+    /// Z first and X last. The handheld first-person pose therefore leaves the sprite's
+    /// right edge pointing up and out of the screen plane, not along the view axis.
+    #[test]
+    fn display_rotation_turns_about_z_first_then_y_then_x() {
+        let handheld = ModelTransform {
+            rotation: [0., -90., 25.],
+            translation: [0.; 3],
+            scale: [0.68; 3],
+        };
+        let model = display_fixture("firstperson_righthand", handheld);
+        let sprite_x = display_matrix(&model, "firstperson_righthand").transform_vector3(Vec3::X);
+        let angle = 25f32.to_radians();
+        let expected = Vec3::new(0., angle.sin(), angle.cos()) * 0.68;
+        assert!(
+            (sprite_x - expected).length() < 1e-5,
+            "sprite x axis {sprite_x:?} != {expected:?}"
+        );
+        // Both axes at once make the order observable on a second basis vector.
+        let both = display_fixture(
+            "head",
+            ModelTransform {
+                rotation: [30., 90., 0.],
+                translation: [0.; 3],
+                scale: [1.; 3],
+            },
+        );
+        let z_axis = display_matrix(&both, "head").transform_vector3(Vec3::Z);
+        // Ry(90) sends +Z to +X, then Rx(30) leaves +X alone.
+        assert!((z_axis - Vec3::X).length() < 1e-5, "{z_axis:?}");
+    }
 
     fn potion_tint_fixture(contents: Value) -> (Content, ItemModels, Stack) {
         let content = Content::test_cube();

@@ -656,6 +656,15 @@ pub(super) fn evaluate_rig(
     // The source owner advances WalkRule from interpolated position deltas.
     let phase = living.map_or(0., |state| state.walk.position(partial) * 0.6662);
     let amplitude = living.map_or(0., |state| state.walk.speed(partial));
+    // VillagerModel (villager, wandering trader, witch) swings legs at half the humanoid amplitude.
+    let leg_swing = if matches!(
+        e.type_name.as_str(),
+        "minecraft:villager" | "minecraft:wandering_trader" | "minecraft:witch"
+    ) {
+        0.5
+    } else {
+        1.
+    };
     let t = e.presented_transform(tick, partial);
     let body_yaw = living.map_or(t.yaw, |state| state.body(partial));
     let head_yaw = living.map_or(t.head_yaw, |state| state.head(partial));
@@ -687,9 +696,9 @@ pub(super) fn evaluate_rig(
                 rotation.x += pitch.to_radians();
                 rotation.y += yaw_rel.to_radians();
             }
-            BoneRole::RightLeg => rotation.x += phase.cos() * 1.4 * amplitude,
+            BoneRole::RightLeg => rotation.x += phase.cos() * 1.4 * amplitude * leg_swing,
             BoneRole::LeftLeg => {
-                rotation.x += (phase + std::f32::consts::PI).cos() * 1.4 * amplitude
+                rotation.x += (phase + std::f32::consts::PI).cos() * 1.4 * amplitude * leg_swing
             }
             BoneRole::RightArm => {
                 rotation.x += (phase + std::f32::consts::PI).cos() * amplitude;
@@ -848,16 +857,20 @@ pub(super) fn append_baked(
     Ok(())
 }
 pub(super) fn item_matrix(model: &BakedModel, context: &str) -> Mat4 {
-    if let Some(t) = model.display.get(context) {
-        Mat4::from_translation(Vec3::from_array(t.translation))
-            * Mat4::from_rotation_z(t.rotation[2].to_radians())
-            * Mat4::from_rotation_y(t.rotation[1].to_radians())
-            * Mat4::from_rotation_x(t.rotation[0].to_radians())
-            * Mat4::from_scale(Vec3::from_array(t.scale))
-            * Mat4::from_translation(Vec3::splat(-0.5))
-    } else {
-        Mat4::from_translation(Vec3::splat(-0.5))
-    }
+    crate::ui::items::display_matrix(model, context)
+}
+/// Source `ItemInHandLayer` pose from an arm (or head) bone transform: rotate X -90 and
+/// Y 180, then translate (+-1/16, 0.125, -0.625). Folded through the two rotations
+/// that is (-+1/16, 0.625, -0.125) in the bone frame; heads take no sideways shift.
+pub(super) fn held_item_attachment(bone: Mat4, slot: usize) -> Mat4 {
+    let side = match slot {
+        0 => -1.,
+        1 => 1.,
+        _ => 0.,
+    } / 16.;
+    bone * Mat4::from_translation(Vec3::new(side, 0.625, -0.125))
+        * Mat4::from_rotation_x(-std::f32::consts::FRAC_PI_2)
+        * Mat4::from_rotation_y(std::f32::consts::PI)
 }
 fn append_equipment(
     e: &Entity,
@@ -929,10 +942,7 @@ fn append_equipment(
         state.use_ticks = tick.saturating_sub(e.observed_tick) as f32;
         match items.model_with(content, stack, &state) {
             Ok(model) => {
-                let attachment = *matrix
-                    * Mat4::from_translation(Vec3::new(0., 0.625, -0.125))
-                    * Mat4::from_rotation_x(-std::f32::consts::FRAC_PI_2)
-                    * Mat4::from_rotation_y(std::f32::consts::PI);
+                let attachment = held_item_attachment(*matrix, slot);
                 append_baked(model, attachment * item_matrix(model, context), light, out)?;
             }
             Err(reason) => {
