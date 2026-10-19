@@ -127,7 +127,15 @@ impl UiState {
                         "Accessibility",
                         NodeAction::Screen(Screen::Accessibility),
                     ),
-                    ("disconnect", "Disconnect", NodeAction::Disconnect),
+                    (
+                        "disconnect",
+                        if self.singleplayer_active {
+                            "Save & Quit to Title"
+                        } else {
+                            "Disconnect"
+                        },
+                        NodeAction::Disconnect,
+                    ),
                 ]
                 .into_iter()
                 .enumerate()
@@ -156,6 +164,10 @@ impl UiState {
             Screen::Multiplayer => self.multiplayer_tree()?,
             Screen::DirectConnect => self.connect_tree()?,
             Screen::Disconnected => self.disconnected_tree()?,
+            Screen::Singleplayer => self.singleplayer_tree()?,
+            Screen::CreateWorld => self.create_world_tree()?,
+            Screen::DeleteWorld => self.delete_world_tree()?,
+            Screen::SingleplayerStarting => self.local_start_tree()?,
         }
         self.rich_overlays(content)?;
         Ok(())

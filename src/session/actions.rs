@@ -635,6 +635,8 @@ impl Session {
                 self.connect(&address, &username)?;
             }
             UiCommand::Shutdown => return Err("client_shutdown_requested".into()),
+            UiCommand::PlayWorld { dir_name } => self.start_local_world(&dir_name)?,
+            UiCommand::CancelLocalStart => self.cancel_local_start(),
             UiCommand::OpenUrl(_) => {
                 return Err("external URL opening requires application approval".into());
             }

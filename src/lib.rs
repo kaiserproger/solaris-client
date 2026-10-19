@@ -16,6 +16,7 @@ pub mod profile_textures;
 pub mod protocol;
 pub mod render;
 pub mod session;
+mod singleplayer;
 pub mod terrain;
 pub mod ui;
 #[cfg(test)]

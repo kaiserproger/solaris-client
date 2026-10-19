@@ -30,6 +30,12 @@ The launcher ships with a server entry `Solaris test` = `135.106.208.217:25565` 
 
 Without the launcher: `solaris-client --server 135.106.208.217:25565 --username YourName`.
 
+### Singleplayer
+
+**Singleplayer** on the title screen lists your worlds (`worlds/<name>` in the data folder) with last-played time and size; **Create New World** takes a name, an optional seed (blank = random, text is hashed like vanilla), game mode (survival/creative) and difficulty. **Play Selected World** starts the bundled Solaris server (`solaris-v2`, next to the client or in `servers/`) on a free loopback port, joins it as the title screen's username and makes that player the operator. **Delete** asks for confirmation, **Open Folder** opens `worlds/`. In game, the pause menu's **Save & Quit to Title** stops the server gracefully so the world is saved.
+
+The first Play derives the server's content cache from the `server.jar` and JDK the launcher downloaded (a few minutes, shown on a progress screen; run the launcher once first). Each world's server log is `worlds/<name>/logs/server.log`; if the server dies, the error screen shows the end of that log. Mode and difficulty are applied once with ordinary operator commands on the first join; later changes are yours via `/gamemode` and `/difficulty`. The bundled plugin pack is loaded without `solaris-auth` (offline, local operator).
+
 ## System requirements
 
 - 64-bit Linux (glibc 2.35 or newer, e.g. Ubuntu 22.04+) or Windows 10/11 x86_64.
@@ -46,8 +52,9 @@ facts/ entities/ data/vanilla/        Solaris data tables + entity data derived 
 resources/assets/                     textures/models/fonts unpacked from your client.jar
 assets/asset-index.json, objects/     Mojang asset index and sound/language objects
 mojang/versions/26.1.2/               official version json, client.jar, server.jar
-jdk/                                  managed Temurin JDK (also reserved for singleplayer)
-servers/  worlds/                     reserved for singleplayer
+jdk/                                  managed Temurin JDK (also runs the singleplayer content import)
+servers/                              singleplayer: derived server content cache, plugin copy, optional solaris-v2
+worlds/<name>/                        singleplayer worlds (world data, server.toml, ops.json, logs/server.log)
 launcher.json  client-settings.json   your profiles/servers, and in-game Options
 logs/launcher.log                     everything the launcher and the client printed
 ```

@@ -9,7 +9,7 @@
 //!   cache/                              downloaded bundle archives
 //!   logs/launcher.log
 //!   launcher.json, installed.json, client-settings.json
-//!   jdk/ servers/ worlds/               reserved for singleplayer
+//!   jdk/ servers/ worlds/               singleplayer (see the client's `singleplayer` module)
 //! ```
 use std::path::{Path, PathBuf};
 

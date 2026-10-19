@@ -2,6 +2,7 @@
 mod actions;
 mod block_effects;
 mod block_motion;
+mod local_server;
 #[cfg(test)]
 mod entity_aim_tests;
 #[cfg(test)]
@@ -128,6 +129,12 @@ pub struct Session {
     damage_tilt_strength: f64,
     volume: f32,
     presentation_settings: BTreeMap<String, Value>,
+    /// Singleplayer: the running local server, a start in flight, first-join
+    /// world settings still to apply, and the background stopper.
+    local_server: Option<crate::singleplayer::Server>,
+    local_start: Option<local_server::Start>,
+    local_setup: Option<local_server::Setup>,
+    local_stopper: local_server::Stopper,
     /// Native shell lifecycle is opt-in for windowed clients; headless probes
     /// keep their existing protocol-only disconnect behavior.
     title_allowed: bool,
@@ -212,6 +219,10 @@ impl Session {
             damage_tilt_strength: UiState::DEFAULT_DAMAGE_TILT_STRENGTH,
             volume: UiState::DEFAULT_VOLUME,
             presentation_settings: BTreeMap::new(),
+            local_server: None,
+            local_start: None,
+            local_setup: None,
+            local_stopper: local_server::Stopper::default(),
         };
         out.fixture();
         out.camera();
@@ -248,6 +259,10 @@ impl Session {
                 crate::ui::Screen::Title => return "title",
                 crate::ui::Screen::Multiplayer => return "multiplayer",
                 crate::ui::Screen::DirectConnect => return "direct_connect",
+                crate::ui::Screen::Singleplayer => return "singleplayer",
+                crate::ui::Screen::CreateWorld => return "create_world",
+                crate::ui::Screen::DeleteWorld => return "delete_world",
+                crate::ui::Screen::SingleplayerStarting => return "singleplayer_starting",
                 crate::ui::Screen::Disconnected => return "disconnected",
                 crate::ui::Screen::Pause => return "pause",
                 crate::ui::Screen::Settings | crate::ui::Screen::Accessibility => return "options",
@@ -472,6 +487,7 @@ impl Session {
         )
     }
     pub fn disconnect(&mut self) {
+        self.release_local_server();
         // Preserve the pre-disconnect error (if any) for the Title screen, plus
         // the title prefill state across the content reload below. An ordinary
         // manual disconnect carries no error, so label it (the Title proof
@@ -554,6 +570,9 @@ impl Session {
             .or_else(|| self.ui.as_ref().map(UiState::title_defaults))
     }
     fn fail(&mut self, error: String) {
+        if let Some(report) = self.local_server_report() {
+            return self.fail_local(report);
+        }
         self.event(json!({"type":"incompatibility_or_transport_error","error":error,"packet_sequence":self.packet_sequence.to_string()}));
         eprintln!("session failed: {error}");
         self.error = Some(error.clone());
@@ -692,7 +711,7 @@ impl Session {
         Ok(())
     }
     pub fn process_events(&mut self) -> bool {
-        let mut changed = false;
+        let mut changed = self.poll_local_server();
         if let Some(result) = self.loading.as_ref().and_then(|rx| rx.try_recv().ok()) {
             self.loading = None;
             let result = result.and_then(|loaded| {
@@ -715,6 +734,7 @@ impl Session {
                     self.install_atlas(&loaded.content);
                 }
                 self.content = Some(loaded.content);
+                ui.singleplayer_active = self.local_server.is_some();
                 self.ui = Some(ui);
                 // Re-apply persisted client-local Options onto the fresh UI/session
                 // state (fresh UiState starts with an empty settings map), then

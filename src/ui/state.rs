@@ -155,6 +155,11 @@ pub enum UiCommand {
         username: String,
     },
     Shutdown,
+    /// Start the local server for a world folder and join it.
+    PlayWorld {
+        dir_name: String,
+    },
+    CancelLocalStart,
     ReloadResources,
     Window(WindowEffect),
     Settings {
@@ -242,6 +247,10 @@ pub enum Screen {
     Multiplayer,
     DirectConnect,
     Disconnected,
+    Singleplayer,
+    CreateWorld,
+    DeleteWorld,
+    SingleplayerStarting,
 }
 #[derive(Clone, Debug, Serialize)]
 pub struct SemanticNode {
@@ -280,6 +289,13 @@ pub(crate) enum NodeAction {
     SaveServer,
     JoinServer(usize),
     ServerPage(i32),
+    World(usize),
+    PlayWorld,
+    CancelLocalStart,
+    OpenWorldsFolder,
+    WorldOption(&'static str),
+    CreateWorld,
+    DeleteWorld,
     RecipeBook,
     RecipeFilter,
     SlotToggle(i16),
@@ -439,6 +455,15 @@ pub struct UiState {
     pub(crate) settings_parent: Screen,
     pub(crate) servers: Vec<super::menus::SavedServer>,
     pub(crate) adding_server: bool,
+    pub(crate) worlds: Vec<crate::singleplayer::World>,
+    pub(crate) selected_world: Option<usize>,
+    pub(crate) worlds_error: Option<String>,
+    pub(crate) new_world_mode: crate::singleplayer::GameMode,
+    pub(crate) new_world_difficulty: crate::singleplayer::Difficulty,
+    pub(crate) local_status: String,
+    /// Set while the connected world is served by the local singleplayer server.
+    pub(crate) singleplayer_active: bool,
+    pub(crate) disconnect_title: Option<String>,
     pub(crate) options_tab: usize,
     pub(crate) options_footer: [f32; 4],
     pub(crate) slider_drag: Option<String>,
@@ -547,6 +572,14 @@ impl UiState {
             settings_parent: Screen::Pause,
             servers: Vec::new(),
             adding_server: false,
+            worlds: Vec::new(),
+            selected_world: None,
+            worlds_error: None,
+            new_world_mode: crate::singleplayer::GameMode::Survival,
+            new_world_difficulty: crate::singleplayer::Difficulty::Normal,
+            local_status: String::new(),
+            singleplayer_active: false,
+            disconnect_title: None,
             options_tab: 0,
             options_footer: [0.; 4],
             slider_drag: None,
@@ -916,6 +949,10 @@ impl UiState {
                 | Screen::Multiplayer
                 | Screen::DirectConnect
                 | Screen::Disconnected
+                | Screen::Singleplayer
+                | Screen::CreateWorld
+                | Screen::DeleteWorld
+                | Screen::SingleplayerStarting
         )
     }
     pub fn has_open_container(&self, inventory: &InventoryStore) -> bool {
@@ -1534,6 +1571,10 @@ impl UiState {
             UiIntent::Close { context } => {
                 self.validate(&context, inventory)?;
                 if self.screen == Screen::Title {
+                    return Ok(());
+                }
+                if self.screen == Screen::SingleplayerStarting {
+                    effects.commands.push(UiCommand::CancelLocalStart);
                     return Ok(());
                 }
                 if self.close_menu() {
@@ -2316,6 +2357,10 @@ impl UiState {
                 self.invalidate();
                 return Ok(());
             }
+            if self.screen == Screen::SingleplayerStarting {
+                e.commands.push(UiCommand::CancelLocalStart);
+                return Ok(());
+            }
             if self.screen == Screen::Game {
                 self.transition(Screen::Pause);
             } else if self.screen == Screen::Title {
@@ -2361,6 +2406,14 @@ impl UiState {
             return Ok(());
         }
         if key == "Enter" {
+            if matches!(self.screen, Screen::CreateWorld)
+                && self
+                    .focus
+                    .as_ref()
+                    .is_some_and(|id| self.fields.contains_key(id))
+            {
+                return self.activate(NodeAction::CreateWorld, m, inventory, content, e);
+            }
             if self.screen == Screen::DirectConnect
                 && self
                     .focus
@@ -2653,6 +2706,13 @@ impl UiState {
                 e.commands.push(UiCommand::Connect { address, username });
                 self.release_all();
             }
+            NodeAction::World(_)
+            | NodeAction::PlayWorld
+            | NodeAction::CancelLocalStart
+            | NodeAction::OpenWorldsFolder
+            | NodeAction::WorldOption(_)
+            | NodeAction::CreateWorld
+            | NodeAction::DeleteWorld => self.activate_world_action(a, e)?,
             NodeAction::AddServer => {
                 self.adding_server = true;
                 self.title_error = None;
@@ -2694,6 +2754,13 @@ impl UiState {
                 }
                 if s == Screen::DirectConnect {
                     self.adding_server = false;
+                    self.title_error = None;
+                }
+                if s == Screen::Singleplayer {
+                    self.enter_singleplayer();
+                    return Ok(());
+                }
+                if matches!(s, Screen::CreateWorld | Screen::DeleteWorld) {
                     self.title_error = None;
                 }
                 if self.screen == Screen::Advancements && s != Screen::Advancements {

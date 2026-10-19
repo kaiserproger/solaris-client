@@ -38,6 +38,7 @@ mod tint;
 mod ttf;
 mod unihex;
 mod widgets;
+mod worlds;
 use crate::inventory::UiContext;
 pub use chat_tracking::LastSeenUpdate;
 pub use hud::{

@@ -25,7 +25,14 @@ impl UiState {
     pub fn shell_screen_active(&self) -> bool {
         matches!(
             self.screen,
-            Screen::Title | Screen::Multiplayer | Screen::DirectConnect | Screen::Disconnected
+            Screen::Title
+                | Screen::Multiplayer
+                | Screen::DirectConnect
+                | Screen::Disconnected
+                | Screen::Singleplayer
+                | Screen::CreateWorld
+                | Screen::DeleteWorld
+                | Screen::SingleplayerStarting
         ) || (matches!(self.screen, Screen::Settings | Screen::Accessibility)
             && self.settings_parent == Screen::Title)
     }
@@ -33,8 +40,12 @@ impl UiState {
     pub(crate) fn close_menu(&mut self) -> bool {
         let parent = match self.screen {
             Screen::Settings | Screen::Accessibility => self.settings_parent,
-            Screen::Multiplayer | Screen::Disconnected => Screen::Title,
+            Screen::Multiplayer | Screen::Disconnected | Screen::Singleplayer => Screen::Title,
             Screen::DirectConnect => Screen::Multiplayer,
+            Screen::CreateWorld | Screen::DeleteWorld => {
+                self.enter_singleplayer();
+                return true;
+            }
             _ => return false,
         };
         self.transition(parent);
@@ -43,6 +54,11 @@ impl UiState {
     }
 
     pub(crate) fn show_disconnected(&mut self, reason: String) {
+        self.show_disconnected_titled(None, reason);
+    }
+
+    pub(crate) fn show_disconnected_titled(&mut self, title: Option<&str>, reason: String) {
+        self.disconnect_title = title.map(str::to_owned);
         let component = [
             "Play disconnect: ",
             "configuration disconnect: ",
@@ -98,7 +114,7 @@ impl UiState {
     }
 
     /// Themed translucent panel node (frame only; carries no action).
-    fn frame(&mut self, id: &str, rect: [f32; 4]) -> Result<()> {
+    pub(super) fn frame(&mut self, id: &str, rect: [f32; 4]) -> Result<()> {
         self.add(
             id.into(),
             "presentation",
@@ -121,9 +137,14 @@ impl UiState {
             "Minecraft 26.1.2 · Native client".into(),
             [cx - 160., mark_y + 42., 320., 12.],
         )?;
-        let top = (self.height / 2. - 2.).max(mark_y + 66.).floor();
-        self.frame("title/panel", [cx - 100., top - 10., 200., 3. * 32. + 14.])?;
+        let top = (self.height / 2. - 22.).max(mark_y + 58.).floor();
+        self.frame("title/panel", [cx - 100., top - 10., 200., 4. * 30. + 14.])?;
         for (i, (id, label, action)) in [
+            (
+                "title/singleplayer",
+                "Singleplayer",
+                NodeAction::Screen(Screen::Singleplayer),
+            ),
             (
                 "title/multiplayer",
                 "Multiplayer",
@@ -142,7 +163,7 @@ impl UiState {
             self.button(
                 id,
                 label,
-                [cx - 88., top + i as f32 * 32., 176., 26.],
+                [cx - 88., top + i as f32 * 30., 176., 26.],
                 action,
                 true,
                 None,
@@ -319,24 +340,37 @@ impl UiState {
     pub(crate) fn disconnected_tree(&mut self) -> Result<()> {
         self.panel();
         let cx = self.width / 2.;
-        let cy = self.height / 2.;
-        self.frame("disconnect/panel", [cx - 180., cy - 74., 360., 148.])?;
+        let reason = self
+            .title_error
+            .clone()
+            .unwrap_or_else(|| "Disconnected".into());
+        // Server crash reports carry a log tail: grow the panel for extra lines.
+        let rows: usize = reason
+            .lines()
+            .map(|line| line.chars().count().div_ceil(52).max(1))
+            .sum();
+        let extra = (rows.saturating_sub(4) as f32 * 10.).min(100.);
+        let cy = self.height / 2. - extra / 2.;
+        self.frame(
+            "disconnect/panel",
+            [cx - 180., cy - 74., 360., 148. + extra],
+        )?;
         self.label(
             "disconnect/title",
-            "Connection Lost".into(),
+            self.disconnect_title
+                .clone()
+                .unwrap_or_else(|| "Connection Lost".into()),
             [cx - 150., cy - 62., 300., 14.],
         )?;
         self.label(
             "disconnect/reason",
-            self.title_error
-                .clone()
-                .unwrap_or_else(|| "Disconnected".into()),
-            [cx - 164., cy - 38., 328., 48.],
+            reason,
+            [cx - 164., cy - 38., 328., 48. + extra],
         )?;
         self.button(
             "disconnect/back",
             "Back to Title Screen",
-            [cx - 100., cy + 22., 200., 26.],
+            [cx - 100., cy + 22. + extra, 200., 26.],
             NodeAction::Screen(Screen::Title),
             true,
             None,

@@ -37,6 +37,10 @@ impl Screen {
             Screen::Title
             | Screen::Multiplayer
             | Screen::DirectConnect
+            | Screen::Singleplayer
+            | Screen::CreateWorld
+            | Screen::DeleteWorld
+            | Screen::SingleplayerStarting
             | Screen::Disconnected
             | Screen::Pause
             | Screen::Settings

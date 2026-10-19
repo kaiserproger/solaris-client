@@ -174,6 +174,22 @@ impl UiState {
                     "net.minecraft.client.gui.screens.DirectJoinServerScreen",
                     json!({"text":"Direct Connect"}),
                 ),
+                Screen::Singleplayer => (
+                    "net.minecraft.client.gui.screens.worldselection.SelectWorldScreen",
+                    json!({"text":"Singleplayer"}),
+                ),
+                Screen::CreateWorld => (
+                    "net.minecraft.client.gui.screens.worldselection.CreateWorldScreen",
+                    json!({"text":"Create New World"}),
+                ),
+                Screen::DeleteWorld => (
+                    "net.minecraft.client.gui.screens.ConfirmScreen",
+                    json!({"text":"Delete this world?"}),
+                ),
+                Screen::SingleplayerStarting => (
+                    "net.minecraft.client.gui.screens.GenericMessageScreen",
+                    json!({"text":"Starting Singleplayer World"}),
+                ),
                 Screen::Disconnected => (
                     "net.minecraft.client.gui.screens.DisconnectedScreen",
                     json!({"text":"Connection Lost"}),

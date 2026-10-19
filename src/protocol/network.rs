@@ -11,6 +11,14 @@ use std::{
     thread,
     time::Duration,
 };
+/// Java's `UUID.nameUUIDFromBytes("OfflinePlayer:" + name)`: the identity an
+/// offline-mode server derives from the login name.
+pub fn offline_uuid(username: &str) -> [u8; 16] {
+    let mut uuid = md5::compute(format!("OfflinePlayer:{username}")).0;
+    uuid[6] = (uuid[6] & 15) | 48;
+    uuid[8] = (uuid[8] & 63) | 128;
+    uuid
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Phase {
     Login,
@@ -212,10 +220,7 @@ fn run(
     write(&mut socket, 0, &handshake(&endpoint, addr.port(), 2), None)?;
     let mut login = Writer::default();
     login.string(&username);
-    let mut uuid = md5::compute(format!("OfflinePlayer:{username}")).0;
-    uuid[6] = (uuid[6] & 15) | 48;
-    uuid[8] = (uuid[8] & 63) | 128;
-    login.0.extend(uuid);
+    login.0.extend(offline_uuid(&username));
     write(&mut socket, 0, &login.0, None)?;
     let mut phase = Phase::Login;
     let mut compression = None;

@@ -55,6 +55,11 @@ pub(crate) fn apply_defaults(root: &Path) {
             unsafe { std::env::set_var(var, root.join(relative)) };
         }
     }
+    // Singleplayer keeps worlds and the managed server beside the content.
+    if std::env::var_os("SOLARIS_CLIENT_ROOT").is_none() {
+        // SAFETY: same single-threaded startup window as above.
+        unsafe { std::env::set_var("SOLARIS_CLIENT_ROOT", root) };
+    }
 }
 
 fn require(path: &Path, directory: bool) -> Result<(), String> {
