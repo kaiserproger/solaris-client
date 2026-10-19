@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=Solaris Launcher
+Comment=Launch Solaris (Minecraft 26.1.2 client)
+Exec=solaris-launcher
+Icon=solaris-launcher
+Terminal=false
+Type=Application
+Categories=Game;
+StartupWMClass=solaris-launcher

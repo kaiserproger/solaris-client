@@ -44,3 +44,11 @@ freetype-rs = { version = "=0.38.0", features = ["bundled"] }
 [profile.dev]
 debug = 1
 incremental = false
+
+[workspace]
+members = [".", "launcher"]
+default-members = [".", "launcher"]
+
+[profile.release]
+# Shipping binaries: small and fast to start; the client crate is already heavy.
+codegen-units = 16

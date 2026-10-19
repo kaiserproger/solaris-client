@@ -1,0 +1,26 @@
+[package]
+name = "solaris-launcher"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+license = "MIT OR Apache-2.0"
+description = "Launcher for the Solaris native Minecraft client: downloads game content and starts the client"
+publish = false
+
+[[bin]]
+name = "solaris-launcher"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "=1.0.102"
+serde = { version = "=1.0.228", features = ["derive"] }
+serde_json = { version = "=1.0.149", features = ["preserve_order"] }
+sha1 = "=0.10.6"
+sha2 = "=0.10.9"
+zip = { version = "=2.4.2", default-features = false, features = ["deflate"] }
+reqwest = { version = "=0.13.4", default-features = false, features = ["blocking", "rustls"] }
+tar = "0.4"
+zstd = "0.13"
+eframe = { version = "=0.33.3", default-features = false, features = ["glow", "default_fonts", "x11", "wayland"] }
+png = "=0.18.1"
+flate2 = "=1.1.9"

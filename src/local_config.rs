@@ -159,6 +159,11 @@ pub fn apply_exe_defaults() -> LocalDefaults {
 /// are best-effort (missing exe dir or IO errors are silently skipped) so a
 /// read-only install never breaks gameplay.
 pub fn client_settings_path() -> Option<std::path::PathBuf> {
+    // The launcher points this at `<data-dir>/client-settings.json` so installs
+    // in read-only locations keep their Options; dist bundles stay exe-adjacent.
+    if let Some(explicit) = std::env::var_os("SOLARIS_CLIENT_SETTINGS").filter(|v| !v.is_empty()) {
+        return Some(std::path::PathBuf::from(explicit));
+    }
     exe_dir().map(|dir| dir.join("client-settings.json"))
 }
 /// Load persisted managed settings. Missing file/keys/parse errors yield an

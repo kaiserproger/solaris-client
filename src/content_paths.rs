@@ -30,6 +30,10 @@ const INPUTS: &[(&str, &str)] = &[
 ];
 
 pub(crate) fn default_root() -> Result<PathBuf, String> {
+    #[cfg(windows)]
+    if let Some(app) = std::env::var_os("APPDATA").filter(|s| !s.is_empty()) {
+        return Ok(PathBuf::from(app).join("solaris-client"));
+    }
     if let Some(data) = std::env::var_os("XDG_DATA_HOME").filter(|s| !s.is_empty()) {
         return Ok(PathBuf::from(data).join("solaris-client"));
     }
@@ -63,7 +67,7 @@ fn require(path: &Path, directory: bool) -> Result<(), String> {
         Ok(())
     } else {
         Err(format!(
-            "missing content {}: {} (run solaris-client setup --from-dist DIR --assets DIR)",
+            "missing content {}: {} (run solaris-launcher once to download it, or solaris-client setup --from-dist DIR --assets DIR)",
             if directory { "directory" } else { "file" },
             path.display()
         ))

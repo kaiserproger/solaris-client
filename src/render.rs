@@ -102,7 +102,7 @@ fn gpu_instance() -> wgpu::Instance {
     // threads can fail with BadAccess even when Vulkan is ultimately selected.
     static INITIALIZE: parking_lot::Mutex<()> = parking_lot::const_mutex(());
     let _guard = INITIALIZE.lock();
-    wgpu::Instance::new(&wgpu::InstanceDescriptor::default())
+    wgpu::Instance::new(&wgpu::InstanceDescriptor::from_env_or_default())
 }
 
 pub fn doctor() -> Result<Value, String> {

@@ -1,0 +1,138 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: cargo check
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      # Pinned to the channel in rust-toolchain.toml.
+      - uses: dtolnay/rust-toolchain@1.95.0
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo check --workspace --locked
+
+  release:
+    name: Release (${{ matrix.name }})
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x86_64
+            runner: ubuntu-22.04
+            exe_suffix: ""
+            archive: tar.gz
+          - name: windows-x86_64
+            runner: windows-latest
+            exe_suffix: .exe
+            archive: zip
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.95.0
+        with:
+          targets: x86_64-pc-windows-msvc
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: launcher-release-${{ matrix.name }}
+      - name: Install GUI dependencies
+        if: matrix.name == 'linux-x86_64'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libasound2-dev libudev-dev libxkbcommon-dev libwayland-dev libx11-dev libxcursor-dev libxi-dev libxrandr-dev libgl1-mesa-dev libvulkan-dev cmake
+      - name: Build release binaries
+        run: cargo build --release --locked
+      - name: Stage Linux package
+        if: matrix.name == 'linux-x86_64'
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          dir="solaris-client-${TAG}-linux-x86_64"
+          rm -rf stage && mkdir -p "stage/$dir"
+          install -m 0755 target/release/solaris-client "stage/$dir/solaris-client"
+          install -m 0755 target/release/solaris-launcher "stage/$dir/solaris-launcher"
+          install -m 0644 launcher/assets/icon.png "stage/$dir/solaris-launcher.png"
+          install -m 0644 packaging/solaris-launcher.desktop "stage/$dir/solaris-launcher.desktop"
+          install -m 0755 packaging/install-desktop.sh "stage/$dir/install-desktop.sh"
+          install -m 0644 README.md LICENSE-MIT LICENSE-APACHE "stage/$dir/"
+      - name: Stage Windows package
+        if: matrix.name == 'windows-x86_64'
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf stage && mkdir stage
+          install -m 0755 target/release/solaris-client.exe stage/solaris-client.exe
+          install -m 0755 target/release/solaris-launcher.exe stage/solaris-launcher.exe
+          install -m 0644 launcher/assets/icon.png stage/icon.png
+          install -m 0644 README.md LICENSE-MIT LICENSE-APACHE stage/
+      - name: Assert no Mojang bytes in staging
+        shell: bash
+        run: |
+          set -euo pipefail
+          if find stage -iname '*.jar' | grep -q .; then
+            echo "staging dir contains *.jar" >&2
+            exit 1
+          fi
+          if find stage -type d -name assets | grep -q .; then
+            echo "staging dir contains an assets/ directory" >&2
+            exit 1
+          fi
+      - name: Package Linux tarball
+        if: matrix.name == 'linux-x86_64'
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          tar -C stage -czf "solaris-client-${TAG}-linux-x86_64.tar.gz" \
+            "solaris-client-${TAG}-linux-x86_64"
+      - name: Package Windows zip
+        if: matrix.name == 'windows-x86_64'
+        env:
+          TAG: ${{ github.ref_name }}
+        shell: pwsh
+        run: Compress-Archive -Path stage/* -DestinationPath "solaris-client-${env:TAG}-windows-x86_64.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: package-${{ matrix.name }}
+          path: solaris-client-*
+          retention-days: 7
+
+  github-release:
+    name: Attach release assets
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [release]
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: "package-*"
+          merge-multiple: true
+          path: dist-release
+      - name: Write SHA256SUMS
+        run: |
+          set -euo pipefail
+          cd dist-release
+          sha256sum solaris-client-*.tar.gz solaris-client-*.zip > SHA256SUMS
+          cat SHA256SUMS
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist-release/solaris-client-*.tar.gz
+            dist-release/solaris-client-*.zip
+            dist-release/SHA256SUMS
