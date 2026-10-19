@@ -889,7 +889,10 @@ impl ApplicationHandler for App {
                 }
                 // Dialog screens own Escape/Enter/Tab: forward to UI (fail-closed
                 // emergency release still fires first so held inputs never stick).
-                if self.session.dialog_screen_active() && !self.session.shell_screen_active() {
+                if self.session.dialog_screen_active()
+                    && !self.session.shell_screen_active()
+                    && !self.session.server_dialog_open()
+                {
                     if code == KeyCode::Escape && pressed {
                         self.release("emergency_stop");
                     }
@@ -916,7 +919,10 @@ impl ApplicationHandler for App {
                 // focused field. Escape closes chat; Enter submits (Game<-Chat).
                 // The Title screen reuses the same path for its server/username
                 // fields (chat is never open on Title; Escape there is a noop).
-                if self.session.chat_open() || self.session.shell_screen_active() {
+                if self.session.chat_open()
+                    || self.session.shell_screen_active()
+                    || self.session.server_dialog_open()
+                {
                     if code == KeyCode::Escape && pressed {
                         self.manual(InputIntent::Ui {
                             intent: crate::ui::UiIntent::Key {

@@ -18,6 +18,7 @@ impl UiState {
             Screen::Menu => self.menu_tree(inventory, content)?,
             Screen::Creative => self.creative_tree(inventory, content)?,
             Screen::Loader => self.loader_tree()?,
+            Screen::ServerDialog => self.dialog_tree()?,
             Screen::Chat => {
                 self.hud_tree(inventory, content)?;
                 self.edit_node(

@@ -47,6 +47,7 @@ impl Screen {
             | Screen::Accessibility
             | Screen::Death
             | Screen::Advancements
+            | Screen::ServerDialog
             | Screen::Statistics => Profile::Stagger,
             Screen::Menu | Screen::Creative => Profile::Panel,
             _ => Profile::None,

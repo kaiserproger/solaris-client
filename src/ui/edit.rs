@@ -8,6 +8,8 @@ pub struct EditBuffer {
     pub composition: String,
     pub composition_cursor: Option<[usize; 2]>,
     pub max_bytes: usize,
+    /// Server dialogs limit text by UTF-16 length (`max_length`) on top of the byte bound.
+    pub max_chars: Option<usize>,
     pub multiline: bool,
 }
 impl EditBuffer {
@@ -46,6 +48,13 @@ impl EditBuffer {
         let lo = self.anchor.min(self.cursor);
         let hi = self.anchor.max(self.cursor);
         if self.text.len() - (hi - lo) + value.len() > self.max_bytes {
+            return Err("text_limit".into());
+        }
+        if let Some(max) = self.max_chars
+            && self.text.encode_utf16().count() - self.text[lo..hi].encode_utf16().count()
+                + value.encode_utf16().count()
+                > max
+        {
             return Err("text_limit".into());
         }
         self.text.replace_range(lo..hi, value);

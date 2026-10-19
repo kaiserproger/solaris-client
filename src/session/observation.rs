@@ -57,6 +57,7 @@ impl Session {
         // windowed Title proof can assert typed values and the disconnect
         // reason through the ordinary observation path.
         if let Some(ui) = &self.ui {
+            value["dialog"] = ui.dialog_observation();
             if ui.screen() == crate::ui::Screen::Title {
                 value["title_server"] = json!(ui.title_field("title/server"));
                 value["title_username"] = json!(ui.title_field("title/username"));

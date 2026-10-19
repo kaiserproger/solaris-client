@@ -1,7 +1,7 @@
 //! Target 26.1.2 UI wire layouts; semantic admission remains in the UI/inventory owners.
 use crate::{
     inventory::PacketCommand,
-    protocol::{self, Result, Writer},
+    protocol::{self, nbt::Nbt, Result, Writer},
     ui::{CommandEdit, JigsawEdit, LastSeenUpdate, StructureEdit},
 };
 
@@ -147,6 +147,25 @@ pub(super) fn generate_jigsaw(position: [i32; 3], levels: i32, keep: bool) -> Pa
     PacketCommand::new(27, writer)
 }
 
+/// `ServerboundCustomClickActionPacket` (play id 68): Identifier, then the optional NBT payload
+/// behind a VarInt byte length (`UNTRUSTED_TAG_CODEC`; TAG_End when absent), per the local
+/// 26.1.2 decompiled client.
+pub(super) fn custom_click(id: &str, payload: Option<&Nbt>) -> Result<PacketCommand> {
+    let mut body = Writer::default();
+    match payload {
+        Some(tag) => tag.write_root(&mut body)?,
+        None => body.byte(0),
+    }
+    if body.0.len() > 65536 {
+        return Err("Source outbound custom click payload bound".into());
+    }
+    let mut writer = Writer::default();
+    utf(&mut writer, &protocol::parse_identifier(id)?, 32767)?;
+    writer.var(body.0.len() as i32);
+    writer.0.extend(body.0);
+    Ok(PacketCommand::new(68, writer))
+}
+
 pub(super) fn respawn() -> PacketCommand {
     let mut writer = Writer::default();
     writer.var(0);
@@ -214,5 +233,32 @@ mod statistics_tests {
         assert_eq!(reader.var().unwrap(), 1);
         reader.done().unwrap();
         assert_eq!(respawn().payload.0, [0]);
+    }
+}
+
+#[cfg(test)]
+mod dialog_tests {
+    use super::*;
+    use crate::protocol::Reader;
+
+    #[test]
+    fn custom_click_packet_matches_the_server_wire_layout() {
+        let payload = Nbt::Compound(vec![
+            ("name".into(), Nbt::String("Ёлки".into())),
+            ("radius".into(), Nbt::Float(12.)),
+            ("walls".into(), Nbt::Byte(1)),
+        ]);
+        let packet = custom_click("solaris:dialog_probe/submit", Some(&payload)).unwrap();
+        // Local 26.1.2 packets.json: play serverbound custom_click_action = 68.
+        assert_eq!(packet.id, 0x44);
+        let mut reader = Reader::new(&packet.payload.0);
+        assert_eq!(reader.string(32767).unwrap(), "solaris:dialog_probe/submit");
+        let len = reader.var().unwrap() as usize;
+        let body = reader.take(len).unwrap();
+        reader.done().unwrap();
+        assert_eq!(Reader::new(body).nbt_typed().unwrap(), payload);
+        // No payload: length 1, TAG_End.
+        let none = custom_click("solaris:x", None).unwrap();
+        assert_eq!(&none.payload.0[none.payload.0.len() - 2..], &[1, 0]);
     }
 }

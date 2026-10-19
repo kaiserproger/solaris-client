@@ -96,6 +96,11 @@ pub enum EditorState {
 #[derive(Clone, Debug)]
 pub enum UiCommand {
     Loader(Value),
+    /// Dialog `custom` action: `custom_click_action(id, payload)`.
+    DialogClick {
+        id: String,
+        payload: Option<crate::protocol::nbt::Nbt>,
+    },
     Inventory(UiIntent),
     InventoryGesture(Vec<UiIntent>),
     CreativePick {
@@ -243,6 +248,8 @@ pub enum Screen {
     Statistics,
     Creative,
     Loader,
+    /// Server-driven `show_dialog` screen ([`super::dialog`]).
+    ServerDialog,
     Title,
     Multiplayer,
     DirectConnect,
@@ -324,6 +331,7 @@ pub(crate) enum NodeAction {
     EditorToggle(&'static str),
     Generate,
     Loader(super::loader::LoaderControl),
+    Dialog(super::dialog::DialogControl),
 }
 #[derive(Clone, Debug, Default)]
 pub(crate) enum Paint {
@@ -467,6 +475,7 @@ pub struct UiState {
     pub(crate) options_tab: usize,
     pub(crate) options_footer: [f32; 4],
     pub(crate) slider_drag: Option<String>,
+    pub(crate) dialogs: super::dialog::DialogHost,
     pub(crate) anim: super::anim::UiAnim,
 }
 impl UiState {
@@ -583,6 +592,7 @@ impl UiState {
             options_tab: 0,
             options_footer: [0.; 4],
             slider_drag: None,
+            dialogs: Default::default(),
             anim: super::anim::UiAnim::default(),
         })
     }
@@ -953,6 +963,7 @@ impl UiState {
                 | Screen::CreateWorld
                 | Screen::DeleteWorld
                 | Screen::SingleplayerStarting
+                | Screen::ServerDialog
         )
     }
     pub fn has_open_container(&self, inventory: &InventoryStore) -> bool {
@@ -1113,6 +1124,7 @@ impl UiState {
             {
                 self.dirty = true;
             }
+            self.dialog_tick();
         }
     }
     pub fn take_clipboard_request(&mut self) -> Option<ClipboardRequest> {
@@ -1193,6 +1205,7 @@ impl UiState {
             self.transition(Screen::Death);
         } else if matches!(self.screen, Screen::Loading | Screen::Death) {
             self.transition(Screen::Game);
+            self.dialog_after_blocking_screen()?;
         }
         if changed {
             self.invalidate();
@@ -1995,6 +2008,10 @@ impl UiState {
                                         ClickMode::Pickup
                                     },
                                 });
+                            } else if let NodeAction::Dialog(super::dialog::DialogControl::Slide(_)) = action {
+                                self.focus = Some(id.clone());
+                                self.slider_drag = Some(id.clone());
+                                self.dialog_slider_pointer(&id);
                             } else if let NodeAction::Slider(key) = action {
                                 if let Some(bounds) =
                                     self.nodes.iter().find(|n| n.id == id).map(|n| n.bounds)
@@ -2032,7 +2049,9 @@ impl UiState {
                     }
                     PointerPhase::Move => {
                         if let Some(id) = self.slider_drag.clone() {
-                            if let Some((key, bounds)) = self.nodes.iter().find(|n| n.id == id).and_then(
+                            if self.screen == Screen::ServerDialog {
+                                self.dialog_slider_pointer(&id);
+                            } else if let Some((key, bounds)) = self.nodes.iter().find(|n| n.id == id).and_then(
                                 |n| match n.action {
                                     NodeAction::Slider(key) => Some((key, n.bounds)),
                                     _ => None,
@@ -2318,6 +2337,7 @@ impl UiState {
         if !delta.is_finite() {
             return Err("invalid_scroll".into());
         }
+        let dialog_cap = (self.screen == Screen::ServerDialog).then_some(self.dialogs.max_scroll);
         self.scroll = if delta > 0. {
             self.scroll.saturating_sub(delta.ceil() as usize)
         } else {
@@ -2325,7 +2345,7 @@ impl UiState {
                 if self.screen == Screen::Advancements {
                     usize::MAX
                 } else {
-                    4096
+                    dialog_cap.unwrap_or(4096)
                 },
             )
         };
@@ -2360,6 +2380,9 @@ impl UiState {
             if self.screen == Screen::SingleplayerStarting {
                 e.commands.push(UiCommand::CancelLocalStart);
                 return Ok(());
+            }
+            if self.screen == Screen::ServerDialog {
+                return self.dialog_escape(e);
             }
             if self.screen == Screen::Game {
                 self.transition(Screen::Pause);
@@ -2447,6 +2470,9 @@ impl UiState {
                     }
                 }
             }
+        }
+        if self.screen == Screen::ServerDialog && self.dialog_slider_key(key) {
+            return Ok(());
         }
         if let Some(slider) = self.focus.as_deref().and_then(|id| self.slider_key(id)) {
             let step = if m.shift { 5 } else { 1 };
@@ -2612,6 +2638,7 @@ impl UiState {
         match a {
             NodeAction::None => return Err("target_not_interactive".into()),
             NodeAction::Loader(control) => self.activate_loader(control, e)?,
+            NodeAction::Dialog(control) => self.activate_dialog(control, e)?,
             NodeAction::Focus(id) => {
                 self.focus = Some(id);
                 self.invalidate();
@@ -3590,6 +3617,8 @@ impl UiState {
                 let centered = wordmark
                     || heading
                     || matches!(node.paint, Paint::Button)
+                    || node.id == "dialog/title"
+                    || node.id.starts_with("dialog/body/")
                     || matches!(
                         node.id.as_str(),
                         "title/subtitle"

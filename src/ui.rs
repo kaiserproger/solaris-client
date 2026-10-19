@@ -4,6 +4,7 @@ mod anim;
 mod catalogue;
 mod chat_tracking;
 mod clipping;
+mod dialog;
 mod display;
 mod edit;
 pub mod font;

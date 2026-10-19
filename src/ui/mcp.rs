@@ -27,6 +27,7 @@ impl UiState {
         } else {
             match self.screen {
                 Screen::Game | Screen::Loading => return Ok(None),
+                Screen::ServerDialog => return Ok(self.dialog_screen_metadata()),
                 Screen::Loader => {
                     let view = self.loader.as_ref().ok_or("loader screen state missing")?;
                     return Ok(Some((

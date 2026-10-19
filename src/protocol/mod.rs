@@ -377,5 +377,6 @@ pub(crate) fn read_registry_tags(
 pub mod chat_verification;
 pub mod content;
 pub mod models;
+pub mod nbt;
 pub mod network;
 pub mod world;

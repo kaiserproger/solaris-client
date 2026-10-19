@@ -256,6 +256,7 @@ impl Session {
             match ui.screen() {
                 crate::ui::Screen::Loading => return "loading",
                 crate::ui::Screen::Loader => return "loader",
+                crate::ui::Screen::ServerDialog => return "dialog",
                 crate::ui::Screen::Title => return "title",
                 crate::ui::Screen::Multiplayer => return "multiplayer",
                 crate::ui::Screen::DirectConnect => return "direct_connect",
@@ -284,6 +285,10 @@ impl Session {
     /// expose the loading gate so the UI cannot be mistaken for playable terrain.
     pub fn dialog_screen_active(&self) -> bool {
         self.ui.as_ref().is_some_and(|ui| ui.dialog_screen_active())
+    }
+    /// True while a server-driven dialog owns native input (text fields included).
+    pub fn server_dialog_open(&self) -> bool {
+        self.ui.as_ref().is_some_and(UiState::server_dialog_open)
     }
     /// True while the chat overlay owns native text input.
     pub fn chat_open(&self) -> bool {

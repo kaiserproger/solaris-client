@@ -35,6 +35,10 @@ Without the launcher: `solaris-client --server 135.106.208.217:25565 --username 
 
 The first Play derives the server's content cache from the Mojang `server.jar` with a Java runtime (a few minutes, shown on a progress screen). A server player never downloads either: on that first singleplayer Play the client asks `solaris-launcher --singleplayer-runtime` (next to the client) to fetch the server jar (~60 MB) and a Temurin JDK 25 (~135 MB), once. The server binds an OS-assigned loopback port and the client reads the real port from its `is listening` line. If stopping the server fails or has to be killed, the error screen shows the end of its log ("world may not be fully saved"). Each world's server log is `worlds/<name>/logs/server.log`; if the server dies, the error screen shows the end of that log. Mode and difficulty are applied once with ordinary operator commands on the first join; later changes are yours via `/gamemode` and `/difficulty`. The bundled plugin pack is loaded without `solaris-auth` (offline, local operator).
 
+### Server dialogs
+
+The client renders vanilla 26.1.2 server-driven dialogs (`show_dialog`/`clear_dialog`): `notice`, `confirmation` and `multi_action` with plain-message bodies and `text`, `number_range`, `boolean` and `single_option` inputs. Buttons answer with `custom_click_action` (`dynamic/custom` and `custom` actions carry the typed input values; `run_command` actions send the templated command). `after_action`, `can_close_with_escape` and Escape-as-cancel follow vanilla. Not rendered: `server_links`/`dialog_list`, item bodies, button tooltips and vanilla's "custom screen" warning button. The server side is documented in the Solaris repo (`docs/DIALOGS.md`).
+
 ## System requirements
 
 - 64-bit Linux (glibc 2.35 or newer, e.g. Ubuntu 22.04+) or Windows 10/11 x86_64.

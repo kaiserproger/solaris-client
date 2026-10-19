@@ -532,6 +532,14 @@ impl Session {
     fn execute_ui_command(&mut self, command: UiCommand) -> Result<()> {
         match command {
             UiCommand::Loader(message) => self.loader_action(message)?,
+            UiCommand::DialogClick { id, payload } => {
+                if self.phase != "play" {
+                    return Err("dialog_click_requires_play".into());
+                }
+                self.commands
+                    .push(ui_packets::custom_click(&id, payload.as_ref())?);
+                self.event(json!({"type":"dialog_click_sent","id":id,"payload":payload.as_ref().map(crate::protocol::nbt::Nbt::to_json),"origin":"ordinary_ui_action"}));
+            }
             UiCommand::Inventory(intent) => self.commands.extend(
                 self.inventory
                     .execute(&intent, self.content.as_ref().ok_or("content unavailable")?)?,
