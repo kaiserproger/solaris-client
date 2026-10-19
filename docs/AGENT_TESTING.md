@@ -53,6 +53,8 @@ Single block updates remesh only their chunk and affected horizontal boundary ne
 
 Opaque face shading samples the outward neighbor's received sky/block light, including chunk boundaries and the received layer above/below the dimension. A light update invalidates adjacent cached meshes as well as its own chunk. Missing light remains unknown rather than invented full brightness. Terminal transport errors are retained independently of the bounded packet queue; after queued packets drain, the original error is delivered exactly once, and closed streams fail the session instead of looking connected indefinitely.
 
+Outbound packets queue without a small fixed bound: a burst never ends a session (`outbound queue unavailable: sending on a full channel` was the pre-fix failure when a locked server flooded teleports). The I/O owner drains the queue between every received packet; only a genuinely stalled writer (backlog above 8192 packets, or the 2 s write timeout) is a terminal error.
+
 ### Native10 bounded Loader resources and navigation
 
 The Native10 source and integrated executable add the generic Loader sections `items`, `world_selection`, `world_previews` and `sounds` alongside views/actions/assets. This is **not full Settlements or graphical acceptance**: `.analysis/native10/handoff.json` records the exact executable, remaining live-package prerequisites and windowed receipts. `.analysis/native10/integrated-proof.json` records 27 focused Loader tests and nine navigation tests; scoped receipts also exercise actual Content model/atlas activation and the existing native audio mixer.

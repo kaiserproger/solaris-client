@@ -4,7 +4,7 @@ use std::{
     io::{Read, Write},
     net::{Shutdown, TcpStream, ToSocketAddrs},
     sync::{
-        atomic::{AtomicBool, AtomicU8, Ordering},
+        atomic::{AtomicBool, AtomicU8, AtomicUsize, Ordering},
         mpsc::{self, Receiver, SyncSender},
         Arc,
     },
@@ -30,15 +30,21 @@ pub enum Event {
     Packet(Phase, i32, Vec<u8>),
     Error(String),
 }
+/// Outbound packets the session may queue ahead of the I/O owner. The session
+/// emits a few packets per tick and the owner drains continuously, so reaching
+/// this means the writer is genuinely stalled (TCP backpressure, the same
+/// condition the write timeout reports) rather than a momentary burst.
+const MAX_OUTBOUND_BACKLOG: usize = 8192;
 struct ConnectionState {
     cancelled: AtomicBool,
+    outbound_backlog: AtomicUsize,
     terminal_error: Mutex<Option<String>>,
     /// Latest setting; only the I/O owner chooses the phase-specific packet ID.
     view_distance: AtomicU8,
 }
 pub struct Network {
     incoming: Receiver<Event>,
-    outgoing: SyncSender<(i32, Vec<u8>)>,
+    outgoing: mpsc::Sender<(i32, Vec<u8>)>,
     state: Arc<ConnectionState>,
     socket: Option<TcpStream>,
     #[cfg(test)]
@@ -52,9 +58,10 @@ impl Network {
         wake: Arc<dyn Fn() + Send + Sync>,
     ) -> Result<Self> {
         let (send, incoming) = mpsc::sync_channel(16);
-        let (outgoing, receive) = mpsc::sync_channel(128);
+        let (outgoing, receive) = mpsc::channel();
         let state = Arc::new(ConnectionState {
             cancelled: AtomicBool::new(false),
+            outbound_backlog: AtomicUsize::new(0),
             terminal_error: Mutex::new(None),
             view_distance: AtomicU8::new(view_distance),
         });
@@ -116,9 +123,16 @@ impl Network {
         }
     }
     pub fn send(&self, id: i32, body: Vec<u8>) -> Result<()> {
-        self.outgoing
-            .try_send((id, body))
-            .map_err(|e| format!("outbound queue unavailable: {e}"))
+        // Never fails because of a transient burst; only a stalled writer is fatal.
+        let state = &self.state;
+        if state.outbound_backlog.fetch_add(1, Ordering::AcqRel) >= MAX_OUTBOUND_BACKLOG {
+            state.outbound_backlog.fetch_sub(1, Ordering::AcqRel);
+            return Err("outbound backlog exceeded: network writer stalled".into());
+        }
+        self.outgoing.send((id, body)).map_err(|_| {
+            state.outbound_backlog.fetch_sub(1, Ordering::AcqRel);
+            "outbound queue closed: network thread ended".to_string()
+        })
     }
 
     /// Publish a setting; the I/O owner sends the proper Configuration/Play form.
@@ -166,6 +180,20 @@ fn handshake(endpoint: &str, port: u16, next: i32) -> Vec<u8> {
     w.0.extend(port.to_be_bytes());
     w.var(next);
     w.0
+}
+/// Write every queued session packet. The I/O owner calls this between reads
+/// and between delivered events so inbound floods cannot starve outbound.
+fn flush_outbound(
+    socket: &mut TcpStream,
+    commands: &Receiver<(i32, Vec<u8>)>,
+    state: &ConnectionState,
+    threshold: Option<usize>,
+) -> Result<()> {
+    while let Ok((id, body)) = commands.try_recv() {
+        state.outbound_backlog.fetch_sub(1, Ordering::AcqRel);
+        write(socket, id, &body, threshold)?;
+    }
+    Ok(())
 }
 fn write(socket: &mut TcpStream, id: i32, body: &[u8], threshold: Option<usize>) -> Result<()> {
     socket
@@ -227,9 +255,7 @@ fn run(
     let mut buffer = Vec::with_capacity(65536);
     let mut advertised_radius = None;
     while !state.cancelled.load(Ordering::Acquire) {
-        while let Ok((id, body)) = commands.try_recv() {
-            write(&mut socket, id, &body, compression)?
-        }
+        flush_outbound(&mut socket, &commands, state, compression)?;
         let radius = state.view_distance.load(Ordering::Acquire);
         if phase != Phase::Login && advertised_radius != Some(radius) {
             // Packet IDs from the local 26.1.2 protocol dump: Configuration
@@ -246,6 +272,7 @@ fn run(
             let Some((id, body)) = extract(&mut buffer, compression)? else {
                 break;
             };
+            flush_outbound(&mut socket, &commands, state, compression)?;
             let original = phase;
             let radius = state.view_distance.load(Ordering::Acquire);
             if phase == Phase::Login {
@@ -521,5 +548,23 @@ mod tests {
         network.set_view_distance(16);
         peer.join().unwrap();
         network.worker.take().unwrap().join().unwrap();
+    }
+
+    #[test]
+    fn outbound_burst_while_the_io_owner_is_busy_is_buffered_not_fatal() {
+        // Regression: more than 128 packets queued while the I/O owner was busy
+        // ended a live session with "outbound queue unavailable: sending on a
+        // full channel". Nothing accepts the sockets, so the owner cannot drain.
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let network = Network::connect(
+            listener.local_addr().unwrap().to_string(),
+            "Burst".into(),
+            8,
+            Arc::new(|| {}),
+        )
+        .unwrap();
+        for _ in 0..1000 {
+            network.send(0x1e, vec![0; 8]).unwrap();
+        }
     }
 }
