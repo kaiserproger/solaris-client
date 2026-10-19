@@ -12,7 +12,7 @@ env:
   # pinned to FULL commit SHAs (never tags), like the server's own CI pins its
   # siblings; bump deliberately. The server must contain the SDK/WIT and the
   # `local_addr` listening-line change the singleplayer port discovery relies on.
-  SOLARIS_REVISION: 985246ecbc69722cb28fd431d26c1ac3d51febe7
+  SOLARIS_REVISION: be41f092ec6213b37c51a017d75160487f993abf
   SOLARIS_PLUGINS_REVISION: 09348a7b8e35ffbf9c4b79e73fd97cc6d69573fd
 
 permissions:
