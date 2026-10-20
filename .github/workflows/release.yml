@@ -155,8 +155,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          shopt -s nullglob
           for f in solaris-client-*.tar.gz solaris-client-*.zip; do
-            [ -f "$f" ] && sha256sum "$f" > "$f.sha256"
+            sha256sum "$f" > "$f.sha256"
           done
       - uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/v')
