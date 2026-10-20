@@ -622,3 +622,126 @@ fn slider_activation_steps_by_the_declared_step_and_wraps_at_the_end() {
     click(&mut ui, &content, &mut inventory, "dialog/input/radius");
     assert_eq!(label(&ui), "Radius: 1");
 }
+
+fn long_notice(paragraphs: usize) -> Nbt {
+    compound(vec![
+        ("type", s("minecraft:notice")),
+        ("title", s("Long")),
+        ("pause", Nbt::Byte(0)),
+        (
+            "body",
+            list(
+                (0..paragraphs)
+                    .map(|i| {
+                        compound(vec![
+                            ("type", s("minecraft:plain_message")),
+                            ("contents", s(&format!("Paragraph {i}"))),
+                        ])
+                    })
+                    .collect(),
+            ),
+        ),
+    ])
+}
+
+#[test]
+fn body_text_crossing_the_viewport_edge_is_clipped_not_hidden() {
+    let (content, inventory, mut ui) = state();
+    show(&mut ui, &long_notice(30)).unwrap();
+    rebuild(&mut ui, &content, &inventory);
+    let (top, bottom) = (HEADER, ui.height - FOOTER);
+    let max = ui.dialogs.max_scroll;
+    assert!(max > 3, "the dialog must overflow its viewport");
+    let mut partial = 0;
+    for scroll in 0..=max {
+        ui.scroll = scroll;
+        ui.invalidate();
+        rebuild(&mut ui, &content, &inventory);
+        for node in ui.nodes.iter().filter(|n| n.id.starts_with("dialog/body/")) {
+            let [_, y, _, h] = node.bounds;
+            let overlaps = y < bottom && y + h > top;
+            assert_eq!(node.visible, overlaps, "{} at scroll {scroll}", node.id);
+            if overlaps && (y < top || y + h > bottom) {
+                partial += 1;
+                let clip = node
+                    .clip
+                    .expect("a straddling text node carries a clip rect");
+                assert!(clip[1] >= top && clip[1] + clip[3] <= bottom, "{clip:?}");
+            }
+        }
+    }
+    assert!(
+        partial > 0,
+        "no scroll offset put text across a viewport edge"
+    );
+}
+
+#[test]
+fn clip_rect_of_a_paragraph_taller_than_the_viewport_is_the_viewport() {
+    // Taller than the viewport on both sides: only the viewport slice may paint.
+    assert_eq!(
+        dialog_clip([10., -500., 100., 2000.], 33., 207.),
+        Some([10., 33., 100., 174.])
+    );
+    assert_eq!(
+        dialog_clip([10., 40., 100., 9.], 33., 207.),
+        Some([10., 40., 100., 9.])
+    );
+    assert_eq!(dialog_clip([10., 300., 100., 9.], 33., 207.), None);
+    assert_eq!(dialog_clip([10., 0., 100., 33.], 33., 207.), None);
+}
+
+#[test]
+fn mcp_button_click_scrolls_an_off_screen_dialog_button_into_view() {
+    let (content, mut inventory, mut ui) = state();
+    let actions = (0..20)
+        .map(|i| {
+            button(
+                &format!("Go {i}"),
+                Some(custom(&format!("solaris:t/{i}"), vec![])),
+            )
+        })
+        .collect();
+    let dialog = sample(vec![
+        ("body", list(vec![])),
+        ("inputs", list(vec![])),
+        ("actions", list(actions)),
+        ("columns", Nbt::Int(1)),
+    ]);
+    show(&mut ui, &dialog).unwrap();
+    rebuild(&mut ui, &content, &inventory);
+    let node = |ui: &UiState, id: &str| ui.nodes.iter().find(|n| n.id == id).unwrap().clone();
+    assert!(
+        !node(&ui, "dialog/action/15").visible,
+        "starts below the viewport"
+    );
+    let (class, title) = ui.dialog_screen_metadata().unwrap();
+    let intent = ui
+        .exact_button(&inventory, &content, Some(class), &title, "Go 15", false)
+        .unwrap();
+    assert!(
+        matches!(&intent, UiIntent::Activate { element_id, .. } if element_id == "dialog/action/15")
+    );
+    assert!(ui.scroll > 0);
+    assert!(node(&ui, "dialog/action/15").visible);
+    let effects = ui.execute(intent, &mut inventory, &content).unwrap();
+    assert_eq!(sent(&effects).0, "solaris:t/15");
+
+    // And back up again for a button scrolled above the viewport.
+    show(&mut ui, &dialog).unwrap();
+    rebuild(&mut ui, &content, &inventory);
+    ui.scroll = ui.dialogs.max_scroll;
+    ui.invalidate();
+    rebuild(&mut ui, &content, &inventory);
+    assert!(
+        !node(&ui, "dialog/action/0").visible,
+        "starts above the viewport"
+    );
+    let intent = ui
+        .exact_button(&inventory, &content, Some(class), &title, "Go 0", false)
+        .unwrap();
+    assert!(
+        matches!(&intent, UiIntent::Activate { element_id, .. } if element_id == "dialog/action/0")
+    );
+    assert!(node(&ui, "dialog/action/0").visible);
+}

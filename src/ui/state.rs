@@ -268,6 +268,9 @@ pub struct SemanticNode {
     pub bounds: [f32; 4],
     pub enabled: bool,
     pub visible: bool,
+    /// Paint clip override for nodes only partly inside a scroll viewport.
+    #[serde(skip)]
+    pub(crate) clip: Option<[f32; 4]>,
     pub deny_reason: Option<&'static str>,
     pub focused: bool,
     pub owner: &'static str,
@@ -3697,15 +3700,16 @@ impl UiState {
             } else {
                 0.
             };
+            let [cx, cy, cw, ch] = node.clip.unwrap_or(node.bounds);
             super::clipping::clip(
                 p.out,
                 vertex_start,
                 index_start,
                 [
-                    (x - pad) * scale,
-                    (y - pad) * scale,
-                    (w + pad * 2.) * scale,
-                    (h + pad * 2.) * scale,
+                    (cx - pad) * scale,
+                    (cy - pad) * scale,
+                    (cw + pad * 2.) * scale,
+                    (ch + pad * 2.) * scale,
                 ],
             )?;
             if let Paint::Slider { desc, .. }
@@ -3750,6 +3754,7 @@ impl UiState {
             role,
             label,
             component: None,
+            clip: None,
             bounds,
             enabled,
             visible,

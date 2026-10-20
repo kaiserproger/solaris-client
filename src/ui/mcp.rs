@@ -239,6 +239,19 @@ impl UiState {
         }
         // Buttons, options tabs, switches and sliders are all one-shot activations
         // through the same real path; a slider activation is its existing cycle.
+        let id = self.button_match(label)?.id.clone();
+        // A dialog button scrolled out of the viewport is brought into view like a wheel would.
+        self.reveal_for_automation(&id, inventory, content)?;
+        let button = self.button_match(label)?;
+        if !button.enabled || !button.visible {
+            return Err("screen button is not enabled".into());
+        }
+        Ok(UiIntent::Activate {
+            context: self.context(inventory),
+            element_id: button.id.clone(),
+        })
+    }
+    fn button_match(&self, label: &str) -> Result<&super::state::SemanticNode> {
         let mut matches = self.nodes.iter().filter(|node| {
             matches!(node.role, "button" | "tab" | "switch" | "slider")
                 && node.label == label
@@ -248,13 +261,22 @@ impl UiState {
         if matches.next().is_some() {
             return Err("screen button label is ambiguous".into());
         }
-        if !button.enabled || !button.visible {
-            return Err("screen button is not enabled".into());
+        Ok(button)
+    }
+    /// Scroll a hidden server-dialog node into the viewport and rebuild, so automation sees the
+    /// same state a player would after using the wheel.
+    fn reveal_for_automation(
+        &mut self,
+        id: &str,
+        inventory: &InventoryStore,
+        content: &Content,
+    ) -> Result<()> {
+        let hidden = self.nodes.iter().any(|n| n.id == id && !n.visible);
+        if hidden && self.dialog_reveal(id) {
+            self.rebuild(inventory, content)?;
+            self.dirty = false;
         }
-        Ok(UiIntent::Activate {
-            context: self.context(inventory),
-            element_id: button.id.clone(),
-        })
+        Ok(())
     }
     /// Resolve one actual EditBuffer-backed visible textbox. Mutation stays in UiIntent.
     pub(crate) fn exact_input(
@@ -275,6 +297,20 @@ impl UiState {
         }
         if title != expected_title {
             return Err(format!("screen title mismatch: {title}"));
+        }
+        if !self
+            .nodes
+            .iter()
+            .any(|n| n.role == "textbox" && n.label == label && n.visible)
+        {
+            if let Some(id) = self
+                .nodes
+                .iter()
+                .find(|n| n.role == "textbox" && n.label == label)
+                .map(|n| n.id.clone())
+            {
+                self.reveal_for_automation(&id, inventory, content)?;
+            }
         }
         let (id, length) = exact_input_target(&self.nodes, &self.fields, label, value)?;
         Ok((
@@ -340,6 +376,7 @@ mod tests {
             visible: true,
             deny_reason: None,
             focused: false,
+            clip: None,
             owner: "solaris_loader",
             action: NodeAction::Focus(id.into()),
             paint: Paint::Field(id.into()),

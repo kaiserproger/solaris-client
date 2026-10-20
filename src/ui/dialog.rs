@@ -159,6 +159,8 @@ pub(crate) struct DialogHost {
     /// Inclusive count of dialog packets/actions for observation.
     pub(crate) rejected: Vec<String>,
     pub(crate) max_scroll: usize,
+    /// Body viewport `[top, bottom]` in GUI pixels from the latest tree build.
+    pub(crate) view: [f32; 2],
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1250,14 +1252,55 @@ impl UiState {
                 }
             }
         }
-        // Body nodes outside the scroll viewport are hidden, not clipped.
+        // Text overlapping the viewport paints clipped to it (every wrapped line stays reachable
+        // by scrolling); other controls are shown only when entirely inside.
         let (clip_top, clip_bottom) = (view_top, view_top + view_h);
+        self.dialogs.view = [clip_top, clip_bottom];
         for node in &mut self.nodes[first_body_node..] {
-            if node.bounds[1] < clip_top || node.bounds[1] + node.bounds[3] > clip_bottom {
+            if node.role == "text" {
+                let clip = dialog_clip(node.bounds, clip_top, clip_bottom);
+                node.visible = clip.is_some();
+                node.clip = clip.filter(|clip| *clip != node.bounds);
+            } else if node.bounds[1] < clip_top || node.bounds[1] + node.bounds[3] > clip_bottom {
                 node.visible = false;
             }
         }
         Ok(())
+    }
+
+    /// Scroll the open dialog just far enough that body node `id` lies inside the viewport, as a
+    /// wheel would. Returns whether the scroll offset changed.
+    pub(crate) fn dialog_reveal(&mut self, id: &str) -> bool {
+        if self.screen != Screen::ServerDialog {
+            return false;
+        }
+        let Some(node) = self.nodes.iter().find(|n| n.id == id) else {
+            return false;
+        };
+        let [top, bottom] = self.dialogs.view;
+        let [_, y, _, h] = node.bounds;
+        let delta = if y < top {
+            y - top
+        } else if y + h > bottom {
+            // A node taller than the viewport is aligned by its top edge.
+            (y + h - bottom).min(y - top)
+        } else {
+            return false;
+        };
+        let steps = (delta.abs() / 12.).ceil() as usize;
+        let target = if delta < 0. {
+            self.scroll.saturating_sub(steps)
+        } else {
+            self.scroll
+                .saturating_add(steps)
+                .min(self.dialogs.max_scroll)
+        };
+        let moved = target != self.scroll;
+        self.scroll = target;
+        if moved {
+            self.invalidate();
+        }
+        moved
     }
 
     fn dialog_button(&mut self, index: usize, button: &DialogButton, rect: [f32; 4]) -> Result<()> {
@@ -1465,6 +1508,13 @@ impl UiState {
         }
         Ok(())
     }
+}
+
+/// Vertical intersection of a body node with the scroll viewport; `None` when they do not overlap.
+fn dialog_clip(bounds: [f32; 4], top: f32, bottom: f32) -> Option<[f32; 4]> {
+    let [x, y, w, h] = bounds;
+    let (from, to) = (y.max(top), (y + h).min(bottom));
+    (to > from).then_some([x, from, w, to - from])
 }
 
 #[cfg(test)]
