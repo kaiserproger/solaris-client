@@ -55,3 +55,8 @@ default-members = [".", "launcher"]
 [profile.release]
 # Shipping binaries: small and fast to start; the client crate is already heavy.
 codegen-units = 16
+
+[patch.crates-io]
+# Vendored winit 0.30.12 with one X11 fix: wheel buttons 4..=7 ignore Released
+# (see vendor/winit/SOLARIS_PATCH.md). Upstream 0.30.13 still has the bug.
+winit = { path = "vendor/winit" }
