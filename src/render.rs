@@ -360,6 +360,23 @@ fn present_mode(vsync: bool, supported: &[wgpu::PresentMode]) -> wgpu::PresentMo
     }
 }
 
+#[derive(Debug, PartialEq, Eq)]
+enum SurfaceRecovery {
+    Reconfigure,
+    Skip,
+    Fatal,
+}
+
+fn classify_surface_error(error: &wgpu::SurfaceError, gpu_failed: bool) -> SurfaceRecovery {
+    match error {
+        wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated => SurfaceRecovery::Reconfigure,
+        wgpu::SurfaceError::Timeout => SurfaceRecovery::Skip,
+        wgpu::SurfaceError::Other if !gpu_failed => SurfaceRecovery::Skip,
+        wgpu::SurfaceError::OutOfMemory | wgpu::SurfaceError::Other => SurfaceRecovery::Fatal,
+    }
+}
+
+
 impl Renderer {
     pub async fn new(window: Arc<Window>, artifact_dir: PathBuf) -> Result<Self, String> {
         let instance = gpu_instance();
@@ -1012,30 +1029,39 @@ impl Renderer {
         {
             None => None,
             Some(Ok(frame)) => Some(frame),
-            Some(Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated)) => {
-                self.surface
-                    .as_ref()
-                    .unwrap()
-                    .configure(&self.device, &self.config);
-                if let Some(request) = capture {
-                    let _ = request
-                        .reply
-                        .send(Err("surface_reconfigured_retry_capture".into()));
+            Some(Err(error)) => match classify_surface_error(
+                &error,
+                self.gpu_failed.load(Ordering::Acquire),
+            ) {
+                SurfaceRecovery::Reconfigure => {
+                    self.surface
+                        .as_ref()
+                        .unwrap()
+                        .configure(&self.device, &self.config);
+                    if let Some(request) = capture {
+                        let _ = request
+                            .reply
+                            .send(Err("surface_reconfigured_retry_capture".into()));
+                    }
+                    return Ok(());
                 }
-                return Ok(());
-            }
-            Some(Err(wgpu::SurfaceError::Timeout)) => {
-                if let Some(request) = capture {
-                    let _ = request.reply.send(Err("window_not_presentable".into()));
+                SurfaceRecovery::Skip => {
+                    if let Some(request) = capture {
+                        let _ = request.reply.send(Err("window_not_presentable".into()));
+                    }
+                    return Ok(());
                 }
-                return Ok(());
-            }
-            Some(Err(e)) => {
-                if let Some(request) = capture {
-                    let _ = request.reply.send(Err(format!("surface_failure: {e}")));
+                SurfaceRecovery::Fatal => {
+                    let message = match error {
+                        wgpu::SurfaceError::OutOfMemory => "surface_out_of_memory".into(),
+                        _ => format!("surface_failure_device_failed: {error}"),
+                    };
+                    if let Some(request) = capture {
+                        let _ = request.reply.send(Err(message.clone()));
+                    }
+                    return Err(message);
                 }
-                return Err(format!("surface_failure: {e}"));
-            }
+            },
         };
         if self.surface.is_some() {
             self.stats.surface_acquire_ms = acquisition.elapsed().as_secs_f64() * 1000.;
@@ -1334,5 +1360,37 @@ impl Renderer {
             }
         }
         None
+    }
+}
+#[cfg(test)]
+mod presentation_error_tests {
+    use super::*;
+
+    #[test]
+    fn surface_error_classification_recovers_presentation_failures() {
+        assert_eq!(
+            classify_surface_error(&wgpu::SurfaceError::Lost, false),
+            SurfaceRecovery::Reconfigure
+        );
+        assert_eq!(
+            classify_surface_error(&wgpu::SurfaceError::Outdated, false),
+            SurfaceRecovery::Reconfigure
+        );
+        assert_eq!(
+            classify_surface_error(&wgpu::SurfaceError::Timeout, false),
+            SurfaceRecovery::Skip
+        );
+        assert_eq!(
+            classify_surface_error(&wgpu::SurfaceError::Other, false),
+            SurfaceRecovery::Skip
+        );
+        assert_eq!(
+            classify_surface_error(&wgpu::SurfaceError::Other, true),
+            SurfaceRecovery::Fatal
+        );
+        assert_eq!(
+            classify_surface_error(&wgpu::SurfaceError::OutOfMemory, false),
+            SurfaceRecovery::Fatal
+        );
     }
 }
