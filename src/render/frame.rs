@@ -505,7 +505,7 @@ impl Renderer {
                 timestamp_writes: self.timing.writes(12),
                 occlusion_query_set: None,
             });
-            pass.set_pipeline(&self.shadow.pipeline);
+            pass.set_pipeline(&self.shadow.terrain_pipeline);
             pass.set_bind_group(0, &self.camera_bind, &[]);
             pass.set_bind_group(1, &self.atlas_bind, &[]);
             pass.set_vertex_buffer(1, self.shadow.instances.slice(..));
@@ -538,6 +538,7 @@ impl Renderer {
                     self.stats.shadow_terrain_indices += indices;
                 }
             }
+            pass.set_pipeline(&self.shadow.pipeline);
             pass.set_vertex_buffer(0, self.dynamic.vertices.slice(..));
             pass.set_index_buffer(self.dynamic.indices.slice(..), wgpu::IndexFormat::Uint32);
             for (family, range) in self.dynamic.ranges.iter().enumerate() {
@@ -954,7 +955,6 @@ mod hurt_camera_tests {
 #[cfg(test)]
 mod terrain_translucency_tests {
     use super::*;
-    use bytemuck::Zeroable;
 
     #[test]
     fn terrain_translucency_has_one_descriptor_per_section_not_per_quad() {
@@ -965,7 +965,7 @@ mod terrain_translucency_tests {
         ))
         .unwrap();
         renderer.reference_mode = true;
-        let mut vertices = vec![crate::api::Vertex::zeroed(); 16];
+        let mut vertices = super::packed::blank_vertices(16);
         let mut indices = Vec::new();
         for quad in 0..4 {
             let base = quad * 4;
@@ -975,6 +975,7 @@ mod terrain_translucency_tests {
             let base = base as u32;
             indices.extend([base, base + 1, base + 2, base, base + 2, base + 3]);
         }
+        let packed = super::packed::pack_vertices(&vertices, &mut Default::default()).unwrap();
         for (key, origin) in [([0, 0, 0], [0.; 3]), ([2, 0, 0], [32., 0., 0.])] {
             let mesh = ResidentMesh::reserve(
                 &renderer.device,
@@ -990,7 +991,7 @@ mod terrain_translucency_tests {
                 &renderer.queue,
                 &renderer.vertex_arena,
                 &renderer.index_arena,
-                &vertices,
+                &packed,
                 [&indices[..6], &indices[..6], &indices],
             );
             renderer.chunks.insert(
@@ -1072,7 +1073,7 @@ mod terrain_translucency_tests {
         ))
         .unwrap();
         // Optimized mode (reference_mode off) so the real frustum gate runs.
-        let mut vertices = vec![crate::api::Vertex::zeroed(); 8];
+        let mut vertices = super::packed::blank_vertices(8);
         for (index, vertex) in vertices.iter_mut().enumerate() {
             vertex.position = [index as f32, 0., 4.];
         }
@@ -1081,6 +1082,7 @@ mod terrain_translucency_tests {
         // the occlusion flood is unavailable and every section falls through
         // to the plain frustum test. The origin section overlaps the identity
         // NDC cube; the distant one does not.
+        let packed = super::packed::pack_vertices(&vertices, &mut Default::default()).unwrap();
         for (key, origin) in [([0, 0, 0], [0.; 3]), ([60, 60, 60], [960., 960., 960.])] {
             let mesh = ResidentMesh::reserve(
                 &renderer.device,
@@ -1096,7 +1098,7 @@ mod terrain_translucency_tests {
                 &renderer.queue,
                 &renderer.vertex_arena,
                 &renderer.index_arena,
-                &vertices,
+                &packed,
                 [&indices, &[], &[]],
             );
             renderer.chunks.insert(
@@ -1184,12 +1186,13 @@ mod terrain_translucency_tests {
             PathBuf::from(".analysis/fog-cull-regression"),
         ))
         .unwrap();
-        let mut vertices = vec![crate::api::Vertex::zeroed(); 4];
+        let mut vertices = super::packed::blank_vertices(4);
         for (corner, vertex) in vertices.iter_mut().enumerate() {
             vertex.position = [(corner / 2) as f32, 0., (corner % 2) as f32];
         }
         let indices = [0u32, 1, 2, 0, 2, 3];
         // Section keys 0 and 18 start 0 and 288 blocks east of the camera.
+        let packed = super::packed::pack_vertices(&vertices, &mut Default::default()).unwrap();
         for (key, origin) in [([0, 0, 0], [0.; 3]), ([18, 0, 0], [288., 0., 0.])] {
             let mesh = ResidentMesh::reserve(
                 &renderer.device,
@@ -1205,7 +1208,7 @@ mod terrain_translucency_tests {
                 &renderer.queue,
                 &renderer.vertex_arena,
                 &renderer.index_arena,
-                &vertices,
+                &packed,
                 [&indices, &[], &[]],
             );
             renderer.chunks.insert(

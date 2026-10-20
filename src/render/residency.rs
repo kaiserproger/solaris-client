@@ -292,6 +292,7 @@ impl Renderer {
                     ],
                     layers,
                 )?;
+                let packed = packed::pack_vertices(&geometry.vertices, &mut self.tiles)?;
                 let mesh = ResidentMesh::reserve(
                     &self.device,
                     &self.queue,
@@ -323,6 +324,7 @@ impl Renderer {
                         visibility: None,
                         mesh,
                     },
+                    packed,
                 ));
             }
             if transparent_count > mesh::MAX_TRANSPARENT_PRIMITIVES {
@@ -332,7 +334,8 @@ impl Renderer {
                 && (!scene.vertices.is_empty() || !scene.indices.is_empty())
             {
                 mesh::validate(&scene.vertices, &[&scene.indices], layers)?;
-                staged_fixture = Some(ResidentMesh::reserve(
+                let packed = packed::pack_vertices(&scene.vertices, &mut self.tiles)?;
+                let mesh = ResidentMesh::reserve(
                     &self.device,
                     &self.queue,
                     &mut self.vertex_arena,
@@ -340,17 +343,18 @@ impl Renderer {
                     &scene.vertices,
                     [&scene.indices, &[], &[]],
                     [None, None],
-                )?);
+                )?;
+                staged_fixture = Some((mesh, packed));
             }
             Ok(())
         })();
         if let Err(error) = preparation {
-            for (_, chunk) in staged.drain(..) {
+            for (_, chunk, _) in staged.drain(..) {
                 chunk
                     .mesh
                     .release(&mut self.vertex_arena, &mut self.index_arena);
             }
-            if let Some(mesh) = staged_fixture {
+            if let Some((mesh, _)) = staged_fixture {
                 mesh.release(&mut self.vertex_arena, &mut self.index_arena);
             }
             self.staged_chunks = staged;
@@ -363,6 +367,7 @@ impl Renderer {
                 &self.pipelines.atlas_layout,
                 &self.lightmap_texture,
                 &self.entity_overlay_texture,
+                &self.tile_texture,
                 pixels,
                 mips,
                 width,
@@ -394,6 +399,7 @@ impl Renderer {
             &self.sunrise_geometry.indices,
             [false; 3],
         )?;
+        self.stats.terrain_upload_bytes += self.tiles.flush(&self.queue, &self.tile_texture);
         if self.reference_mode && !force {
             // The reference path submits full geometry bytes each frame. Queue
             // writes execute after prior submissions and before this frame;
@@ -412,11 +418,12 @@ impl Renderer {
                 let Some(geometry) = source.geometry.as_ref() else {
                     continue;
                 };
+                let packed = packed::pack_vertices(&geometry.vertices, &mut self.tiles)?;
                 old.mesh.upload_geometry(
                     &self.queue,
                     &self.vertex_arena,
                     &self.index_arena,
-                    &geometry.vertices,
+                    &packed,
                     [
                         &geometry.indices[0],
                         &geometry.indices[1],
@@ -428,18 +435,19 @@ impl Renderer {
             }
             if self.mesh_revision == Some(scene.revision) {
                 if let Some(mesh) = &self.fixture {
+                    let packed = packed::pack_vertices(&scene.vertices, &mut self.tiles)?;
                     mesh.upload_geometry(
                         &self.queue,
                         &self.vertex_arena,
                         &self.index_arena,
-                        &scene.vertices,
+                        &packed,
                         [&scene.indices, &[], &[]],
                     );
                     self.stats.terrain_upload_bytes += mesh.bytes();
                 }
             }
         }
-        for (key, chunk) in staged.drain(..) {
+        for (key, chunk, packed) in staged.drain(..) {
             let ack = (key, chunk.revision);
             let Some(geometry) = scene
                 .chunks
@@ -452,7 +460,7 @@ impl Renderer {
                 &self.queue,
                 &self.vertex_arena,
                 &self.index_arena,
-                &geometry.vertices,
+                &packed,
                 [
                     &geometry.indices[0],
                     &geometry.indices[1],
@@ -484,12 +492,12 @@ impl Renderer {
                 self.uploaded_meshes.push(ack);
             }
         }
-        if let Some(mesh) = staged_fixture {
+        if let Some((mesh, packed)) = staged_fixture {
             mesh.upload_geometry(
                 &self.queue,
                 &self.vertex_arena,
                 &self.index_arena,
-                &scene.vertices,
+                &packed,
                 [&scene.indices, &[], &[]],
             );
             self.stats.terrain_upload_bytes += mesh.bytes();

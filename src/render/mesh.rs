@@ -1,4 +1,5 @@
 use super::arena::{Allocation, Arena};
+use super::packed::TerrainVertex;
 use crate::api::{FaceGroups, Vertex, FACE_GROUPS, VEGETATION_GROUP};
 use std::ops::Range;
 
@@ -191,7 +192,11 @@ impl ResidentMesh {
             first..count
         });
         let transparent = Translucent::new(vertices, indices[2])?;
-        let vertices = va.allocate(device, queue, std::mem::size_of_val(vertices) as u64)?;
+        let vertices = va.allocate(
+            device,
+            queue,
+            (vertices.len() * std::mem::size_of::<TerrainVertex>()) as u64,
+        )?;
         let index_allocation = match ia.allocate(device, queue, u64::from(count) * 4) {
             Ok(a) => a,
             Err(e) => {
@@ -271,7 +276,12 @@ impl ResidentMesh {
     /// Index sub-ranges of terrain `layer` whose quads face toward `light`
     /// (a direction from the scene toward the light). Undivided layers yield
     /// their whole range; non-planar quads are always kept.
-    pub fn light_facing_runs(&self, layer: usize, light: [f32; 3], mut emit: impl FnMut(Range<u32>)) {
+    pub fn light_facing_runs(
+        &self,
+        layer: usize,
+        light: [f32; 3],
+        mut emit: impl FnMut(Range<u32>),
+    ) {
         let range = self.ranges[layer].clone();
         if range.is_empty() {
             return;
@@ -332,7 +342,7 @@ impl ResidentMesh {
         queue: &wgpu::Queue,
         va: &Arena,
         ia: &Arena,
-        vertices: &[Vertex],
+        vertices: &[TerrainVertex],
         indices: [&[u32]; 3],
     ) {
         if let Some(a) = self.vertices {
@@ -512,7 +522,10 @@ mod tests {
         assert_eq!(runs(&mesh, [6., 5., 5.], false), vec![106..112, 148..154]);
         // Far -X/-Z corner sees -Y? (y<1) -Z (z<2) and -X (x<4) faces; adjacent
         // groups coalesce into one run.
-        assert_eq!(runs(&mesh, [0., 0., 0.], false), vec![100..106, 112..118, 124..130, 148..154]);
+        assert_eq!(
+            runs(&mesh, [0., 0., 0.], false),
+            vec![100..106, 112..118, 124..130, 148..154]
+        );
     }
 
     #[test]

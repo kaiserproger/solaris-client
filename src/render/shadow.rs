@@ -102,7 +102,10 @@ pub(super) struct Shadow {
     pub view: wgpu::TextureView,
     pub opaque_depth: wgpu::Texture,
     pub bind: wgpu::BindGroup,
+    /// Dynamic (entity) casters, full `Vertex` layout.
     pub pipeline: wgpu::RenderPipeline,
+    /// Terrain and fixture casters, packed `TerrainVertex` layout.
+    pub terrain_pipeline: wgpu::RenderPipeline,
     pub instances: wgpu::Buffer,
     pub chunks: Vec<[i32; 3]>,
     /// Caster index ranges in draw order: the single source of truth for the
@@ -135,51 +138,67 @@ impl Shadow {
         });
         let attributes = wgpu::vertex_attr_array![0=>Float32x3,1=>Float32x3,2=>Float32x2,3=>Float32x2,4=>Float32x3,5=>Float32,6=>Uint32,8=>Float32x2,9=>Float32x3];
         let instance_attributes = wgpu::vertex_attr_array![7=>Float32x4];
-        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("sun moon alpha-tested shadow map"),
-            layout: Some(&pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("shadow_vertex"),
-                compilation_options: Default::default(),
-                buffers: &[
-                    wgpu::VertexBufferLayout {
-                        array_stride: std::mem::size_of::<crate::api::Vertex>() as u64,
-                        step_mode: wgpu::VertexStepMode::Vertex,
-                        attributes: &attributes,
-                    },
-                    wgpu::VertexBufferLayout {
-                        array_stride: 16,
-                        step_mode: wgpu::VertexStepMode::Instance,
-                        attributes: &instance_attributes,
-                    },
-                ],
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: Some("shadow_fragment"),
-                compilation_options: Default::default(),
-                targets: &[],
-            }),
-            primitive: wgpu::PrimitiveState {
-                cull_mode: None,
-                ..Default::default()
-            },
-            depth_stencil: Some(wgpu::DepthStencilState {
-                format: DEPTH,
-                depth_write_enabled: true,
-                depth_compare: wgpu::CompareFunction::LessEqual,
-                stencil: Default::default(),
-                bias: wgpu::DepthBiasState {
-                    constant: 2,
-                    slope_scale: 2.,
-                    clamp: 0.,
+        let build = |label: &'static str, entry: &'static str, vertex: wgpu::VertexBufferLayout<'_>| {
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some(label),
+                layout: Some(&pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &shader,
+                    entry_point: Some(entry),
+                    compilation_options: Default::default(),
+                    buffers: &[
+                        vertex,
+                        wgpu::VertexBufferLayout {
+                            array_stride: 16,
+                            step_mode: wgpu::VertexStepMode::Instance,
+                            attributes: &instance_attributes,
+                        },
+                    ],
                 },
-            }),
-            multisample: Default::default(),
-            multiview: None,
-            cache: None,
-        });
+                fragment: Some(wgpu::FragmentState {
+                    module: &shader,
+                    entry_point: Some("shadow_fragment"),
+                    compilation_options: Default::default(),
+                    targets: &[],
+                }),
+                primitive: wgpu::PrimitiveState {
+                    cull_mode: None,
+                    ..Default::default()
+                },
+                depth_stencil: Some(wgpu::DepthStencilState {
+                    format: DEPTH,
+                    depth_write_enabled: true,
+                    depth_compare: wgpu::CompareFunction::LessEqual,
+                    stencil: Default::default(),
+                    bias: wgpu::DepthBiasState {
+                        constant: 2,
+                        slope_scale: 2.,
+                        clamp: 0.,
+                    },
+                }),
+                multisample: Default::default(),
+                multiview: None,
+                cache: None,
+            })
+        };
+        let pipeline = build(
+            "sun moon alpha-tested shadow map",
+            "shadow_vertex",
+            wgpu::VertexBufferLayout {
+                array_stride: std::mem::size_of::<crate::api::Vertex>() as u64,
+                step_mode: wgpu::VertexStepMode::Vertex,
+                attributes: &attributes,
+            },
+        );
+        let terrain_pipeline = build(
+            "sun moon alpha-tested packed terrain shadow map",
+            "shadow_terrain_vertex",
+            wgpu::VertexBufferLayout {
+                array_stride: std::mem::size_of::<TerrainVertex>() as u64,
+                step_mode: wgpu::VertexStepMode::Vertex,
+                attributes: &super::pipelines::TERRAIN_ATTRIBUTES,
+            },
+        );
         let instances = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("shadow caster origins"),
             size: ((mesh::MAX_CHUNKS + 2) * 16) as u64,
@@ -192,6 +211,7 @@ impl Shadow {
             opaque_depth,
             bind,
             pipeline,
+            terrain_pipeline,
             instances,
             chunks: Vec::with_capacity(mesh::MAX_CHUNKS),
             runs: Vec::with_capacity(mesh::MAX_CHUNKS * 2 + 2),
@@ -278,7 +298,7 @@ impl Shadow {
         if let Some(batch) = self.batch.as_mut() {
             batch.clear();
         }
-        let vertex_stride = std::mem::size_of::<crate::api::Vertex>() as u64;
+        let vertex_stride = std::mem::size_of::<TerrainVertex>() as u64;
         // Casters need not be inside the camera frustum (that would make
         // shadows pop) but must reach the light's orthographic box.
         for (&key, chunk) in chunks {

@@ -385,7 +385,10 @@ fn fancy_shadow_indirect_matches_direct_pixels_with_fewer_calls() {
         fast_shadow_logical, 3,
         "logical shadow draws must cover every selected caster range"
     );
-    assert_eq!(fast_shadow_api, 1, "terrain shadows share one pipeline and batch");
+    assert_eq!(
+        fast_shadow_api, 1,
+        "terrain shadows share one pipeline and batch"
+    );
     assert!(
         fast_calls < reference_calls,
         "shadow batching must reduce native draw calls ({fast_calls} vs reference {reference_calls})"
@@ -745,4 +748,301 @@ fn terrain_facing_groups_preserve_pixels_and_drop_back_faces() {
         whole.chunks_exact(4).any(|p| p[1] > p[0]),
         "fixture must actually render"
     );
+}
+
+/// Runs the terrain vertex decode (`decode_terrain`, the exact function both
+/// terrain vertex stages call) on the GPU over raw packed bytes and returns 24
+/// floats per vertex: position, color, alpha, uv, layer, light, class, weight,
+/// normal, tile origin, tile size/marker.
+fn gpu_decode(renderer: &Renderer, packed: &[packed::TerrainVertex]) -> Vec<f32> {
+    const PROBE: &str = r#"
+@group(2) @binding(0) var<storage, read> raw: array<u32>;
+@group(2) @binding(1) var<storage, read_write> decoded: array<f32>;
+@compute @workgroup_size(1)
+fn probe(@builtin(global_invocation_id) id: vec3<u32>) {
+    let w = id.x * 5u;
+    let a = raw[w]; let b = raw[w + 1u]; let c = raw[w + 2u]; let d = raw[w + 3u]; let e = raw[w + 4u];
+    let t = decode_terrain(vec4<u32>(a & 0xffffu, a >> 16u, b & 0xffffu, b >> 16u), unpack4x8unorm(c),
+        vec4<u32>(d & 255u, (d >> 8u) & 255u, (d >> 16u) & 255u, d >> 24u),
+        vec2<u32>(e & 0xffffu, e >> 16u));
+    let o = id.x * 24u;
+    decoded[o] = t.position.x; decoded[o + 1u] = t.position.y; decoded[o + 2u] = t.position.z;
+    decoded[o + 3u] = t.color.x; decoded[o + 4u] = t.color.y; decoded[o + 5u] = t.color.z;
+    decoded[o + 6u] = t.alpha; decoded[o + 7u] = t.uv.x; decoded[o + 8u] = t.uv.y;
+    decoded[o + 9u] = f32(t.layer); decoded[o + 10u] = t.light.x; decoded[o + 11u] = t.light.y;
+    decoded[o + 12u] = f32(t.class_kind); decoded[o + 13u] = t.weight;
+    decoded[o + 14u] = t.normal.x; decoded[o + 15u] = t.normal.y; decoded[o + 16u] = t.normal.z;
+    decoded[o + 17u] = t.tile_origin.x; decoded[o + 18u] = t.tile_origin.y;
+    decoded[o + 19u] = t.tile.x; decoded[o + 20u] = t.tile.y; decoded[o + 21u] = t.tile.z;
+}
+"#;
+    let device = &renderer.device;
+    let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("packed terrain decode probe"),
+        source: wgpu::ShaderSource::Wgsl(
+            format!("{}{PROBE}", include_str!("../shader.wgsl")).into(),
+        ),
+    });
+    let layout_entry = |binding, ty| wgpu::BindGroupLayoutEntry {
+        binding,
+        visibility: wgpu::ShaderStages::COMPUTE,
+        ty,
+        count: None,
+    };
+    let storage = |read_only| wgpu::BindingType::Buffer {
+        ty: wgpu::BufferBindingType::Storage { read_only },
+        has_dynamic_offset: false,
+        min_binding_size: None,
+    };
+    let empty = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: None,
+        entries: &[],
+    });
+    let tiles = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: None,
+        entries: &[layout_entry(
+            6,
+            wgpu::BindingType::Texture {
+                sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                view_dimension: wgpu::TextureViewDimension::D2,
+                multisampled: false,
+            },
+        )],
+    });
+    let buffers = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: None,
+        entries: &[
+            layout_entry(0, storage(true)),
+            layout_entry(1, storage(false)),
+        ],
+    });
+    let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        label: None,
+        bind_group_layouts: &[&empty, &tiles, &buffers],
+        push_constant_ranges: &[],
+    });
+    let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+        label: Some("packed terrain decode probe"),
+        layout: Some(&pipeline_layout),
+        module: &module,
+        entry_point: Some("probe"),
+        compilation_options: Default::default(),
+        cache: None,
+    });
+    let raw = device.create_buffer(&wgpu::BufferDescriptor {
+        label: None,
+        size: std::mem::size_of_val(packed) as u64,
+        usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    });
+    renderer
+        .queue
+        .write_buffer(&raw, 0, bytemuck::cast_slice(packed));
+    let out_bytes = (packed.len() * 24 * 4) as u64;
+    let out = device.create_buffer(&wgpu::BufferDescriptor {
+        label: None,
+        size: out_bytes,
+        usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
+        mapped_at_creation: false,
+    });
+    let read = device.create_buffer(&wgpu::BufferDescriptor {
+        label: None,
+        size: out_bytes,
+        usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    });
+    let view = renderer.tile_texture.create_view(&Default::default());
+    let group = |layout, entries: &[wgpu::BindGroupEntry]| {
+        device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: None,
+            layout,
+            entries,
+        })
+    };
+    let g0 = group(&empty, &[]);
+    let g1 = group(
+        &tiles,
+        &[wgpu::BindGroupEntry {
+            binding: 6,
+            resource: wgpu::BindingResource::TextureView(&view),
+        }],
+    );
+    let g2 = group(
+        &buffers,
+        &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: raw.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: out.as_entire_binding(),
+            },
+        ],
+    );
+    let mut encoder = device.create_command_encoder(&Default::default());
+    {
+        let mut pass = encoder.begin_compute_pass(&Default::default());
+        pass.set_pipeline(&pipeline);
+        pass.set_bind_group(0, &g0, &[]);
+        pass.set_bind_group(1, &g1, &[]);
+        pass.set_bind_group(2, &g2, &[]);
+        pass.dispatch_workgroups(packed.len() as u32, 1, 1);
+    }
+    encoder.copy_buffer_to_buffer(&out, 0, &read, 0, out_bytes);
+    let index = renderer.queue.submit([encoder.finish()]);
+    let (tx, rx) = mpsc::sync_channel(1);
+    read.slice(..)
+        .map_async(wgpu::MapMode::Read, move |result| {
+            tx.send(result).unwrap();
+        });
+    device
+        .poll(wgpu::PollType::Wait {
+            submission_index: Some(index),
+            timeout: Some(std::time::Duration::from_secs(30)),
+        })
+        .unwrap();
+    rx.recv().unwrap().unwrap();
+    let decoded = bytemuck::cast_slice(&read.slice(..).get_mapped_range()).to_vec();
+    read.unmap();
+    decoded
+}
+
+#[test]
+fn packed_terrain_shader_decode_matches_mesher_vertices() {
+    use crate::api::Vertex;
+    let mut renderer = pollster::block_on(Renderer::new_offscreen(
+        32,
+        32,
+        PathBuf::from(".analysis/packed-decode"),
+    ))
+    .unwrap();
+    let base = Vertex {
+        position: [3.0625, 15.9375, -0.5],
+        color: [61. / 255., 140. / 255., 1.],
+        uv: [0.25, 0.8125],
+        overlay_uv: [-1.; 2],
+        overlay_tint: [1.; 3],
+        alpha: 1.,
+        texture_layer: 7,
+        light: [13.25, 4.0625],
+        normal: [0., 1., 0.],
+    };
+    let tiled = Vertex {
+        uv: [16., -15.],
+        overlay_uv: [0.125, 0.40625],
+        overlay_tint: [0.0625, 0.03125, -1.],
+        texture_layer: 5,
+        normal: [0., 0., -4.],
+        ..base
+    };
+    let mut vertices = vec![
+        base,
+        Vertex {
+            light: [-1.; 2],
+            uv: [-1.; 2],
+            alpha: 0.5,
+            ..base
+        },
+        Vertex {
+            normal: [3., 0., 0.],
+            light: [0., 15.],
+            ..base
+        },
+        tiled,
+        Vertex {
+            uv: [0., 0.],
+            texture_layer: 5,
+            ..tiled
+        },
+        packed::blank_vertices(1)[0],
+    ];
+    for face in 0..6 {
+        let direction = packed::FACE_NORMALS[face];
+        vertices.push(Vertex {
+            normal: direction.map(|c| c * 4.),
+            ..base
+        });
+    }
+    for height in [0f32, 0.0625, 0.5, 0.9375, 1.] {
+        vertices.push(Vertex {
+            normal: [0., 2. + 0.2 * height, 0.],
+            ..base
+        });
+    }
+    let packed = packed::pack_vertices(&vertices, &mut renderer.tiles).unwrap();
+    renderer
+        .tiles
+        .flush(&renderer.queue, &renderer.tile_texture);
+    let decoded = gpu_decode(&renderer, &packed);
+    for (i, vertex) in vertices.iter().enumerate() {
+        let got = &decoded[i * 24..i * 24 + 22];
+        let near = |actual: f32, expected: f32, tolerance: f32, what: &str| {
+            assert!(
+                (actual - expected).abs() <= tolerance,
+                "vertex {i} {what}: gpu {actual} vs mesher {expected}"
+            );
+        };
+        for axis in 0..3 {
+            near(
+                got[axis],
+                vertex.position[axis],
+                1. / 4096. + 1e-6,
+                "position",
+            );
+            near(got[3 + axis], vertex.color[axis], 0.6 / 255., "color");
+        }
+        near(got[6], vertex.alpha, 0.6 / 255., "alpha");
+        let tiled = vertex.overlay_tint[2] < 0.;
+        let (uv_tolerance, layer) = if tiled {
+            (0., 5.)
+        } else {
+            (1. / 32768., vertex.texture_layer as f32)
+        };
+        for axis in 0..2 {
+            if vertex.uv[axis] < 0. && !tiled {
+                near(got[7 + axis], -1., 0., "untextured uv");
+            } else {
+                near(got[7 + axis], vertex.uv[axis], uv_tolerance, "uv");
+            }
+        }
+        near(got[9], layer, 0., "layer");
+        let lit = vertex.light.iter().all(|l| *l >= 0.);
+        for channel in 0..2 {
+            near(
+                got[10 + channel],
+                if lit { vertex.light[channel] } else { -1. },
+                0.,
+                "light",
+            );
+        }
+        let length = vertex.normal.iter().map(|c| c * c).sum::<f32>().sqrt();
+        near(got[12], length.round(), 0., "class");
+        if length.round() == 2. {
+            near(
+                got[13],
+                ((length - 2.) * 5.).clamp(0., 1.),
+                1. / 256.,
+                "rooted weight",
+            );
+        }
+        for axis in 0..3 {
+            let unit = if length > 0. {
+                vertex.normal[axis] / length
+            } else {
+                0.
+            };
+            near(got[14 + axis], unit, 1e-6, "normal");
+        }
+        if tiled {
+            near(got[17], vertex.overlay_uv[0], 0., "tile origin");
+            near(got[18], vertex.overlay_uv[1], 0., "tile origin");
+            near(got[19], vertex.overlay_tint[0], 0., "tile size");
+            near(got[20], vertex.overlay_tint[1], 0., "tile size");
+            near(got[21], -1., 0., "tile marker");
+        } else {
+            near(got[17], -1., 0., "no tile origin");
+            near(got[21], 1., 0., "no tile marker");
+        }
+    }
 }

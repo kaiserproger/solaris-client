@@ -1,10 +1,10 @@
 use std::ops::Range;
 
-use crate::api::Vertex;
+use super::packed::TerrainVertex;
 
 /// Stride for vertex-arena alignment: MDI `base_vertex` divides the global
 /// byte offset by this, so every vertex allocation offset must be a multiple.
-const VERTEX_STRIDE: u64 = std::mem::size_of::<Vertex>() as u64;
+const VERTEX_STRIDE: u64 = std::mem::size_of::<TerrainVertex>() as u64;
 /// Index arenas only need 4-byte element alignment.
 const INDEX_ALIGN: u64 = 4;
 
@@ -360,7 +360,7 @@ mod tests {
     }
     #[test]
     fn vertex_offsets_stay_stride_aligned_across_growth() {
-        let stride = std::mem::size_of::<crate::api::Vertex>() as u64;
+        let stride = std::mem::size_of::<crate::render::packed::TerrainVertex>() as u64;
         assert!(stride.is_multiple_of(4));
         let mut arena = Arena::new(
             1024 * 1024 * 1024,

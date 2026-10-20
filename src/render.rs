@@ -20,6 +20,7 @@ mod mdi;
 mod mesh;
 mod metrics;
 mod outline;
+mod packed;
 mod pipelines;
 mod post;
 mod shadow;
@@ -32,6 +33,7 @@ mod visibility;
 mod shader_tests;
 use arena::Arena;
 use mesh::{ResidentMesh, Stream};
+use packed::{TerrainVertex, TileTable};
 use pipelines::Pipelines;
 use visibility::{Frustum, relative};
 use wgpu::util::DeviceExt;
@@ -337,6 +339,8 @@ pub struct Renderer {
     atlas_bind: wgpu::BindGroup,
     lightmap_texture: wgpu::Texture,
     entity_overlay_texture: wgpu::Texture,
+    tile_texture: wgpu::Texture,
+    tiles: TileTable,
     lightmap_revision: Option<u64>,
     texture_revision: Option<u64>,
     texture_activation_frame: Option<u64>,
@@ -348,7 +352,7 @@ pub struct Renderer {
     index_arena: Arena,
     mdi: Option<mdi::Indirect>,
     chunks: BTreeMap<[i32; 3], ResidentChunk>,
-    staged_chunks: Vec<([i32; 3], ResidentChunk)>,
+    staged_chunks: Vec<([i32; 3], ResidentChunk, Vec<TerrainVertex>)>,
     /// Successful terrain uploads awaiting parent drain after submitted-frame
     /// success. Pushed only after `upload_geometry` + resident mapping commit;
     /// drained via `drain_uploaded_meshes` (no per-frame allocation).
@@ -593,12 +597,27 @@ impl Renderer {
             view_formats: &[],
         });
         let entity_overlay_texture = Self::entity_overlay(&device, &queue);
+        let tile_texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("terrain sprite rectangle table"),
+            size: wgpu::Extent3d {
+                width: packed::TILE_TEXTURE_WIDTH,
+                height: packed::TILE_TEXTURE_HEIGHT,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba32Float,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
         let (atlas_texture, atlas_bind) = Self::atlas(
             &device,
             &queue,
             &pipelines.atlas_layout,
             &lightmap_texture,
             &entity_overlay_texture,
+            &tile_texture,
             &[255; 4],
             &[],
             1,
@@ -675,6 +694,8 @@ impl Renderer {
             applied_patches: BTreeMap::new(),
             lightmap_texture,
             entity_overlay_texture,
+            tile_texture,
+            tiles: TileTable::default(),
             lightmap_revision: None,
             vertex_arena: Arena::new(
                 mesh::VERTEX_BUDGET,
@@ -840,6 +861,7 @@ impl Renderer {
         layout: &wgpu::BindGroupLayout,
         lightmap: &wgpu::Texture,
         entity_overlay: &wgpu::Texture,
+        tile_table: &wgpu::Texture,
         pixels: &[u8],
         mips: &[crate::api::AtlasMip],
         width: u32,
@@ -920,6 +942,7 @@ impl Renderer {
         });
         let lightmap_view = lightmap.create_view(&Default::default());
         let entity_overlay_view = entity_overlay.create_view(&Default::default());
+        let tile_table_view = tile_table.create_view(&Default::default());
         let lightmap_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("clamped linear lightmap vertex sampler"),
             mag_filter: wgpu::FilterMode::Linear,
@@ -953,6 +976,10 @@ impl Renderer {
                 wgpu::BindGroupEntry {
                     binding: 5,
                     resource: wgpu::BindingResource::TextureView(&entity_overlay_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 6,
+                    resource: wgpu::BindingResource::TextureView(&tile_table_view),
                 },
             ],
         });

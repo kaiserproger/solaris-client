@@ -1,6 +1,12 @@
 use super::material::{Descriptor, MATERIALS};
+use super::packed::TerrainVertex;
 use super::{COLOR, DEPTH};
 use crate::api::{EntityMaterial, Vertex};
+
+/// Packed terrain vertex attributes (see `packed.rs` for the byte layout).
+pub(super) const TERRAIN_ATTRIBUTES: [wgpu::VertexAttribute; 4] = wgpu::vertex_attr_array![
+    0 => Uint16x4, 1 => Unorm8x4, 2 => Uint8x4, 3 => Uint16x2
+];
 
 pub(super) struct Pipelines {
     pub world: [wgpu::RenderPipeline; 3],
@@ -87,6 +93,16 @@ impl Pipelines {
                     },
                     count: None,
                 },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 6,
+                    visibility: wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
             ],
         });
         let fancy_layout = super::shadow::layout(device);
@@ -109,6 +125,18 @@ impl Pipelines {
                 attributes: &instances,
             },
         ];
+        let terrain_buffers = [
+            wgpu::VertexBufferLayout {
+                array_stride: std::mem::size_of::<TerrainVertex>() as u64,
+                step_mode: wgpu::VertexStepMode::Vertex,
+                attributes: &TERRAIN_ATTRIBUTES,
+            },
+            wgpu::VertexBufferLayout {
+                array_stride: 16,
+                step_mode: wgpu::VertexStepMode::Instance,
+                attributes: &instances,
+            },
+        ];
         let alpha = wgpu::BlendState::ALPHA_BLENDING;
         let additive = wgpu::BlendState {
             color: wgpu::BlendComponent {
@@ -123,9 +151,9 @@ impl Pipelines {
                 device,
                 &shader,
                 Some(&layout),
-                "scene_vertex",
+                "terrain_vertex",
                 ["opaque_fragment", "cutout_fragment", "translucent_fragment"][i],
-                &world_buffers,
+                &terrain_buffers,
                 super::post::HDR,
                 if i == 2 { Some(alpha) } else { None },
                 Some(true),

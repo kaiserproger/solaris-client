@@ -588,6 +588,41 @@ Unsupported adapters retain the direct indexed terrain path. Captured
 actual path; whole-frame `draw_calls` still includes translucent/entities/UI.
 GPU timings include `terrain_frustum_cull`, not just the render passes.
 
+### Packed terrain vertices
+
+Resident terrain (the opaque/cutout/translucent arena, the fixture mesh and the
+shadow terrain casters) stores a 20-byte `TerrainVertex` (`src/render/packed.rs`)
+instead of the 80-byte `api::Vertex`; entities, UI and the sunrise fan keep the
+full vertex. The mesher still emits `api::Vertex`; `pack_vertices` runs at upload
+(`sync_scene`, before the arena reservation, so a value outside the format is an
+explicit error naming the field, never a silent clamp) and the shaders decode with
+one shared `decode_terrain` (`terrain_vertex`, `shadow_terrain_vertex`).
+
+| bytes | field |
+|-------|-------|
+| 0..6  | position x,y,z `u16`, `(p + 8) * 2048` (section-local, range `[-8, 24)`) |
+| 6..8  | face(3) class(3) tiled(1) untextured(1) weight(8): the axis normal and the length tag (0 none, 1 ordinary, 2 rooted vegetation + sway weight, 3 leaves, 4 water) that `Vertex.normal` carried |
+| 8..12 | color rgb + alpha, unorm8 (mesher colors are already 1/255 steps) |
+| 12..14 | light sky, block as `level * 16` (the mesher's sixteenth precision), 255 = unlit |
+| 14..16 | texture layer, or the sprite-rectangle id for tiled quads |
+| 16..20 | uv `u16` pairs: atlas-normalised `/ 32768` (exact for the 1024 px page's 1/1024 multiples), or 8.8 fixed tile coordinates |
+
+Greedy-merged quads (`overlay_tint.z < 0`) reference an append-only
+`(layer, origin, size)` sprite-rectangle table, an RGBA32F 1024x64 texture bound at
+`@group(1) @binding(6)` and read with `textureLoad` in the vertex stage (32768
+rectangles; `terrain_tile_table_exhausted` is the explicit failure). Round trip
+measured on the plains RD16 world (9.4M vertices): color, light, alpha and tiled
+data exact, uv max error 1.4e-5, position max error 2.3e-4 blocks (non-sixteenth
+fluid heights and block offsets; float roundoff is snapped away).
+
+Proof: `render::packed::tests` (layout, round trips, range errors) and
+`packed_terrain_shader_decode_matches_mesher_vertices`, which runs the real WGSL
+`decode_terrain` in a compute pass over packed bytes and compares every field with
+the mesher vertices; the pre-existing GPU render tests (direct/MDI/shadow batch
+pixel parity, facing groups) exercise the packed pipelines end to end.
+Capture parity: same 11-pose RD16 path before/after, Fancy and Fancy-off
+(`.analysis/perf-indices/vertex-pack/`).
+
 Native backend/ICD negotiation is serialized during instance construction only.
 Windowed, offscreen and diagnostic constructors retain independent instances
 and devices; concurrent GPU rendering is not serialized. Sharing an entire

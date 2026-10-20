@@ -35,6 +35,7 @@ struct Camera {
 @group(2) @binding(0) var shadow_map: texture_depth_2d;
 @group(2) @binding(1) var shadow_sampler: sampler_comparison;
 @group(2) @binding(2) var opaque_depth: texture_depth_2d;
+@group(1) @binding(6) var tile_table: texture_2d<f32>;
 fn srgb_to_linear(color: vec3<f32>) -> vec3<f32> {
     return select(pow((max(color, vec3<f32>(0.0)) + vec3<f32>(0.055)) / 1.055, vec3<f32>(2.4)),
         color / 12.92, color <= vec3<f32>(0.04045));
@@ -71,18 +72,71 @@ struct SceneOut {
     @location(13) normal: vec3<f32>,
     @location(14) @interpolate(flat) block_class: u32,
 };
-fn waving(position: vec3<f32>, normal: vec3<f32>) -> vec3<f32> {
+fn waving_kind(position: vec3<f32>, kind: u32, rooted_weight: f32) -> vec3<f32> {
     if camera.fancy.x < 0.5 { return position; }
-    let magnitude = length(normal);
-    let kind = u32(round(magnitude));
     if kind != 2u && kind != 3u { return position; }
     let world = position;
     let t = camera.fancy.y;
     let phase = dot(world.xz, vec2<f32>(0.57, 0.39));
-    let weight = select(clamp((magnitude - 2.0) * 5.0, 0.0, 1.0), 0.45, kind == 3u);
+    let weight = select(clamp(rooted_weight, 0.0, 1.0), 0.45, kind == 3u);
     let wind = sin(t * 1.7 + phase + camera.fancy.z) * 0.065
         + sin(t * 3.1 + phase * 1.7 + camera.fancy.w) * 0.025;
     return position + vec3<f32>(wind, 0.0, wind * 0.55) * weight;
+}
+fn waving(position: vec3<f32>, normal: vec3<f32>) -> vec3<f32> {
+    let magnitude = length(normal);
+    return waving_kind(position, u32(round(magnitude)), (magnitude - 2.0) * 5.0);
+}
+// Packed terrain vertex (render/packed.rs): the single decode shared by the
+// scene and shadow vertex stages.
+struct Terrain {
+    position: vec3<f32>,
+    color: vec3<f32>,
+    alpha: f32,
+    uv: vec2<f32>,
+    layer: u32,
+    light: vec2<f32>,
+    class_kind: u32,
+    weight: f32,
+    normal: vec3<f32>,
+    tile_origin: vec2<f32>,
+    tile: vec3<f32>,
+};
+fn face_normal(face: u32) -> vec3<f32> {
+    var normals = array<vec3<f32>, 6>(
+        vec3<f32>(0.0, -1.0, 0.0), vec3<f32>(0.0, 1.0, 0.0),
+        vec3<f32>(0.0, 0.0, -1.0), vec3<f32>(0.0, 0.0, 1.0),
+        vec3<f32>(-1.0, 0.0, 0.0), vec3<f32>(1.0, 0.0, 0.0));
+    return normals[min(face, 5u)];
+}
+fn decode_terrain(words: vec4<u32>, rgba: vec4<f32>, lanes: vec4<u32>, uv_bits: vec2<u32>) -> Terrain {
+    var t: Terrain;
+    let flags = words.w;
+    t.position = vec3<f32>(words.xyz) / 2048.0 - vec3<f32>(8.0);
+    t.class_kind = (flags >> 3u) & 7u;
+    t.weight = f32(flags >> 8u) / 128.0;
+    t.normal = select(vec3<f32>(0.0), face_normal(flags & 7u), t.class_kind > 0u);
+    t.color = rgba.rgb;
+    t.alpha = rgba.a;
+    t.light = select(vec2<f32>(lanes.xy) / 16.0, vec2<f32>(-1.0), lanes.x == 255u);
+    t.layer = lanes.z | (lanes.w << 8u);
+    t.tile_origin = vec2<f32>(-1.0);
+    t.tile = vec3<f32>(1.0);
+    if (flags & 64u) != 0u {
+        let texel = i32(t.layer) * 2;
+        let width = i32(textureDimensions(tile_table, 0).x);
+        let rect = textureLoad(tile_table, vec2<i32>(texel % width, texel / width), 0);
+        let extra = textureLoad(tile_table, vec2<i32>((texel + 1) % width, (texel + 1) / width), 0);
+        t.uv = vec2<f32>(uv_bits) / 256.0 - vec2<f32>(64.0);
+        t.tile_origin = rect.xy;
+        t.tile = vec3<f32>(rect.zw, -1.0);
+        t.layer = u32(extra.x);
+    } else if (flags & 128u) != 0u {
+        t.uv = vec2<f32>(-1.0);
+    } else {
+        t.uv = vec2<f32>(uv_bits) / 32768.0;
+    }
+    return t;
 }
 fn fancy_sky(ray: vec3<f32>) -> vec3<f32> {
     let horizon = pow(1.0 - clamp(abs(ray.y), 0.0, 1.0), 3.0);
@@ -135,6 +189,28 @@ fn fancy_lighting(in: SceneOut, color: vec4<f32>) -> vec4<f32> {
     }
     if camera.fancy.x > 0.5 { out.color = srgb_to_linear(out.color); }
     out.alpha = alpha; out.layer = layer;
+    out.flat_color.w = origin.w;
+    return out;
+}
+@vertex fn terrain_vertex(@location(0) words: vec4<u32>, @location(1) rgba: vec4<f32>,
+    @location(2) lanes: vec4<u32>, @location(3) uv_bits: vec2<u32>,
+    @location(7) origin: vec4<f32>) -> SceneOut {
+    let t = decode_terrain(words, rgba, lanes, uv_bits);
+    var out: SceneOut;
+    let relative_position = waving_kind(t.position + origin.xyz, t.class_kind, t.weight);
+    out.relative = relative_position; out.normal = t.normal;
+    if camera.fancy.x > 0.5 { out.block_class = t.class_kind; }
+    out.fog_distance = vec2<f32>(length(relative_position),
+        max(length(relative_position.xz), abs(relative_position.y)));
+    out.position = camera.view_projection * vec4<f32>(relative_position, 1.0);
+    out.color = t.color; out.uv = t.uv; out.overlay_uv = t.tile_origin; out.overlay_tint = t.tile;
+    // The pinned terrain.vsh samples light at vertices before interpolation.
+    if all(t.light >= vec2<f32>(0.0)) {
+        let coord = (t.light.yx + vec2<f32>(0.5)) / 16.0;
+        out.color *= textureSampleLevel(lightmap_texture, lightmap_sampler, coord, 0.0).rgb;
+    }
+    if camera.fancy.x > 0.5 { out.color = srgb_to_linear(out.color); }
+    out.alpha = t.alpha; out.layer = t.layer;
     out.flat_color.w = origin.w;
     return out;
 }
@@ -555,6 +631,17 @@ struct ShadowOut {
     out.position = camera.shadow_projection * vec4<f32>(waving(position + origin.xyz, normal), 1.0);
     out.uv = uv; out.layer = layer; out.alpha = alpha;
     out.tile_origin = tile_origin; out.tile = tile;
+    return out;
+}
+@vertex fn shadow_terrain_vertex(@location(0) words: vec4<u32>, @location(1) rgba: vec4<f32>,
+    @location(2) lanes: vec4<u32>, @location(3) uv_bits: vec2<u32>,
+    @location(7) origin: vec4<f32>) -> ShadowOut {
+    let t = decode_terrain(words, rgba, lanes, uv_bits);
+    var out: ShadowOut;
+    out.position = camera.shadow_projection
+        * vec4<f32>(waving_kind(t.position + origin.xyz, t.class_kind, t.weight), 1.0);
+    out.uv = t.uv; out.layer = t.layer; out.alpha = t.alpha;
+    out.tile_origin = t.tile_origin; out.tile = t.tile;
     return out;
 }
 @fragment fn shadow_fragment(in: ShadowOut) {

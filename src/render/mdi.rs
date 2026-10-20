@@ -31,7 +31,7 @@ impl Candidate {
         }
         let vertices = mesh.vertices?;
         let indices = mesh.indices?;
-        let stride = std::mem::size_of::<crate::api::Vertex>() as u64;
+        let stride = std::mem::size_of::<TerrainVertex>() as u64;
         assert_eq!(vertices.offset % stride, 0, "unaligned terrain base vertex");
         Some(Self {
             min: [min.x, min.y, min.z, 0.],
@@ -219,7 +219,7 @@ mod tests {
 
     #[test]
     fn indirect_arguments_use_global_arena_offsets_and_first_instance() {
-        let stride = std::mem::size_of::<crate::api::Vertex>() as u64;
+        let stride = std::mem::size_of::<TerrainVertex>() as u64;
         let mesh = ResidentMesh {
             vertices: Some(arena::Allocation {
                 offset: stride * 13,
