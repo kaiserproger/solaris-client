@@ -5,6 +5,7 @@ mod content_paths;
 pub mod entities;
 pub mod environment;
 mod headless;
+mod hotbar_wheel;
 pub mod inventory;
 mod launch;
 mod loader;
@@ -186,6 +187,7 @@ struct App {
     last_dialog_screen: bool,
     debug_overlay: bool,
     shift_held: bool,
+    hotbar_wheel: hotbar_wheel::HotbarWheel,
     next_tick: Instant,
     next_frame: Instant,
     advance_cpu_ms: f64,
@@ -245,6 +247,7 @@ impl App {
             last_dialog_screen: false,
             debug_overlay: false,
             shift_held: false,
+            hotbar_wheel: hotbar_wheel::HotbarWheel::default(),
             next_tick: Instant::now(),
             next_frame: Instant::now(),
             advance_cpu_ms: 0.,
@@ -819,6 +822,7 @@ impl ApplicationHandler for App {
                 self.focused = focused;
                 if !focused {
                     self.release("focus_lost");
+                    self.hotbar_wheel.reset();
                 } else {
                     self.publish_session();
                 }
@@ -1188,23 +1192,16 @@ impl ApplicationHandler for App {
                     && self.session.screen() == "game"
                     && !self.session.dialog_screen_active() =>
             {
-                let movement = match delta {
-                    MouseScrollDelta::LineDelta(_, y) => y as f64,
-                    MouseScrollDelta::PixelDelta(p) => p.y,
+                let notches = match delta {
+                    MouseScrollDelta::LineDelta(_, y) => self.hotbar_wheel.push_lines(f64::from(y)),
+                    MouseScrollDelta::PixelDelta(p) => self.hotbar_wheel.push_pixels(p.y),
                 };
-                if movement != 0.0 {
-                    let selected = self
-                        .shared
-                        .observation
-                        .lock()
-                        .unwrap_or_else(|e| e.into_inner())
-                        .data
-                        .pointer("/inventory/selected_slot")
-                        .and_then(|v| v.as_i64())
-                        .unwrap_or(0);
-                    self.manual(InputIntent::Hotbar {
-                        slot: (selected - if movement > 0.0 { 1 } else { -1 }).rem_euclid(9) as u8,
-                    });
+                // Selection is read from the live session, never the published
+                // observation snapshot (stale between publications).
+                let selected = self.session.inventory.selected_slot;
+                let slot = hotbar_wheel::step_slot(selected, notches);
+                if slot != selected {
+                    self.manual(InputIntent::Hotbar { slot });
                 }
             }
             WindowEvent::RedrawRequested => {
