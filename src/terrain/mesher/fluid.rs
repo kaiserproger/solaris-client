@@ -1,6 +1,6 @@
-use super::{add, append_quad, quantize, Rules, Samples, NORMALS};
+use super::{add, append_quad, greedy::Greedy, quantize, Rules, Samples, NORMALS};
 use crate::{
-    api::{MeshGeometry, Vertex},
+    api::{MeshGeometry, RenderLayer, Vertex},
     protocol::{
         content::{FluidKind, FluidState, TextureRegion},
         models::{
@@ -89,6 +89,7 @@ pub(super) fn emit(
     fluid: FluidState,
     rules: Rules,
     geometry: &mut MeshGeometry,
+    flat_tops: &mut Greedy,
     byte_limit: usize,
 ) -> Result<()> {
     let textures = samples.catalog.fluids[if fluid.kind == FluidKind::Water { 0 } else { 1 }];
@@ -157,26 +158,27 @@ pub(super) fn emit(
             }
         }
         let lit = light(samples, position)?;
-        append_quad(
-            geometry,
-            vertices(
-                [
-                    [0., heights[0], 0.],
-                    [0., heights[1], 1.],
-                    [1., heights[2], 1.],
-                    [1., heights[3], 0.],
-                ],
-                coords,
-                origin,
-                sprite,
-                quantize(tint, rules.directional_shade[1]),
-                lit,
-                tag(fluid, [0., 1., 0.]),
-            ),
-            textures.layer,
-            backward,
-            byte_limit,
-        )?;
+        let top = vertices(
+            [
+                [0., heights[0], 0.],
+                [0., heights[1], 1.],
+                [1., heights[2], 1.],
+                [1., heights[3], 0.],
+            ],
+            coords,
+            origin,
+            sprite,
+            quantize(tint, rules.directional_shade[1]),
+            lit,
+            tag(fluid, [0., 1., 0.]),
+        );
+        // Flat still tops of equal light/tint merge into tiled rectangles; the
+        // water shader works per fragment, so no vertex detail is lost.
+        if textures.layer != RenderLayer::Translucent
+            || !flat_tops.push_sided(top, origin.map(|v| v as i32), 1, backward)
+        {
+            append_quad(geometry, top, textures.layer, backward, byte_limit)?;
+        }
     }
     if bottom {
         let lit = light(samples, below)?;

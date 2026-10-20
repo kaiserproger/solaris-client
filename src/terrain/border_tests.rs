@@ -41,13 +41,17 @@ fn block_index(p: [i32; 3]) -> usize {
 /// Builds a fully-lit chunk holding `cells` (world-space positions),
 /// distributed across `section_count` sections of a `height`-tall dimension.
 fn lit_chunk(cells: &[[i32; 3]], section_count: usize, height: i32) -> Chunk {
+    lit_chunk_of(cells, CUBE, section_count, height)
+}
+
+fn lit_chunk_of(cells: &[[i32; 3]], state: u32, section_count: usize, height: i32) -> Chunk {
     let mut sections = Vec::with_capacity(section_count);
     for section in 0..section_count {
         let mut blocks = uniform(4096, AIR);
         let mut count = 0u16;
         for &p in cells {
             if p[1].div_euclid(16) == section as i32 {
-                blocks.set(block_index(p), CUBE);
+                blocks.set(block_index(p), state);
                 count += 1;
             }
         }
@@ -168,8 +172,10 @@ fn opaque_counts(section: &BuiltSection) -> (usize, usize) {
         geometry.indices[RenderLayer::Translucent as usize].is_empty(),
         "cube fixture must not emit translucent"
     );
+    // Far-variant vertices share the vector but belong to `geometry.far`.
+    let near: BTreeSet<u32> = geometry.indices.iter().flatten().copied().collect();
     (
-        geometry.vertices.len(),
+        near.len(),
         geometry.indices[RenderLayer::Opaque as usize].len(),
     )
 }
@@ -711,4 +717,94 @@ fn idle_sync_skips_rescan_and_direct_lifecycle_change_evicts() {
             .unwrap(),
         "re-cached same-view sync must skip again"
     );
+}
+
+fn build_with(content: &Content, world: &World, key: [i32; 3]) -> BuiltSection {
+    let catalog = Catalog::capture(content).expect("fixture catalog must capture");
+    let neighborhood = world.snapshot([0, 0]);
+    mesher::build(
+        &neighborhood,
+        &catalog,
+        key,
+        deterministic_rules(),
+        &AtomicU64::new(0),
+        0,
+        BYTE_LIMIT,
+    )
+    .expect("fixture build must succeed")
+    .expect("center section must be present")
+}
+
+#[test]
+fn leaf_canopy_keeps_only_the_two_outer_layers_per_direction() {
+    let mut content = fixture_content();
+    let leaves = content.add_test_leaves();
+    content.insert_test_placement_metadata(leaves, serde_json::json!({"fluid_overlay": false}));
+    let mut cells = Vec::new();
+    for x in 4..10 {
+        for y in 4..10 {
+            for z in 4..10 {
+                cells.push([x, y, z]);
+            }
+        }
+    }
+    let mut world = World::new(0, 16);
+    world
+        .insert([0, 0], lit_chunk_of(&cells, leaves, 1, 16))
+        .unwrap();
+    let section = build_with(&content, &world, [0, 0, 0]);
+    let cutout = section.geometry.indices[RenderLayer::Cutout as usize].len();
+    // Six directions x (outer two of six layers) x 6x6 faces; a leaf face with
+    // two leaf blocks in front of it is never visible through the cutout holes.
+    // Uncut, every block would emit six faces: 6 * 216 = 1296 quads.
+    assert_eq!(cutout / 6, 6 * 2 * 36);
+    // The block at the exact centre of the canopy keeps no face at all.
+    let center = [7., 7., 7.];
+    let inside = section.geometry.indices[RenderLayer::Cutout as usize]
+        .chunks_exact(6)
+        .filter(|quad| {
+            let at = |i: u32| section.geometry.vertices[i as usize].position;
+            let (a, c) = (at(quad[0]), at(quad[2]));
+            (0..3).all(|axis| a[axis].min(c[axis]) >= center[axis] - 0.01
+                && a[axis].max(c[axis]) <= center[axis] + 1.01)
+        })
+        .count();
+    assert_eq!(inside, 0, "buried leaf block must emit no faces");
+}
+
+#[test]
+fn flat_water_surface_merges_into_one_double_sided_quad() {
+    let mut content = fixture_content();
+    let water = content.add_test_water();
+    content.insert_test_placement_metadata(water, serde_json::json!({"fluid_overlay": false}));
+    let mut cells = Vec::new();
+    for x in 4..10 {
+        for z in 4..10 {
+            cells.push([x, 8, z]);
+        }
+    }
+    let mut world = World::new(0, 16);
+    // Water samples biome tint, which needs the received biome seed.
+    world
+        .configure_environment_context("minecraft:overworld", 0, 63)
+        .unwrap();
+    world
+        .insert([0, 0], lit_chunk_of(&cells, water, 1, 16))
+        .unwrap();
+    let section = build_with(&content, &world, [0, 0, 0]);
+    let geometry = &section.geometry;
+    // Top-surface quads carry the water tag with +Y direction (length 4).
+    let top_vertices = geometry
+        .vertices
+        .iter()
+        .filter(|v| v.normal[1] > 3.5)
+        .count();
+    // 36 cells: the 20 shore cells slope toward air and stay single quads; the
+    // 16 interior cells share one flat height and merge into a single 4x4 quad
+    // (tiled uv), instead of 16 separate ones.
+    assert_eq!(top_vertices, (20 + 1) * 4);
+    let translucent = &geometry.indices[RenderLayer::Translucent as usize];
+    assert_eq!(translucent.len() % 12, 0, "tops are double-sided");
+    // Merged tile keeps both windings: 21 tops x 12 indices among the layer.
+    assert!(translucent.len() >= 21 * 12);
 }

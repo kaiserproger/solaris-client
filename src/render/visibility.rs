@@ -140,6 +140,16 @@ pub(super) fn flood(
                 continue;
             }
             let step = OFFSETS[usize::from(to)];
+            // A sight ray is monotone on every world axis. Letting the flood
+            // return towards the eye admits paths that bend over hills through
+            // sky, then descend into hidden surface sections/caves at horizon.
+            // Keep every incoming face/component, but never those detours.
+            let axis = [1, 2, 0][usize::from(to / 2)];
+            if (key[axis] > camera[axis] && step[axis] < 0)
+                || (key[axis] < camera[axis] && step[axis] > 0)
+            {
+                continue;
+            }
             let neighbor = [key[0] + step[0], key[1] + step[1], key[2] + step[2]];
             if (0..3).any(|axis| neighbor[axis] < min[axis] || neighbor[axis] > max[axis])
                 || !in_frustum(neighbor)
@@ -158,6 +168,44 @@ pub(super) fn flood(
         }
     }
     true
+}
+
+/// Models can protrude outside their section (including Fancy foliage wind).
+/// A monotone ray may hit that geometry in a reached neighbor without entering
+/// the model's home section. Admit those bounds conservatively, not the graph
+/// detour itself. Unusually large or invalid source bounds stay visible.
+pub(super) fn reaches_bounds(
+    key: [i32; 3],
+    min: Vec3,
+    max: Vec3,
+    reached: &std::collections::HashMap<[i32; 3], u16>,
+) -> bool {
+    if reached.contains_key(&key) {
+        return true;
+    }
+    if !min.is_finite()
+        || !max.is_finite()
+        || min.cmpgt(max).any()
+        || min.cmplt(Vec3::splat(-16.)).any()
+        || max.cmpgt(Vec3::splat(32.)).any()
+    {
+        return true;
+    }
+    let lower = min.to_array().map(|v| if v < 0. { -1 } else { 0 });
+    let upper = max.to_array().map(|v| if v > 16. { 1 } else { 0 });
+    if lower == [0; 3] && upper == [0; 3] {
+        return false;
+    }
+    for x in lower[0]..=upper[0] {
+        for y in lower[1]..=upper[1] {
+            for z in lower[2]..=upper[2] {
+                if reached.contains_key(&[key[0] + x, key[1] + y, key[2] + z]) {
+                    return true;
+                }
+            }
+        }
+    }
+    false
 }
 
 #[cfg(test)]
@@ -229,20 +277,20 @@ mod tests {
     fn flood_revisits_section_on_a_new_incoming_face() {
         let mut reached = std::collections::HashMap::new();
         let mut queue = Vec::new();
-        let target = [1, 0, 0];
-        // First arrival is from WEST (blocked). A second path through the
-        // section above enters from UP and opens EAST.
-        let up_east = (1_u64 << 11) | (1_u64 << 31);
+        let target = [1, 1, 0];
+        // First arrival is from WEST (blocked). The second monotone path
+        // enters from DOWN and opens EAST; both can follow straight rays.
+        let down_east = (1_u64 << 5) | (1_u64 << 30);
         assert!(flood(
             [0, 0, 0],
             ([0, 0, 0], [2, 1, 0]),
-            |key| Some(if key == target { up_east } else { ALL_OPEN }),
-            |key| key != [2, 1, 0],
+            |key| Some(if key == target { down_east } else { ALL_OPEN }),
+            |key| key != [2, 0, 0],
             &mut reached,
             &mut queue,
         ));
-        assert!(reached.contains_key(&[2, 0, 0]));
-        assert_ne!(reached[&target] & (1 << 1), 0);
+        assert!(reached.contains_key(&[2, 1, 0]));
+        assert_ne!(reached[&target] & (1 << 0), 0);
         assert_ne!(reached[&target] & (1 << 4), 0);
     }
 
@@ -284,6 +332,95 @@ mod tests {
         ));
         assert!(!reached.contains_key(&[1, 0, 0]));
         assert!(!reached.contains_key(&[2, 0, 0]));
+    }
+
+    #[test]
+    fn flood_cannot_bend_over_a_wall_and_back_towards_the_camera_layer() {
+        let mut reached = std::collections::HashMap::new();
+        let mut queue = Vec::new();
+        assert!(flood(
+            [0, 0, 0],
+            ([0, 0, 0], [2, 1, 0]),
+            |key| Some(if key == [1, 0, 0] { 0 } else { ALL_OPEN }),
+            |_| true,
+            &mut reached,
+            &mut queue,
+        ));
+        assert!(reached.contains_key(&[1, 0, 0]), "wall surface is visible");
+        assert!(
+            reached.contains_key(&[2, 1, 0]),
+            "sky above wall is visible"
+        );
+        assert!(
+            !reached.contains_key(&[2, 0, 0]),
+            "a sight ray cannot climb above the eye's section then descend behind a wall"
+        );
+    }
+
+    #[test]
+    fn flood_monotone_rays_work_in_all_axis_directions() {
+        for axis in 0..3 {
+            for sign in [-1, 1] {
+                let mut reached = std::collections::HashMap::new();
+                let mut queue = Vec::new();
+                let camera = [-3, -3, -3];
+                let mut wall = camera;
+                wall[axis] += sign;
+                let mut behind = camera;
+                behind[axis] += 2 * sign;
+                let mut beyond = behind;
+                beyond[(axis + 1) % 3] += sign;
+                let min = std::array::from_fn(|i| camera[i].min(beyond[i]));
+                let max = std::array::from_fn(|i| camera[i].max(beyond[i]));
+                assert!(flood(
+                    camera,
+                    (min, max),
+                    |key| Some(if key == wall { 0 } else { ALL_OPEN }),
+                    |_| true,
+                    &mut reached,
+                    &mut queue,
+                ));
+                assert!(reached.contains_key(&wall));
+                assert!(reached.contains_key(&beyond));
+                assert!(!reached.contains_key(&behind), "axis={axis} sign={sign}");
+            }
+        }
+    }
+    #[test]
+    fn protruding_models_remain_visible_from_reached_neighbor_space() {
+        let reached = std::collections::HashMap::from([([0, 1, 0], 1)]);
+        assert!(!reaches_bounds(
+            [0; 3],
+            Vec3::ZERO,
+            Vec3::splat(16.),
+            &reached
+        ));
+        assert!(reaches_bounds(
+            [0; 3],
+            Vec3::ZERO,
+            Vec3::new(16., 16.25, 16.),
+            &reached,
+        ));
+        // A model shifted across a horizontal border is admitted too.
+        let reached = std::collections::HashMap::from([([-1, 0, 0], 1)]);
+        assert!(reaches_bounds(
+            [0; 3],
+            Vec3::new(-0.1, 0., 0.),
+            Vec3::splat(16.),
+            &reached,
+        ));
+        assert!(reaches_bounds(
+            [0; 3],
+            Vec3::ZERO,
+            Vec3::splat(33.),
+            &reached
+        ));
+        assert!(reaches_bounds(
+            [0; 3],
+            Vec3::splat(f32::NAN),
+            Vec3::ONE,
+            &reached
+        ));
     }
 
     #[test]

@@ -303,6 +303,7 @@ impl Renderer {
                         &geometry.indices[1],
                         &geometry.indices[2],
                     ],
+                    geometry.faces,
                 )?;
                 transparent_count += mesh.transparent.len();
                 staged.push((
@@ -338,6 +339,7 @@ impl Renderer {
                     &mut self.index_arena,
                     &scene.vertices,
                     [&scene.indices, &[], &[]],
+                    [None, None],
                 )?);
             }
             Ok(())
@@ -506,6 +508,7 @@ impl Renderer {
                 return true;
             }
             let empty = ResidentMesh {
+                faces: [None, None],
                 vertices: None,
                 indices: None,
                 ranges: std::array::from_fn(|_| 0..0),

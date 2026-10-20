@@ -102,10 +102,36 @@ pub enum RenderLayer {
     Translucent = 2,
 }
 
+/// Classes of one terrain layer's quads: facing `-Y,+Y,-Z,+Z,-X,+X`, then
+/// group 6 for rooted waving vegetation (drawn only within vegetation range),
+/// then group 7 for everything else that is not an axis-aligned plane (always
+/// drawn).
+pub const FACE_GROUPS: usize = 8;
+/// Group of rooted waving vegetation quads (see `FACE_GROUPS`).
+pub const VEGETATION_GROUP: usize = 6;
+
+/// Index partition of an opaque/cutout layer by quad class. The layer's index
+/// list is stably ordered `-Y,+Y,-Z,+Z,-X,+X,vegetation,other`; group `g` covers
+/// `ends[g - 1]..ends[g]` (`ends[-1] = 0`). `planes[g]` is the extreme plane
+/// coordinate of that group's quads along its normal axis in section-local
+/// space: the minimum for positive-normal groups, the maximum for negative
+/// ones (unused for groups 6 and 7). A facing group is front-facing for a
+/// camera iff the camera is on the outward side of at least one of its planes,
+/// so groups that cannot face the camera are skipped exactly where the GPU's
+/// back-face cull would discard every triangle.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct FaceGroups {
+    pub ends: [u32; FACE_GROUPS],
+    pub planes: [f32; 6],
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct MeshGeometry {
     pub vertices: Vec<Vertex>,
     pub indices: [Vec<u32>; 3],
+    /// Facing partition of `indices[0]` and `indices[1]`. `None` means the
+    /// layer is undivided and always drawn whole.
+    pub faces: [Option<FaceGroups>; 2],
 }
 
 // Entity RenderTypes are not terrain's three chunk layers.

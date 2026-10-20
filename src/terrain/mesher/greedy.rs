@@ -11,12 +11,18 @@ pub(super) fn enabled() -> bool {
 struct Face {
     vertices: [Vertex; 4],
     cell: [usize; 2],
+    /// Emitted with both windings (flat water seen from above and below).
+    backward: bool,
 }
 
-/// Only opaque full-cell faces with constant corner lighting qualify. Keeping
+/// Only full-cell faces with constant corner lighting qualify. Keeping
 /// smooth-lit gradients out of this path preserves the original triangulation.
+/// The opaque instance merges faces lying exactly on a cell boundary; the
+/// translucent instance (flat fluid surfaces) merges faces at one shared,
+/// arbitrary height inside the cell slab.
 pub(super) struct Greedy {
     planes: [Vec<Face>; 96],
+    layer: RenderLayer,
 }
 
 fn axes(face: usize) -> [usize; 2] {
@@ -30,11 +36,22 @@ fn normal_axis(face: usize) -> usize {
     [1, 1, 2, 2, 0, 0][face]
 }
 
-fn eligible(vertices: &[Vertex; 4], cell: [i32; 3], face: usize) -> bool {
+fn eligible(vertices: &[Vertex; 4], cell: [i32; 3], face: usize, flat_fluid: bool) -> bool {
     let axis = normal_axis(face);
     let tangent = axes(face);
-    let plane = cell[axis] as f32 + (face % 2) as f32;
     let first = &vertices[0];
+    // Opaque faces sit on the cell boundary; a flat fluid surface at any
+    // height strictly inside the slab, identical for all four corners.
+    let plane = if flat_fluid {
+        first.position[axis]
+    } else {
+        cell[axis] as f32 + (face % 2) as f32
+    };
+    if flat_fluid
+        && !(cell[axis] as f32..=cell[axis] as f32 + 1.).contains(&plane)
+    {
+        return false;
+    }
     if first.alpha != 1. || first.overlay_uv != [-1.; 2] {
         return false;
     }
@@ -96,8 +113,8 @@ fn eligible(vertices: &[Vertex; 4], cell: [i32; 3], face: usize) -> bool {
             < 1e-12
 }
 
-fn same(a: &Face, b: &Face, tangent: [usize; 2]) -> bool {
-    a.vertices.iter().zip(&b.vertices).all(|(av, bv)| {
+fn same(a: &Face, b: &Face, tangent: [usize; 2], normal: usize) -> bool {
+    a.backward == b.backward && a.vertices.iter().zip(&b.vertices).all(|(av, bv)| {
         av.color == bv.color
             && av.light == bv.light
             && av.uv == bv.uv
@@ -106,6 +123,7 @@ fn same(a: &Face, b: &Face, tangent: [usize; 2]) -> bool {
             && av.alpha == bv.alpha
             && av.overlay_uv == bv.overlay_uv
             && av.overlay_tint == bv.overlay_tint
+            && av.position[normal] == bv.position[normal]
             && tangent.iter().enumerate().all(|(i, &axis)| {
                 (av.position[axis] - a.cell[i] as f32).round()
                     == (bv.position[axis] - b.cell[i] as f32).round()
@@ -117,27 +135,49 @@ impl Greedy {
     pub fn new() -> Self {
         Self {
             planes: std::array::from_fn(|_| Vec::new()),
+            layer: RenderLayer::Opaque,
+        }
+    }
+
+    /// Merger for flat fluid surfaces in the translucent layer.
+    pub fn fluid() -> Self {
+        Self {
+            planes: std::array::from_fn(|_| Vec::new()),
+            layer: RenderLayer::Translucent,
         }
     }
 
     pub fn push(&mut self, vertices: [Vertex; 4], cell: [i32; 3], face: usize) -> bool {
-        if !eligible(&vertices, cell, face) {
+        self.push_sided(vertices, cell, face, false)
+    }
+
+    pub fn push_sided(
+        &mut self,
+        vertices: [Vertex; 4],
+        cell: [i32; 3],
+        face: usize,
+        backward: bool,
+    ) -> bool {
+        if !eligible(&vertices, cell, face, self.layer == RenderLayer::Translucent) {
             return false;
         }
         let tangent = axes(face);
         self.planes[face * 16 + cell[normal_axis(face)] as usize].push(Face {
             vertices,
             cell: tangent.map(|axis| cell[axis] as usize),
+            backward,
         });
         true
     }
 
     pub fn append(self, out: &mut MeshGeometry, byte_limit: usize) -> Result<()> {
+        let layer = self.layer;
         for (plane, faces) in self.planes.into_iter().enumerate() {
             if faces.is_empty() {
                 continue;
             }
             let tangent = axes(plane / 16);
+            let normal = normal_axis(plane / 16);
             let mut mask = [None; 256];
             // Multiple model layers at one face must not be swallowed by a mask.
             for (index, face) in faces.iter().enumerate() {
@@ -146,8 +186,8 @@ impl Greedy {
                     append_quad(
                         out,
                         faces[previous].vertices,
-                        RenderLayer::Opaque,
-                        false,
+                        layer,
+                        faces[previous].backward,
                         byte_limit,
                     )?;
                 }
@@ -159,7 +199,7 @@ impl Greedy {
                     };
                     let face = &faces[index];
                     let matches = |slot: usize| {
-                        mask[slot].is_some_and(|other| same(face, &faces[other], tangent))
+                        mask[slot].is_some_and(|other| same(face, &faces[other], tangent, normal))
                     };
                     let mut width = 1;
                     while u + width < 16 && matches(v * 16 + u + width) {
@@ -222,7 +262,7 @@ impl Greedy {
                             vertex.overlay_tint = [max[0] - min[0], max[1] - min[1], -1.];
                         }
                     }
-                    append_quad(out, vertices, RenderLayer::Opaque, false, byte_limit)?;
+                    append_quad(out, vertices, layer, face.backward, byte_limit)?;
                 }
             }
         }

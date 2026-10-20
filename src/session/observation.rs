@@ -631,6 +631,8 @@ impl Session {
                     &sample_light,
                     &mut self.scene.dynamic,
                 )?;
+                let entity_indices = self.scene.dynamic.indices.iter().map(Vec::len).sum::<usize>();
+                self.scene.entity_presentation.entity_indices = entity_indices;
                 let blocks = self.entities.append_static_block_geometry(
                     content,
                     world,
@@ -644,6 +646,8 @@ impl Session {
                     &sample_light,
                     &mut self.scene.dynamic,
                 )?;
+                self.scene.entity_presentation.block_entity_indices =
+                    self.scene.dynamic.indices.iter().map(Vec::len).sum::<usize>() - entity_indices;
                 self.scene.entity_presentation.block_entities += blocks.block_entities;
                 self.scene.entity_presentation.vertices += blocks.vertices;
                 self.scene.entity_presentation.lighting_pending += blocks.lighting_pending;

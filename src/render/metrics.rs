@@ -164,6 +164,41 @@ impl Renderer {
             .iter()
             .map(Vec::len)
             .sum::<usize>()));
+        target["terrain_indirect_candidates_opaque"] = json!(self.stats.terrain_candidates_opaque);
+        target["terrain_indirect_candidates_cutout"] = json!(self.stats.terrain_candidates_cutout);
+        target["terrain_opaque_api_calls"] = json!(self.stats.terrain_opaque_api_calls);
+        target["terrain_opaque_logical_draws"] = json!(self.stats.terrain_opaque_logical_draws);
+        target["terrain_opaque_indices"] = json!(self.stats.terrain_opaque_indices);
+        target["terrain_cutout_api_calls"] = json!(self.stats.terrain_cutout_api_calls);
+        target["terrain_cutout_logical_draws"] = json!(self.stats.terrain_cutout_logical_draws);
+        target["terrain_cutout_indices"] = json!(self.stats.terrain_cutout_indices);
+        target["terrain_translucent_draws"] = json!(self.stats.terrain_translucent_draws);
+        target["terrain_translucent_indices"] = json!(self.stats.terrain_translucent_indices);
+        target["shadow_terrain_api_calls"] = json!(self.stats.shadow_terrain_api_calls);
+        target["shadow_terrain_logical_draws"] = json!(self.stats.shadow_terrain_logical_draws);
+        target["shadow_terrain_indices"] = json!(self.stats.shadow_terrain_indices);
+        target["shadow_indirect_reserved_bytes"] = json!(self
+            .shadow
+            .batch
+            .as_ref()
+            .map_or(0, shadow::ShadowBatch::reserved_bytes));
+        target["entity_draws"] = json!(self.stats.entity_draws);
+        target["entity_submitted_indices"] = json!(self.stats.entity_submitted_indices);
+        // Entity/block-entity contributions share material draws.
+        target["entity_geometry_indices"] = json!(self.stats.entity_geometry_indices);
+        target["block_entity_geometry_indices"] = json!(self.stats.block_entity_geometry_indices);
+        target["other_dynamic_indices"] = json!(self.stats.other_dynamic_indices);
+        target["entity_extracted"] = json!(self.stats.entity_extracted);
+        target["block_entities_extracted"] = json!(self.stats.block_entities_extracted);
+        target["frustum_rejected_chunks"] = json!(self.stats.frustum_rejected_chunks);
+        target["graph_rejected_chunks"] = json!(self.stats.graph_rejected_chunks);
+        target["fog_rejected_chunks"] = json!(self.stats.fog_rejected_chunks);
+        target["occlusion_graph_enabled"] = json!(self.stats.graph_enabled);
+        target["occlusion_graph_available"] = json!(self.stats.graph_available);
+        target["occlusion_graph_reached_sections"] = json!(self.stats.graph_reached_sections);
+        // `draw_calls` counts wgpu draw invocations: one MDI call serves many
+        // logical terrain draws. `index_count` sums every visible chunk range
+        // regardless of path, including MDI candidates the GPU may still cull.
         target["index_count"] = json!(self.stats.submitted_indices);
         target["draw_calls"] = json!(self.stats.draw_calls);
         target["frame_wall_ms"] = json!(self.last_frame_ms);

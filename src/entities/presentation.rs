@@ -1,14 +1,14 @@
 use super::{
-    Entity, Metadata, Models, Store,
     resources::{self, BoneRole, Rig},
+    Entity, Metadata, Models, Store,
 };
 use crate::{
     api::{DynamicGeometry, EntityMaterial, RenderLayer, Vertex},
     inventory::Stack,
     protocol::{
-        Result,
         content::{Content, TextureRegion},
         models::{BakedModel, BakedQuad, TintKind},
+        Result,
     },
 };
 use glam::{Mat4, Vec3};
@@ -41,6 +41,9 @@ pub struct PresentationStats {
     pub animated: usize,
     pub block_entities: usize,
     pub vertices: usize,
+    /// Disjoint extraction contributions; materials share GPU draw calls.
+    pub entity_indices: usize,
+    pub block_entity_indices: usize,
     pub lighting_pending: usize,
     pub profile_textures_pending: usize,
     pub unrendered: BTreeMap<String, String>,

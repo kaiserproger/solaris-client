@@ -2251,6 +2251,55 @@ impl Content {
             loader_items: BTreeMap::new(),
         }
     }
+    /// Appends a non-occluding leaves state (`minecraft:oak_leaves`, cutout
+    /// cube model) to the test cube content and returns its state id.
+    #[cfg(test)]
+    pub(crate) fn add_test_leaves(&mut self) -> u32 {
+        let mut model = self.models[0].clone();
+        for quad in &mut model.quads {
+            quad.layer = RenderLayer::Cutout;
+        }
+        self.models.push(model);
+        let id = self.states.len() as u32;
+        let mut info = self.states[1].clone();
+        info.block = id as usize;
+        info.registry_id = id;
+        info.model = Some(self.models.len() - 1);
+        info.occludes = [false; 6];
+        info.can_occlude = false;
+        info.solid_render = false;
+        info.view_blocking = false;
+        info.light_dampening = 1;
+        info.sturdy_faces = [false; 6];
+        self.states.push(info);
+        self.names.push("minecraft:oak_leaves".into());
+        self.terrain.push(TerrainFact::fixture(false));
+        self.properties.push(BTreeMap::new());
+        self.block_states.push(vec![id]);
+        id
+    }
+    /// Appends a source water state (no model, `fluid` set) to the test cube
+    /// content and returns its state id.
+    #[cfg(test)]
+    pub(crate) fn add_test_water(&mut self) -> u32 {
+        let id = self.states.len() as u32;
+        let mut info = self.states[0].clone();
+        info.block = id as usize;
+        info.registry_id = id;
+        info.is_air = false;
+        info.fluid = Some(FluidState {
+            kind: FluidKind::Water,
+            amount: 8,
+            falling: false,
+            waterlogged: false,
+        });
+        self.states.push(info);
+        self.names.push("minecraft:water".into());
+        self.terrain.push(TerrainFact::fixture(false));
+        self.properties.push(BTreeMap::new());
+        self.block_states.push(vec![id]);
+        id
+    }
 }
 fn parse_color(value: &Value) -> Option<u32> {
     value

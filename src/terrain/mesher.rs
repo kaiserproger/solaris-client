@@ -13,6 +13,7 @@ use crate::{
 };
 use glam::{Mat4, Vec3};
 use std::sync::atomic::{AtomicU64, Ordering};
+mod facing;
 mod fluid;
 mod greedy;
 
@@ -232,6 +233,27 @@ fn model_color(tint: [f32; 3], ao: f32, shade: f32) -> [f32; 3] {
     let gray = ((ao * 255.).round() * shade).floor().clamp(0., 255.) as u32;
     tint.map(|channel| (((channel * 255.).round() as u32 * gray) / 255) as f32 / 255.)
 }
+/// Leaf layers (counted along a face's outward normal) whose faces stay
+/// drawn. Fancy leaves render every face of every block, so a canopy carries
+/// six faces per block although the cutout holes only ever reveal the first
+/// layers behind the surface. A face with this many leaf or opaque blocks in
+/// front of it cannot be seen through the outer layers' holes and is dropped
+/// (the usual "cull leaves" depth rule). Edits invalidate two blocks around
+/// the changed cell, which covers this look-ahead.
+const LEAF_VISIBLE_DEPTH: i32 = 2;
+
+fn buried_leaf_face(samples: &Samples<'_>, position: [i32; 3], face: u8) -> Result<bool> {
+    let normal = NORMALS[face as usize];
+    for depth in 1..=LEAF_VISIBLE_DEPTH {
+        let cell = add(position, normal.map(|v| v * depth));
+        let info = samples.catalog.state(samples.state(cell)?)?;
+        let opaque = info.fact.solid_render && info.fact.can_occlude && info.fact.collision_full;
+        if info.shader != ShaderClass::Leaves && !opaque {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
 fn model_quad(
     samples: &mut Samples<'_>,
     state: u32,
@@ -245,6 +267,11 @@ fn model_quad(
         if let Some(face) = quad.cullface {
             let neighbor = samples.state(add(position, NORMALS[face as usize]))?;
             if !samples.catalog.face_visible(state, neighbor, face)? {
+                return Ok(());
+            }
+            if samples.catalog.state(state)?.shader == ShaderClass::Leaves
+                && buried_leaf_face(samples, position, face)?
+            {
                 return Ok(());
             }
         }
@@ -365,6 +392,7 @@ pub(super) fn build_hiding(
         .ok_or("terrain_job_section_outside_dimension")?;
     let mut geometry = MeshGeometry::default();
     let mut greedy = greedy::Greedy::new();
+    let mut fluid_tops = greedy::Greedy::fluid();
     let greedy_enabled = greedy::enabled();
     let mut opaque = [false; 4096];
     let base = key.map(|v| v * 16);
@@ -425,6 +453,7 @@ pub(super) fn build_hiding(
                         fluid,
                         rules,
                         &mut geometry,
+                        &mut fluid_tops,
                         byte_limit,
                     )?;
                 }
@@ -432,6 +461,8 @@ pub(super) fn build_hiding(
         }
     }
     greedy.append(&mut geometry, byte_limit)?;
+    fluid_tops.append(&mut geometry, byte_limit)?;
+    facing::apply(&mut geometry);
     let (mut bounds_min, mut bounds_max) = ([0.; 3], [16.; 3]);
     for vertex in &geometry.vertices {
         for axis in 0..3 {

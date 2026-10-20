@@ -215,6 +215,13 @@ struct Visible {
     key: [i32; 3],
     instance: u32,
 }
+/// One front-facing index range of a visible section's opaque (0) or cutout
+/// (1) layer; every submission path and counter derives from these.
+struct TerrainRun {
+    key: [i32; 3],
+    instance: u32,
+    range: std::ops::Range<u32>,
+}
 #[derive(Clone, Copy)]
 struct TransparentDraw {
     source: Source,
@@ -266,6 +273,46 @@ struct FrameStats {
     draw_calls: u64,
     submitted_indices: u64,
     entity_submitted_indices: u64,
+    // Per-pass submission breakdown for this frame's `encode_scene`.
+    // MDI honesty: `*_api_calls` counts wgpu draw invocations (one
+    // `multi_draw_indexed_indirect` per non-empty terrain material);
+    // `*_logical_draws` counts the visible chunk ranges those calls submit.
+    // Translucent terrain has no MDI path: api == logical there.
+    terrain_opaque_api_calls: u64,
+    terrain_opaque_logical_draws: u64,
+    terrain_opaque_indices: u64,
+    terrain_cutout_api_calls: u64,
+    terrain_cutout_logical_draws: u64,
+    terrain_cutout_indices: u64,
+    terrain_translucent_draws: u64,
+    terrain_translucent_indices: u64,
+    // Fancy shadow-depth terrain: one native API batch (both materials share
+    // a pipeline), or per-range direct calls; logical counts remain per material.
+    shadow_terrain_api_calls: u64,
+    shadow_terrain_logical_draws: [u64; 2],
+    shadow_terrain_indices: u64,
+    // Entity-family draw invocations in the world cutout pass plus the
+    // outline mask. The matching index count is `entity_submitted_indices`;
+    // no second counter. Shadow-depth re-submissions stay in `draw_calls`.
+    entity_draws: u64,
+    // Cull provenance: graph rejection runs before the frustum test, so a
+    // graph-rejected section may also sit outside the frustum.
+    frustum_rejected_chunks: u64,
+    graph_rejected_chunks: u64,
+    // Sections wholly past the fog ends (Fancy overworld), after graph/frustum.
+    fog_rejected_chunks: u64,
+    graph_enabled: bool,
+    graph_available: bool,
+    graph_reached_sections: u64,
+    terrain_candidates_opaque: u64,
+    terrain_candidates_cutout: u64,
+    // Disjoint dynamic extraction contributions. Material draws are shared;
+    // every dynamic index is submitted once (shadow depth is separate).
+    entity_geometry_indices: u64,
+    block_entity_geometry_indices: u64,
+    other_dynamic_indices: u64,
+    entity_extracted: u64,
+    block_entities_extracted: u64,
     upload_ms: f64,
     visibility_ms: f64,
     draw_encode_ms: f64,
@@ -316,6 +363,7 @@ pub struct Renderer {
     instances: wgpu::Buffer,
     instance_data: Vec<[f32; 4]>,
     visible: Vec<Visible>,
+    terrain_runs: [Vec<TerrainRun>; 2],
     transparent: Vec<TransparentDraw>,
     transparent_ranges: [std::ops::Range<usize>; EntityMaterial::COUNT + 1],
     /// Reused incoming/expanded-face masks and breadth-first queue.
@@ -585,15 +633,20 @@ impl Renderer {
             usage: wgpu::BufferUsages::VERTEX,
         });
         let targets = Self::targets(&device, &config, &pipelines.blit);
-        let outline = outline::Outline::new(&device, config.width, config.height);
-        let post = post::Post::new(&device, config.width, config.height);
         let mut shadow = shadow::Shadow::new(&device, &pipelines.camera_layout, &pipelines.atlas_layout);
         shadow.resize(&device, config.width, config.height);
+        let outline = outline::Outline::new(&device, config.width, config.height);
+        let post = post::Post::new(&device, config.width, config.height);
         let dynamic = Stream::new(&device);
         let overlay = Stream::new(&device);
         let sunrise = Stream::new(&device);
-        let timing = timing::Timing::new(&device, &queue, timestamps);
         let mdi = mdi_enabled.then(|| mdi::Indirect::new(&device));
+        let timing = timing::Timing::new(&device, &queue, timestamps);
+        // Native indirect features also cover the shared-pipeline shadow batch.
+        // Reference mode retains the portable direct path for pixel parity.
+        if mdi.is_some() {
+            shadow.batch = Some(shadow::ShadowBatch::new(&device));
+        }
         let (encoded_tx, encoded_rx) = mpsc::channel();
         if let Ok(error) = gpu_errors.try_recv() {
             return Err(error);
@@ -649,6 +702,7 @@ impl Renderer {
             instances,
             instance_data: Vec::with_capacity(mesh::MAX_CHUNKS + 2),
             visible: Vec::with_capacity(mesh::MAX_CHUNKS),
+            terrain_runs: std::array::from_fn(|_| Vec::with_capacity(mesh::MAX_CHUNKS)),
             transparent: Vec::new(),
             transparent_ranges: std::array::from_fn(|_| 0..0),
             occlusion_reached: std::collections::HashMap::with_capacity(mesh::MAX_CHUNKS / 4),
@@ -1182,6 +1236,39 @@ impl Renderer {
                         .cloned()
                         .unwrap_or(Value::Null);
                     metadata["terrain_submission"] = self.section_upload_receipts();
+                    // API calls and logical terrain draws differ under MDI.
+                    // Entity/block-entity contributions share material draws.
+                    metadata["frame_pass_breakdown"] = json!({
+                        "terrain_opaque_api_calls": self.stats.terrain_opaque_api_calls,
+                        "terrain_opaque_logical_draws": self.stats.terrain_opaque_logical_draws,
+                        "terrain_opaque_indices": self.stats.terrain_opaque_indices,
+                        "terrain_cutout_api_calls": self.stats.terrain_cutout_api_calls,
+                        "terrain_cutout_logical_draws": self.stats.terrain_cutout_logical_draws,
+                        "terrain_cutout_indices": self.stats.terrain_cutout_indices,
+                        "terrain_translucent_draws": self.stats.terrain_translucent_draws,
+                        "terrain_translucent_indices": self.stats.terrain_translucent_indices,
+                        "shadow_terrain_api_calls": self.stats.shadow_terrain_api_calls,
+                        "shadow_terrain_logical_draws": self.stats.shadow_terrain_logical_draws,
+                        "shadow_terrain_indices": self.stats.shadow_terrain_indices,
+                        "entity_draws": self.stats.entity_draws,
+                        "entity_submitted_indices": self.stats.entity_submitted_indices,
+                        "entity_geometry_indices": self.stats.entity_geometry_indices,
+                        "block_entity_geometry_indices": self.stats.block_entity_geometry_indices,
+                        "other_dynamic_indices": self.stats.other_dynamic_indices,
+                        "entity_extracted": self.stats.entity_extracted,
+                        "block_entities_extracted": self.stats.block_entities_extracted,
+                        "draw_calls_api": self.stats.draw_calls,
+                        "submitted_indices": self.stats.submitted_indices,
+                        "visible_chunks": self.stats.visible_chunks,
+                        "culled_chunks": self.stats.culled_chunks,
+                        "frustum_rejected_chunks": self.stats.frustum_rejected_chunks,
+                        "graph_rejected_chunks": self.stats.graph_rejected_chunks,
+                        "fog_rejected_chunks": self.stats.fog_rejected_chunks,
+                        "occlusion_graph_enabled": self.stats.graph_enabled,
+                        "occlusion_graph_available": self.stats.graph_available,
+                        "occlusion_graph_reached_sections": self.stats.graph_reached_sections,
+                        "terrain_indirect_candidates_opaque": self.stats.terrain_candidates_opaque,
+                        "terrain_indirect_candidates_cutout": self.stats.terrain_candidates_cutout});
                     metadata["texture_animation_sequence"] = json!(
                         self.applied_patches
                             .values()

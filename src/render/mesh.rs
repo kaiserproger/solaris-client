@@ -1,7 +1,8 @@
 use super::arena::{Allocation, Arena};
-use crate::api::Vertex;
+use crate::api::{FaceGroups, Vertex, FACE_GROUPS, VEGETATION_GROUP};
 use std::ops::Range;
 
+const FACE_GROUPS_LAST: usize = FACE_GROUPS - 1;
 pub(super) const VERTEX_BUDGET: u64 = 1024 * 1024 * 1024;
 pub(super) const INDEX_BUDGET: u64 = 512 * 1024 * 1024;
 pub(super) const MAX_CHUNKS: usize = 32768;
@@ -12,6 +13,8 @@ pub(super) struct ResidentMesh {
     pub vertices: Option<Allocation>,
     pub indices: Option<Allocation>,
     pub ranges: [Range<u32>; 3],
+    /// Facing partition of the opaque and cutout ranges (see `FaceGroups`).
+    pub faces: [Option<FaceGroups>; 2],
     pub transparent: Translucent,
 }
 #[derive(Clone, Copy, Debug)]
@@ -179,6 +182,7 @@ impl ResidentMesh {
         ia: &mut Arena,
         vertices: &[Vertex],
         indices: [&[u32]; 3],
+        faces: [Option<FaceGroups>; 2],
     ) -> Result<Self, String> {
         let mut count = 0u32;
         let ranges = std::array::from_fn(|layer| {
@@ -203,9 +207,107 @@ impl ResidentMesh {
             vertices,
             indices: index_allocation,
             ranges,
+            faces,
             transparent,
         };
         Ok(mesh)
+    }
+    /// Index sub-ranges of terrain `layer` (0 opaque, 1 cutout) that can face a
+    /// camera at `camera`, given in section-local space. Adjacent front-facing
+    /// groups are coalesced. An undivided layer yields its whole range.
+    /// Groups behind the camera are exactly those the GPU back-face cull would
+    /// discard, so skipping them is pixel-neutral. `slack` widens every plane
+    /// test for vertex-shader displacement (waving vegetation). Vegetation
+    /// quads are included only when `vegetation` (section within range).
+    pub fn facing_runs(
+        &self,
+        layer: usize,
+        camera: [f32; 3],
+        slack: f32,
+        vegetation: bool,
+        mut emit: impl FnMut(Range<u32>),
+    ) {
+        let range = self.ranges[layer].clone();
+        if range.is_empty() {
+            return;
+        }
+        let Some(faces) = self.faces[layer] else {
+            emit(range);
+            return;
+        };
+        let mut run: Option<Range<u32>> = None;
+        let mut start = range.start;
+        for group in 0..FACE_GROUPS {
+            let end = range.start + faces.ends[group];
+            let front = match group {
+                VEGETATION_GROUP => vegetation,
+                FACE_GROUPS_LAST => true,
+                _ => {
+                    let axis = [1, 1, 2, 2, 0, 0][group];
+                    if group % 2 == 1 {
+                        camera[axis] > faces.planes[group] - slack
+                    } else {
+                        camera[axis] < faces.planes[group] + slack
+                    }
+                }
+            };
+            if end > start && front {
+                match run.as_mut() {
+                    Some(open) if open.end == start => open.end = end,
+                    _ => {
+                        if let Some(done) = run.take() {
+                            emit(done);
+                        }
+                        run = Some(start..end);
+                    }
+                }
+            }
+            start = end;
+        }
+        if let Some(done) = run {
+            emit(done);
+        }
+    }
+    /// Index sub-ranges of terrain `layer` whose quads face toward `light`
+    /// (a direction from the scene toward the light). Undivided layers yield
+    /// their whole range; non-planar quads are always kept.
+    pub fn light_facing_runs(&self, layer: usize, light: [f32; 3], mut emit: impl FnMut(Range<u32>)) {
+        let range = self.ranges[layer].clone();
+        if range.is_empty() {
+            return;
+        }
+        let Some(faces) = self.faces[layer] else {
+            emit(range);
+            return;
+        };
+        let mut run: Option<Range<u32>> = None;
+        let mut start = range.start;
+        for group in 0..FACE_GROUPS {
+            let end = range.start + faces.ends[group];
+            let front = group >= VEGETATION_GROUP || {
+                let axis = [1, 1, 2, 2, 0, 0][group];
+                if group % 2 == 1 {
+                    light[axis] > 0.
+                } else {
+                    light[axis] < 0.
+                }
+            };
+            if end > start && front {
+                match run.as_mut() {
+                    Some(open) if open.end == start => open.end = end,
+                    _ => {
+                        if let Some(done) = run.take() {
+                            emit(done);
+                        }
+                        run = Some(start..end);
+                    }
+                }
+            }
+            start = end;
+        }
+        if let Some(done) = run {
+            emit(done);
+        }
     }
     pub fn sort_transparent(&mut self, queue: &wgpu::Queue, ia: &Arena, camera: [f64; 3]) -> u64 {
         if !self.transparent.sort(camera) {
@@ -238,13 +340,13 @@ impl ResidentMesh {
         }
         if let Some(a) = self.indices {
             // Queue writes can address disjoint material ranges without flattening.
-            for layer in 0..3 {
-                let bytes: &[u8] = bytemuck::cast_slice(indices[layer]);
+            for (list, range) in indices.into_iter().zip(&self.ranges) {
+                let bytes: &[u8] = bytemuck::cast_slice(list);
                 if !bytes.is_empty() {
                     ia.write(
                         queue,
                         Allocation {
-                            offset: a.offset + u64::from(self.ranges[layer].start) * 4,
+                            offset: a.offset + u64::from(range.start) * 4,
                             size: bytes.len() as u64,
                         },
                         bytes,
@@ -374,6 +476,52 @@ fn buffer(device: &wgpu::Device, size: u64, usage: wgpu::BufferUsages) -> wgpu::
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn grouped_mesh() -> ResidentMesh {
+        // Nine quads' worth of indices at offset 100: one 6-index quad per
+        // facing group -Y..+X, then two vegetation and one unclassified quad.
+        ResidentMesh {
+            vertices: None,
+            indices: None,
+            ranges: [100..154, 154..154, 154..154],
+            faces: [
+                Some(FaceGroups {
+                    ends: [6, 12, 18, 24, 30, 36, 48, 54],
+                    planes: [1., 3., 2., 8., 4., 9.],
+                }),
+                None,
+            ],
+            transparent: Default::default(),
+        }
+    }
+    fn runs(mesh: &ResidentMesh, camera: [f32; 3], vegetation: bool) -> Vec<Range<u32>> {
+        let mut out = Vec::new();
+        mesh.facing_runs(0, camera, 0., vegetation, |range| out.push(range));
+        out
+    }
+
+    #[test]
+    fn facing_runs_skip_groups_behind_the_camera_and_distant_vegetation() {
+        let mesh = grouped_mesh();
+        // Camera above (+Y visible: y>3), below -Y plane (y<1 false), z in
+        // (2, 8): -Z hidden (z>2 so -Z needs z<2), +Z hidden (z<8 so +Z needs
+        // z>8), x in (4, 9): -X hidden (x<4 false), +X hidden (x>9 false).
+        assert_eq!(runs(&mesh, [6., 5., 5.], true), vec![106..112, 136..154]);
+        // Without vegetation range the vegetation group (136..148) is skipped
+        // but the unclassified quad (148..154) stays.
+        assert_eq!(runs(&mesh, [6., 5., 5.], false), vec![106..112, 148..154]);
+        // Far -X/-Z corner sees -Y? (y<1) -Z (z<2) and -X (x<4) faces; adjacent
+        // groups coalesce into one run.
+        assert_eq!(runs(&mesh, [0., 0., 0.], false), vec![100..106, 112..118, 124..130, 148..154]);
+    }
+
+    #[test]
+    fn undivided_layers_draw_whole() {
+        let mut mesh = grouped_mesh();
+        mesh.faces = [None, None];
+        assert_eq!(runs(&mesh, [6., 5., 5.], false), vec![100..154]);
+    }
+
     #[test]
     fn translucent_quads_are_not_split_into_independently_sorted_halves() {
         let mut vertices = vec![Vertex::zeroed(); 4];

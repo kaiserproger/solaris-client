@@ -1,9 +1,24 @@
 use super::*;
 
+/// Plane-test margin for terrain facing runs: shader waving displaces
+/// vegetation vertices by at most 0.09 blocks.
+const FACING_SLACK: f32 = 0.125;
+/// Rooted waving vegetation (grass, flowers, crops) is drawn only in sections
+/// whose nearest point is within this many blocks of the camera. Beyond it a
+/// tuft covers a few pixels and its quads are the largest cutout cost per
+/// visible pixel.
+const VEGETATION_RANGE: f32 = 128.;
+/// Blocks past a fog end a section's nearest point must lie before it is
+/// skipped as fully fogged (covers shader wave displacement and rounding).
+const FOG_MARGIN: f32 = 1.;
+
 impl Renderer {
     fn prepare_visibility(&mut self, scene: &Scene, view_projection: Mat4) -> Result<(), String> {
         let start = Instant::now();
         self.visible.clear();
+        for runs in &mut self.terrain_runs {
+            runs.clear();
+        }
         self.instance_data.clear();
         if let Some(mdi) = &mut self.mdi {
             for candidates in &mut mdi.candidates {
@@ -22,8 +37,16 @@ impl Renderer {
         self.transparent.clear();
         self.visibility_time_ms = self.monotonic_origin.elapsed().as_millis() as u64;
         self.stats.unknown_fade_policy_sections = 0;
-        let occlusion = !self.reference_mode
-            && visibility::occlusion_enabled()
+        // Cull outcomes belong to this visibility pass: reset per call so a
+        // repeated pose reproduces identical counts. Upload bytes below keep
+        // accumulating: they measure work done, not this pass's decision.
+        self.stats.culled_chunks = 0;
+        self.stats.frustum_rejected_chunks = 0;
+        self.stats.graph_rejected_chunks = 0;
+        self.stats.fog_rejected_chunks = 0;
+        let graph_enabled = !self.reference_mode && visibility::occlusion_enabled();
+        self.stats.graph_enabled = graph_enabled;
+        let graph_available = graph_enabled
             && visibility::extents(self.chunks.keys().copied()).is_some_and(|bounds| {
                 visibility::flood(
                     scene.camera_position.map(|v| (v / 16.).floor() as i32),
@@ -46,6 +69,24 @@ impl Renderer {
                     &mut self.occlusion_queue,
                 )
             });
+        self.stats.graph_available = graph_available;
+        self.stats.graph_reached_sections = if graph_available {
+            self.occlusion_reached.len() as u64
+        } else {
+            0
+        };
+        let occlusion = graph_available;
+        // Fog distances after which `fogged()` returns exactly the sky colour
+        // (full strength, ramp present). Only the Fancy overworld shades far
+        // terrain with the sky ray; elsewhere fog colour differs from the sky.
+        let env = &scene.environment;
+        let fully_fogged = !self.reference_mode
+            && self.fancy_shaders
+            && env.sky_kind == SkyKind::Overworld
+            && env.fog_alpha >= 1.;
+        let fog_sphere = (env.fog_start < env.fog_end).then_some(env.fog_end + FOG_MARGIN);
+        let fog_cylinder = (env.render_fog_start < env.render_fog_end)
+            .then_some(env.render_fog_end + FOG_MARGIN);
         for (&key, chunk) in &mut self.chunks {
             if chunk.fade_duration_ms.is_none() {
                 self.stats.unknown_fade_policy_sections += 1;
@@ -69,13 +110,26 @@ impl Renderer {
                 continue;
             };
             let offset = relative(chunk.origin, scene.camera_position);
+            // shader::waving displaces Fancy cutout vegetation at most
+            // 0.09 blocks in X and 0.0495 in Z; preserve border silhouettes.
+            let wind = if self.fancy_shaders
+                && scene.environment.sky_kind == SkyKind::Overworld
+                && !chunk.mesh.ranges[1].is_empty()
+            {
+                Vec3::new(0.09, 0., 0.05)
+            } else {
+                Vec3::ZERO
+            };
+            let bounds_min = Vec3::from_array(chunk.bounds_min) - wind;
+            let bounds_max = Vec3::from_array(chunk.bounds_max) + wind;
             let in_frustum = self.reference_mode
-                || frustum.intersects(
-                    Vec3::from_array(chunk.bounds_min) + offset,
-                    Vec3::from_array(chunk.bounds_max) + offset,
-                );
-            if !self.reference_mode && occlusion && !self.occlusion_reached.contains_key(&key) {
+                || frustum.intersects(bounds_min + offset, bounds_max + offset);
+            if !self.reference_mode
+                && occlusion
+                && !visibility::reaches_bounds(key, bounds_min, bounds_max, &self.occlusion_reached)
+            {
                 self.stats.culled_chunks += 1;
+                self.stats.graph_rejected_chunks += 1;
                 continue;
             }
             // Frustum rejection precedes every per-frame submission: sections
@@ -84,24 +138,71 @@ impl Renderer {
             // stale CPU planes, but it must not be the only filter.
             if !in_frustum {
                 self.stats.culled_chunks += 1;
+                self.stats.frustum_rejected_chunks += 1;
+                continue;
+            }
+            // Nearest point of the section bounds to the camera (the origin).
+            let nearest = Vec3::ZERO
+                .max(bounds_min + offset)
+                .min(bounds_max + offset);
+            // A section wholly past either fog end (spherical or the render
+            // distance cylinder) is painted pure sky by the Fancy shader, so
+            // drawing it only overpaints identical sky pixels. This is the
+            // square-chunk-window corners at the horizon.
+            if fully_fogged
+                && ((fog_sphere.is_some_and(|end| nearest.length() >= end))
+                    || fog_cylinder
+                        .is_some_and(|end| nearest.x.hypot(nearest.z).max(nearest.y.abs()) >= end))
+            {
+                self.stats.culled_chunks += 1;
+                self.stats.fog_rejected_chunks += 1;
                 continue;
             }
             let instance = self.instance_data.len() as u32;
             self.instance_data
                 .push([offset.x, offset.y, offset.z, visibility]);
             self.visible.push(Visible { key, instance });
-            if !self.reference_mode
-                && let Some(mdi) = &mut self.mdi
-            {
-                for material in 0..2 {
-                    if let Some(candidate) = mdi::Candidate::new(
-                        &chunk.mesh,
-                        material,
-                        instance,
-                        Vec3::from_array(chunk.bounds_min) + offset,
-                        Vec3::from_array(chunk.bounds_max) + offset,
-                    ) {
-                        mdi.candidates[material].push(candidate);
+            let local: [f32; 3] =
+                std::array::from_fn(|axis| (scene.camera_position[axis] - chunk.origin[axis]) as f32);
+            let vegetation = nearest.length_squared() <= VEGETATION_RANGE * VEGETATION_RANGE;
+            for material in 0..2 {
+                let runs = &mut self.terrain_runs[material];
+                let first = runs.len();
+                if self.reference_mode {
+                    // Reference path: whole layers, no facing partition.
+                    let range = chunk.mesh.ranges[material].clone();
+                    if !range.is_empty() {
+                        runs.push(TerrainRun { key, instance, range });
+                    }
+                } else {
+                    chunk
+                        .mesh
+                        .facing_runs(material, local, FACING_SLACK, vegetation, |range| {
+                            runs.push(TerrainRun { key, instance, range })
+                        });
+                    if runs.len() > mesh::MAX_CHUNKS {
+                        // Candidate buffers are bounded: fall back to the whole layer.
+                        runs.truncate(first);
+                        runs.push(TerrainRun {
+                            key,
+                            instance,
+                            range: chunk.mesh.ranges[material].clone(),
+                        });
+                    }
+                }
+                if !self.reference_mode
+                    && let Some(mdi) = &mut self.mdi
+                {
+                    for run in &self.terrain_runs[material][first..] {
+                        if let Some(candidate) = mdi::Candidate::new(
+                            &chunk.mesh,
+                            run.range.clone(),
+                            instance,
+                            bounds_min + offset,
+                            bounds_max + offset,
+                        ) {
+                            mdi.candidates[material].push(candidate);
+                        }
                     }
                 }
             }
@@ -161,6 +262,13 @@ impl Renderer {
             range.end = cursor;
         }
         self.stats.visible_chunks = self.visible.len() as u64;
+        if let Some(mdi) = &self.mdi {
+            self.stats.terrain_candidates_opaque = mdi.candidates[0].len() as u64;
+            self.stats.terrain_candidates_cutout = mdi.candidates[1].len() as u64;
+        } else {
+            self.stats.terrain_candidates_opaque = 0;
+            self.stats.terrain_candidates_cutout = 0;
+        }
         self.queue.write_buffer(
             &self.instances,
             0,
@@ -195,6 +303,17 @@ impl Renderer {
         let upload = Instant::now();
         self.sync_scene(scene, observation)?;
         self.stats.upload_ms = upload.elapsed().as_secs_f64() * 1000.;
+        // Dynamic categories share material draws, but their extraction ranges
+        // are disjoint and every dynamic index is submitted once.
+        self.stats.entity_geometry_indices = scene.entity_presentation.entity_indices as u64;
+        self.stats.block_entity_geometry_indices =
+            scene.entity_presentation.block_entity_indices as u64;
+        self.stats.other_dynamic_indices = scene.dynamic.indices.iter().map(Vec::len).sum::<usize>()
+            as u64
+            - self.stats.entity_geometry_indices
+            - self.stats.block_entity_geometry_indices;
+        self.stats.entity_extracted = scene.entity_presentation.submitted as u64;
+        self.stats.block_entities_extracted = scene.entity_presentation.block_entities as u64;
         let yaw = scene.yaw.to_radians();
         let pitch = scene.pitch.to_radians();
         let forward = Vec3::new(
@@ -230,7 +349,14 @@ impl Renderer {
             (Mat4::IDENTITY, Vec3::Y, 0.)
         };
         if fancy {
-            self.shadow.prepare(&self.queue, &self.chunks, scene);
+            self.shadow.prepare(
+                &self.queue,
+                &self.chunks,
+                scene,
+                self.fixture.as_ref(),
+                shadow_projection,
+                sunlight,
+            );
         }
         let uv = |texture: Option<crate::api::SkyTexture>| texture.map_or([0.; 4], |t| t.uv);
         let layer =
@@ -383,19 +509,33 @@ impl Renderer {
             pass.set_bind_group(0, &self.camera_bind, &[]);
             pass.set_bind_group(1, &self.atlas_bind, &[]);
             pass.set_vertex_buffer(1, self.shadow.instances.slice(..));
-            for (i, key) in self.shadow.chunks.iter().enumerate() {
-                let mesh = &self.chunks[key].mesh;
-                for material in 0..2 {
-                    let range = mesh.ranges[material].clone();
-                    if !range.is_empty() {
-                        self.draw_resident(&mut pass, mesh, range, i as u32 + 2);
-                        self.stats.draw_calls += 1;
-                    }
+            // Both terrain materials share the alpha-tested shadow pipeline.
+            // Preserve caster/instance order in one native indirect batch.
+            let shadow_mdi = !self.reference_mode && self.mdi.is_some() && self.shadow.batch.is_some();
+            if shadow_mdi {
+                let batch = self.shadow.batch.as_ref().expect("shadow batch armed");
+                let issued = u64::from(!batch.draws.is_empty());
+                if issued != 0 {
+                    pass.set_vertex_buffer(0, self.vertex_arena.whole());
+                    pass.set_index_buffer(self.index_arena.whole(), wgpu::IndexFormat::Uint32);
+                    pass.multi_draw_indexed_indirect(&batch.buffer, 0, batch.draws.len() as u32);
                 }
-            }
-            if let Some(mesh) = &self.fixture {
-                for material in 0..2 {
-                    self.draw_resident(&mut pass, mesh, mesh.ranges[material].clone(), 1);
+                self.stats.draw_calls += issued;
+                self.stats.shadow_terrain_api_calls = issued;
+                self.stats.shadow_terrain_logical_draws = batch.logical_draws;
+                self.stats.shadow_terrain_indices = batch.submitted_indices;
+            } else {
+                for run in &self.shadow.runs {
+                    let mesh = match run.key {
+                        Some(key) => &self.chunks[&key].mesh,
+                        None => self.fixture.as_ref().expect("fixture shadow run"),
+                    };
+                    let indices = u64::from(run.range.end - run.range.start);
+                    self.draw_resident(&mut pass, mesh, run.range.clone(), run.instance);
+                    self.stats.draw_calls += 1;
+                    self.stats.shadow_terrain_api_calls += 1;
+                    self.stats.shadow_terrain_logical_draws[run.material] += 1;
+                    self.stats.shadow_terrain_indices += indices;
                 }
             }
             pass.set_vertex_buffer(0, self.dynamic.vertices.slice(..));
@@ -518,6 +658,10 @@ impl Renderer {
             pass.set_vertex_buffer(1, self.instances.slice(..));
             let mut calls = 0;
             let mut indices = 0;
+            let mut terrain_api = 0;
+            let mut terrain_logical = 0;
+            let mut terrain_indices = 0;
+            let mut entity_calls = 0;
             if material != 2 {
                 if let Some(mdi) = self.mdi.as_ref().filter(|_| !self.reference_mode) {
                     // One API submission per terrain material. GPU writes zero
@@ -525,27 +669,34 @@ impl Renderer {
                     if !mdi.candidates[material].is_empty() {
                         pass.set_vertex_buffer(0, self.vertex_arena.whole());
                         pass.set_index_buffer(self.index_arena.whole(), wgpu::IndexFormat::Uint32);
-                        calls += u64::from(mdi.draw(&mut pass, material));
+                        terrain_api += u64::from(mdi.draw(&mut pass, material));
+                        calls += terrain_api;
                     }
-                    for visible in &self.visible {
-                        let range = &self.chunks[&visible.key].mesh.ranges[material];
-                        indices += u64::from(range.end - range.start);
+                    for run in &self.terrain_runs[material] {
+                        let count = u64::from(run.range.end - run.range.start);
+                        indices += count;
+                        terrain_indices += count;
+                        terrain_logical += 1;
                     }
                 } else {
-                    for visible in &self.visible {
-                        let mesh = &self.chunks[&visible.key].mesh;
-                        let range = mesh.ranges[material].clone();
-                        if !range.is_empty() {
-                            indices += u64::from(range.end - range.start);
-                            calls += 1;
-                            self.draw_resident(&mut pass, mesh, range, visible.instance);
-                        }
+                    for run in &self.terrain_runs[material] {
+                        let mesh = &self.chunks[&run.key].mesh;
+                        let count = u64::from(run.range.end - run.range.start);
+                        indices += count;
+                        terrain_indices += count;
+                        terrain_api += 1;
+                        terrain_logical += 1;
+                        calls += 1;
+                        self.draw_resident(&mut pass, mesh, run.range.clone(), run.instance);
                     }
                 }
                 if let Some(mesh) = &self.fixture {
                     let range = mesh.ranges[material].clone();
                     if !range.is_empty() {
                         indices += u64::from(range.end - range.start);
+                        terrain_indices += u64::from(range.end - range.start);
+                        terrain_api += 1;
+                        terrain_logical += 1;
                         calls += 1;
                         self.draw_resident(&mut pass, mesh, range, 1);
                     }
@@ -571,6 +722,7 @@ impl Renderer {
                             self.stats.entity_submitted_indices +=
                                 u64::from(range.end - range.start);
                             calls += 1;
+                            entity_calls += 1;
                             pass.draw_indexed(range, 0, 1..2);
                         } else {
                             let sorted = self.transparent_ranges[family].clone();
@@ -589,6 +741,7 @@ impl Renderer {
                                 indices += u64::from(count);
                                 self.stats.entity_submitted_indices += u64::from(count);
                                 calls += 1;
+                                entity_calls += 1;
                             }
                         }
                     }
@@ -608,6 +761,18 @@ impl Renderer {
                     indices += u64::from(draw.count);
                     calls += 1;
                 }
+                self.stats.terrain_translucent_draws += calls;
+                self.stats.terrain_translucent_indices += indices;
+            }
+            if material == 0 {
+                self.stats.terrain_opaque_api_calls += terrain_api;
+                self.stats.terrain_opaque_logical_draws += terrain_logical;
+                self.stats.terrain_opaque_indices += terrain_indices;
+            } else if material == 1 {
+                self.stats.terrain_cutout_api_calls += terrain_api;
+                self.stats.terrain_cutout_logical_draws += terrain_logical;
+                self.stats.terrain_cutout_indices += terrain_indices;
+                self.stats.entity_draws += entity_calls;
             }
             drop(pass);
             self.stats.draw_calls += calls;
@@ -642,6 +807,7 @@ impl Renderer {
                     self.stats.entity_submitted_indices += u64::from(range.end - range.start);
                     pass.draw_indexed(range, 0, 1..2);
                     self.stats.draw_calls += 1;
+                    self.stats.entity_draws += 1;
                 }
             }
             drop(pass);
@@ -817,6 +983,7 @@ mod terrain_translucency_tests {
                 &mut renderer.index_arena,
                 &vertices,
                 [&indices[..6], &indices[..6], &indices],
+                [None, None],
             )
             .unwrap();
             mesh.upload_geometry(
@@ -922,6 +1089,7 @@ mod terrain_translucency_tests {
                 &mut renderer.index_arena,
                 &vertices,
                 [&indices, &[], &[]],
+                [None, None],
             )
             .unwrap();
             mesh.upload_geometry(
@@ -950,6 +1118,14 @@ mod terrain_translucency_tests {
         renderer.prepare_visibility(&scene, Mat4::IDENTITY).unwrap();
         assert_eq!(renderer.stats.visible_chunks, 1);
         assert_eq!(renderer.stats.culled_chunks, 1);
+        assert_eq!(renderer.stats.frustum_rejected_chunks, 1);
+        assert_eq!(renderer.stats.graph_rejected_chunks, 0);
+        assert!(!renderer.stats.graph_available);
+        assert_eq!(renderer.stats.graph_reached_sections, 0);
+        // Candidate counts need MDI hardware; the fallback path submits zero.
+        let expected_candidates = u64::from(renderer.mdi.is_some());
+        assert_eq!(renderer.stats.terrain_candidates_opaque, expected_candidates);
+        assert_eq!(renderer.stats.terrain_candidates_cutout, 0);
         // Two base instance slots (null + presentation origin) plus exactly
         // the one visible section: the culled section takes no slot.
         assert_eq!(renderer.instance_data.len(), 3);
@@ -962,5 +1138,111 @@ mod terrain_translucency_tests {
             );
         }
         assert!(renderer.transparent.is_empty());
+        // Stale-visibility hypothesis: swinging to an empty view and back
+        // must reproduce the same pose exactly, with no duplicated keys.
+        let snapshot = (
+            renderer.stats.visible_chunks,
+            renderer.stats.culled_chunks,
+            renderer.stats.frustum_rejected_chunks,
+            renderer.stats.terrain_candidates_opaque,
+            renderer.stats.terrain_candidates_cutout,
+            renderer.instance_data.len(),
+            renderer.mdi.as_ref().map(|mdi| {
+                mdi.candidates.iter().map(Vec::len).sum::<usize>()
+            }),
+            renderer.visible.iter().map(|visible| visible.key).collect::<Vec<_>>(),
+        );
+        let empty_view = Mat4::from_translation(Vec3::new(10_000., 0., 0.));
+        renderer.prepare_visibility(&scene, empty_view).unwrap();
+        assert_eq!(renderer.stats.visible_chunks, 0);
+        assert_eq!(renderer.visible.len(), 0);
+        renderer.prepare_visibility(&scene, Mat4::IDENTITY).unwrap();
+        let restored = (
+            renderer.stats.visible_chunks,
+            renderer.stats.culled_chunks,
+            renderer.stats.frustum_rejected_chunks,
+            renderer.stats.terrain_candidates_opaque,
+            renderer.stats.terrain_candidates_cutout,
+            renderer.instance_data.len(),
+            renderer.mdi.as_ref().map(|mdi| {
+                mdi.candidates.iter().map(Vec::len).sum::<usize>()
+            }),
+            renderer.visible.iter().map(|visible| visible.key).collect::<Vec<_>>(),
+        );
+        assert_eq!(restored, snapshot, "A-B-A view must restore identical submission");
+        let mut keys = renderer.visible.iter().map(|visible| visible.key).collect::<Vec<_>>();
+        keys.sort_unstable();
+        keys.dedup();
+        assert_eq!(keys.len(), renderer.visible.len(), "visible keys must not duplicate");
+    }
+
+    #[test]
+    fn sections_wholly_past_the_fog_end_are_not_submitted() {
+        let mut renderer = pollster::block_on(Renderer::new_offscreen(
+            32,
+            32,
+            PathBuf::from(".analysis/fog-cull-regression"),
+        ))
+        .unwrap();
+        let mut vertices = vec![crate::api::Vertex::zeroed(); 4];
+        for (corner, vertex) in vertices.iter_mut().enumerate() {
+            vertex.position = [(corner / 2) as f32, 0., (corner % 2) as f32];
+        }
+        let indices = [0u32, 1, 2, 0, 2, 3];
+        // Section keys 0 and 18 start 0 and 288 blocks east of the camera.
+        for (key, origin) in [([0, 0, 0], [0.; 3]), ([18, 0, 0], [288., 0., 0.])] {
+            let mesh = ResidentMesh::reserve(
+                &renderer.device,
+                &renderer.queue,
+                &mut renderer.vertex_arena,
+                &mut renderer.index_arena,
+                &vertices,
+                [&indices, &[], &[]],
+                [None, None],
+            )
+            .unwrap();
+            mesh.upload_geometry(
+                &renderer.queue,
+                &renderer.vertex_arena,
+                &renderer.index_arena,
+                &vertices,
+                [&indices, &[], &[]],
+            );
+            renderer.chunks.insert(
+                key,
+                ResidentChunk {
+                    revision: 1,
+                    origin,
+                    bounds_min: [0.; 3],
+                    bounds_max: [16.; 3],
+                    visibility_mask: visibility::ALL_OPEN,
+                    fade_duration_ms: Some(0),
+                    uploaded_time_ms: Some(0),
+                    visibility: None,
+                    mesh,
+                },
+            );
+        }
+        let mut scene = Scene::default();
+        scene.environment.sky_kind = SkyKind::Overworld;
+        scene.environment.fog_start = 100.;
+        scene.environment.fog_end = 4000.;
+        scene.environment.render_fog_start = 240.;
+        scene.environment.render_fog_end = 256.;
+        let view = Mat4::from_scale(Vec3::splat(0.0005));
+        renderer.set_fancy_shaders(true);
+        renderer.prepare_visibility(&scene, view).unwrap();
+        assert_eq!(renderer.stats.visible_chunks, 1);
+        assert_eq!(renderer.stats.fog_rejected_chunks, 1);
+        // Reference rendering and non-Fancy shading keep every section.
+        renderer.set_fancy_shaders(false);
+        renderer.prepare_visibility(&scene, view).unwrap();
+        assert_eq!(renderer.stats.visible_chunks, 2);
+        assert_eq!(renderer.stats.fog_rejected_chunks, 0);
+        // Fog that has not reached full strength (alpha < 1) never culls.
+        renderer.set_fancy_shaders(true);
+        scene.environment.fog_alpha = 0.5;
+        renderer.prepare_visibility(&scene, view).unwrap();
+        assert_eq!(renderer.stats.visible_chunks, 2);
     }
 }

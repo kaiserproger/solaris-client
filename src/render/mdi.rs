@@ -21,12 +21,11 @@ pub(super) struct Candidate {
 impl Candidate {
     pub fn new(
         mesh: &ResidentMesh,
-        material: usize,
+        range: std::ops::Range<u32>,
         instance: u32,
         min: Vec3,
         max: Vec3,
     ) -> Option<Self> {
-        let range = &mesh.ranges[material];
         if range.is_empty() {
             return None;
         }
@@ -231,11 +230,12 @@ mod tests {
                 size: 48,
             }),
             ranges: [0..6, 6..12, 12..12],
+            faces: [None, None],
             transparent: Default::default(),
         };
-        let candidate = Candidate::new(&mesh, 1, 17, Vec3::ZERO, Vec3::ONE).unwrap();
+        let candidate = Candidate::new(&mesh, 6..12, 17, Vec3::ZERO, Vec3::ONE).unwrap();
         assert_eq!(candidate.draw, [6, 38, 13, 17]);
-        assert!(Candidate::new(&mesh, 2, 17, Vec3::ZERO, Vec3::ONE).is_none());
+        assert!(Candidate::new(&mesh, 12..12, 17, Vec3::ZERO, Vec3::ONE).is_none());
     }
 
     #[test]

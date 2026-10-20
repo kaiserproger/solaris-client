@@ -422,8 +422,67 @@ view distance must not force the client to mesh that larger area.
 
 Section occlusion uses connected non-opaque cells in each 16³ section. The
 camera-section traversal admits an occluding section's surface but only crosses
-face pairs joined by an open component. Unavailable section metadata remains
-conservative; reference rendering bypasses the graph.
+face pairs joined by an open component. Traversal is monotone away from the eye
+on each world axis, like a sight ray: it cannot climb into sky and descend behind
+a hill to admit hidden surface/cave geometry. Incoming faces remain independent,
+so disconnected components do not suppress later valid paths. Protruding model
+bounds can remain visible through reached neighboring space; Fancy foliage adds
+its shader's maximum horizontal wind displacement to those bounds. Unavailable
+section metadata remains conservative; reference rendering bypasses the graph.
+
+Fancy shadow terrain uses one CPU-packed native MDI batch over the shared
+vertex/index arenas. Opaque and cutout casters already share the alpha-tested
+shadow pipeline; their direct traversal order, ranges and instance origins are
+preserved without per-material staging/copies. Caster selection intentionally
+does not use the camera frustum/visibility graph: off-camera objects still cast
+onto visible receivers. Reference/portable rendering retains direct calls.
+`shadow_terrain_api_calls`, `shadow_terrain_logical_draws` (opaque/cutout) and
+`shadow_terrain_indices` account for that separate depth submission. The shader
+regression compares exact direct/indirect pixels and proves an off-camera caster
+changes visible receiver pixels; a missing native MDI feature is a reported skip.
+Casters must reach the light's orthographic x/y box (a few texels of margin, not
+the camera frustum) and, for the opaque layer, only the facing groups turned
+toward the light are submitted: a face turned away from the sun is never the
+nearest depth of a closed solid surface, so the shadow map is unchanged.
+
+### Terrain submission techniques
+
+Each is exact except where marked; all are counted in `frame_pass_breakdown`.
+
+- **Facing groups.** The mesher stably partitions every section's opaque and
+  cutout indices into `-Y,+Y,-Z,+Z,-X,+X`, vegetation and everything else
+  (`api::FaceGroups`, `terrain::mesher::facing`). Planarity and the outward
+  direction come from the quad's actual winding; each group stores its extreme
+  plane. Terrain pipelines already back-face cull, so the renderer
+  (`ResidentMesh::facing_runs`) skips a group exactly when the camera is on its
+  inner side of every plane (0.125 block slack for shader waving). Pixels are
+  identical; the GPU stops fetching, shading and setting up discarded
+  triangles. Candidates/draw calls become one range per coalesced run, so
+  `terrain_*_logical_draws` count runs, not sections. Reference mode submits
+  whole layers.
+- **Vegetation range.** Rooted waving vegetation (shader class 2) is a separate
+  group drawn only in sections whose nearest point is within 128 blocks
+  (`VEGETATION_RANGE`). **Not pixel-exact:** tufts and flowers beyond it
+  disappear; reference mode keeps them.
+- **Leaf culling.** A leaf face with two leaf/opaque blocks directly in front of
+  it (`LEAF_VISIBLE_DEPTH`) is not meshed: it cannot show through the outer
+  layers' cutout holes. **Not pixel-exact** for rays that would cross three or
+  more layers. Edits invalidate two blocks around the changed cell, which
+  covers this look-ahead.
+- **Fog cull.** In the Fancy overworld, a section whose nearest point lies
+  beyond the spherical fog end or the render-distance fog cylinder (full
+  fog strength) is skipped after the graph/frustum tests
+  (`fog_rejected_chunks`): the shader paints those pixels the sky ray colour
+  anyway, so only the square chunk window's corners disappear. Differs from the
+  reference only where a sun/moon disc or star would show behind such terrain.
+- **Flat water tops.** Flat, still, equally lit/tinted water surfaces merge in
+  the translucent layer into tiled rectangles that keep both windings (the
+  water shader works per fragment). Sloped/flowing shore cells stay single.
+
+`terrain::border_tests` pins leaf-layer and water-merge counts,
+`terrain::mesher::facing::tests` the classification, `render::mesh::tests`
+the run selection and `render::shader_tests` proves exact pixels with and
+without the partition (including the shadow map) on a real GPU.
 
 For same-executable A/B measurements, launch separate instances with
 `SOLARIS_CLIENT_GREEDY=0 SOLARIS_CLIENT_OCCLUSION=0` for the baseline and unset
@@ -436,6 +495,25 @@ worker build time from `terrain_extraction`, and device pass timings from
 `gpu_timestamps` separately. Busy-host or changing-world samples are not stable
 FPS measurements. Focused regressions live under `terrain::border_tests`,
 `terrain::mesher::greedy::tests`, and the section visibility modules.
+
+`frame_pass_breakdown` records opaque/cutout/translucent terrain index counts,
+API calls and logical section draws, plus graph availability/reached sections and
+graph/frustum rejection provenance. Entity and block-entity extraction contributes
+disjoint index counts (`entity_geometry_indices`, `block_entity_geometry_indices`);
+the remaining dynamic indices (including nameplates, first-person hands and
+effects) are separately reported. They share material GPU draws, so combined
+API calls are not falsely attributed to either category. Whole-frame
+`submitted_indices` also includes UI overlay indices, and excludes the separate
+Fancy shadow-depth resubmission; `draw_calls_api` includes the shadow pass,
+sky, post-processing and UI. A capture's breakdown belongs to its completed
+frame; `previous_render_metrics` belongs to the preceding frame and must not
+be mixed into per-pass sums during motion. These are submitted-work counters,
+not visible-pixel counts or hardware pipeline statistics.
+The graph itself is frustum-restricted: `graph_rejected_chunks` includes
+unreached off-frustum sections. `frustum_rejected_chunks` counts only candidates
+that passed that graph gate but failed the final model-bounds test, and
+`fog_rejected_chunks` those that then lay wholly past the fog ends; these are
+ordered rejection reasons, not independent whole-scene culling totals.
 
 ## Villager clothing
 

@@ -294,6 +294,118 @@ fn terrain_mdi_compute_matches_fallback_pixels_across_arena_growth() {
     );
     renderer.mdi = Some(mdi);
 }
+#[test]
+fn fancy_shadow_indirect_matches_direct_pixels_with_fewer_calls() {
+    let mut renderer = pollster::block_on(Renderer::new_offscreen(
+        64,
+        64,
+        PathBuf::from(".analysis/shadow-batch-regression"),
+    ))
+    .unwrap();
+    if renderer.shadow.batch.is_none() {
+        eprintln!("shadow MDI unavailable; direct fallback covered by other render tests");
+        return;
+    }
+    let mut scene = Scene {
+        environment: crate::api::WorldEnvironment {
+            sky_kind: SkyKind::Overworld,
+            display_encoded: true,
+            sky_color: [0.3, 0.5, 0.8],
+            fog_color: [0.6, 0.7, 0.9],
+            sun_angle: 45.,
+            sun_texture: Some(crate::api::SkyTexture {
+                uv: [0., 0., 1., 1.],
+                layer: 0,
+            }),
+            moon_texture: Some(crate::api::SkyTexture {
+                uv: [0., 0., 1., 1.],
+                layer: 0,
+            }),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    // The elevated caster is outside the camera to its left; the 45-degree
+    // sun projects its shadow onto the visible ground quad at x=0.
+    for (i, material, origin) in [
+        (0, 0, [0.; 3]),
+        (1, 1, [32., 0., 0.]),
+        (2, 0, [-8., 8., 0.]),
+    ] {
+        let mut geometry = crate::api::MeshGeometry::default();
+        for position in [[-4., 0., 1.], [-4., 0., 8.], [4., 0., 8.], [4., 0., 1.]] {
+            geometry.vertices.push(crate::api::Vertex {
+                position,
+                color: [0.7, 0.6, 0.4],
+                normal: [0., 1., 0.],
+                alpha: 1.,
+                uv: if material == 1 { [0., 0.] } else { [-1., -1.] },
+                overlay_uv: [-1.; 2],
+                overlay_tint: [1.; 3],
+                light: [-1.; 2],
+                ..crate::api::Vertex::zeroed()
+            });
+        }
+        geometry.indices[material] = vec![0, 1, 2, 0, 2, 3];
+        scene.chunks.insert(
+            [i, 0, 0],
+            crate::api::ChunkDraw {
+                revision: 1,
+                origin,
+                bounds_min: [-4., 0., 1.],
+                bounds_max: [4., 0., 8.],
+                visibility: (1u64 << 36) - 1,
+                geometry: Some(Arc::new(geometry)),
+                fade_duration_ms: Some(0),
+            },
+        );
+    }
+    scene.revision = 1;
+    scene.camera_position = [0., 2., 0.];
+    scene.pitch = 20.;
+    let fast = pixels(&mut renderer, &scene);
+    let fast_calls = renderer.stats.draw_calls;
+    let fast_shadow_api = renderer.stats.shadow_terrain_api_calls;
+    let fast_shadow_logical: u64 = renderer.stats.shadow_terrain_logical_draws.iter().sum();
+    let fast_shadow_indices = renderer.stats.shadow_terrain_indices;
+    // Reference mode disables every MDI path, including the shadow batch, so
+    // the fallback issues one direct draw per caster range.
+    renderer.set_reference_mode(true);
+    let reference = pixels(&mut renderer, &scene);
+    let reference_calls = renderer.stats.draw_calls;
+    assert_eq!(renderer.stats.shadow_terrain_api_calls, 3);
+    assert_eq!(renderer.stats.shadow_terrain_indices, fast_shadow_indices);
+    renderer.set_reference_mode(false);
+    assert_eq!(
+        fast, reference,
+        "shadow batching must preserve exact GPU pixels, including off-camera casters"
+    );
+    // Three casters: two opaque ranges plus one cutout range.
+    assert_eq!(
+        fast_shadow_logical, 3,
+        "logical shadow draws must cover every selected caster range"
+    );
+    assert_eq!(fast_shadow_api, 1, "terrain shadows share one pipeline and batch");
+    assert!(
+        fast_calls < reference_calls,
+        "shadow batching must reduce native draw calls ({fast_calls} vs reference {reference_calls})"
+    );
+    assert!(
+        fast_shadow_indices >= 18,
+        "opaque and cutout casters must submit indices"
+    );
+    assert!(
+        fast.chunks_exact(4).any(|p| p[1] > p[0]),
+        "fixture must actually render"
+    );
+    scene.chunks.remove(&[2, 0, 0]);
+    scene.revision += 1;
+    let without_off_camera_caster = pixels(&mut renderer, &scene);
+    assert_ne!(
+        fast, without_off_camera_caster,
+        "the off-camera caster must actually shadow visible pixels"
+    );
+}
 
 #[test]
 fn present_setting_selects_supported_uncapped_modes_and_fifo() {
@@ -515,4 +627,122 @@ fn terrain_cpu_release_keeps_gpu_geometry_and_requires_fresh_payload() {
     assert_eq!(first, third, "identical replacement must restore pixels");
     let acks: Vec<_> = renderer.drain_uploaded_meshes().collect();
     assert_eq!(acks, [([0; 3], 2)]);
+}
+
+/// Eight-corner-free axis-aligned box faces in `FaceGroups` order
+/// (`-Y,+Y,-Z,+Z,-X,+X`), wound CCW seen from outside, plus a diagonal quad.
+fn facing_box_geometry(partitioned: bool) -> crate::api::MeshGeometry {
+    let (x0, x1, y0, y1, z0, z1) = (-2., 2., 0.5, 4.5, 6., 10.);
+    let faces: [[[f32; 3]; 4]; 6] = [
+        [[x0, y0, z0], [x1, y0, z0], [x1, y0, z1], [x0, y0, z1]],
+        [[x0, y1, z0], [x0, y1, z1], [x1, y1, z1], [x1, y1, z0]],
+        [[x0, y0, z0], [x0, y1, z0], [x1, y1, z0], [x1, y0, z0]],
+        [[x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1]],
+        [[x0, y0, z0], [x0, y0, z1], [x0, y1, z1], [x0, y1, z0]],
+        [[x1, y0, z0], [x1, y1, z0], [x1, y1, z1], [x1, y0, z1]],
+    ];
+    let diagonal = [[-6., 0.5, 7.], [-5., 0.5, 8.], [-5., 3., 8.], [-6., 3., 7.]];
+    let mut geometry = crate::api::MeshGeometry::default();
+    let mut quads: Vec<[[f32; 3]; 4]> = faces.to_vec();
+    quads.push(diagonal);
+    for (i, corners) in quads.iter().enumerate() {
+        let first = geometry.vertices.len() as u32;
+        for position in corners {
+            geometry.vertices.push(crate::api::Vertex {
+                position: *position,
+                color: [0.2 + 0.12 * i as f32, 0.8 - 0.1 * i as f32, 0.3],
+                normal: [0., 1., 0.],
+                alpha: 1.,
+                uv: [-1.; 2],
+                overlay_uv: [-1.; 2],
+                overlay_tint: [1.; 3],
+                light: [-1.; 2],
+                ..crate::api::Vertex::zeroed()
+            });
+        }
+        geometry.indices[0].extend([first, first + 1, first + 2, first, first + 2, first + 3]);
+    }
+    if partitioned {
+        geometry.faces[0] = Some(crate::api::FaceGroups {
+            ends: [6, 12, 18, 24, 30, 36, 36, 42],
+            // -Y group: highest plane; +Y: lowest; others analogous.
+            planes: [y0, y1, z0, z1, x0, x1],
+        });
+    }
+    geometry
+}
+
+#[test]
+fn terrain_facing_groups_preserve_pixels_and_drop_back_faces() {
+    let mut renderer = pollster::block_on(Renderer::new_offscreen(
+        64,
+        64,
+        PathBuf::from(".analysis/facing-groups-regression"),
+    ))
+    .unwrap();
+    renderer.set_fancy_shaders(true);
+    let environment = crate::api::WorldEnvironment {
+        sky_kind: SkyKind::Overworld,
+        display_encoded: true,
+        sky_color: [0.3, 0.5, 0.8],
+        fog_color: [0.6, 0.7, 0.9],
+        sun_angle: 45.,
+        sun_texture: Some(crate::api::SkyTexture {
+            uv: [0., 0., 1., 1.],
+            layer: 0,
+        }),
+        moon_texture: Some(crate::api::SkyTexture {
+            uv: [0., 0., 1., 1.],
+            layer: 0,
+        }),
+        ..Default::default()
+    };
+    let scene_for = |partitioned: bool| {
+        let revision = 1 + u64::from(partitioned);
+        let mut scene = Scene {
+            environment: environment.clone(),
+            camera_position: [3., 3., 0.],
+            yaw: 0.,
+            pitch: 0.,
+            ..Default::default()
+        };
+        scene.chunks.insert(
+            [0, 0, 0],
+            crate::api::ChunkDraw {
+                revision,
+                origin: [0.; 3],
+                bounds_min: [-6., 0.5, 6.],
+                bounds_max: [2., 4.5, 10.],
+                visibility: visibility::ALL_OPEN,
+                geometry: Some(Arc::new(facing_box_geometry(partitioned))),
+                fade_duration_ms: Some(0),
+            },
+        );
+        scene.revision = revision;
+        scene
+    };
+    let whole_scene = scene_for(false);
+    let whole = pixels(&mut renderer, &whole_scene);
+    let whole_main = renderer.stats.terrain_opaque_indices;
+    let whole_shadow = renderer.stats.shadow_terrain_indices;
+    let split_scene = scene_for(true);
+    let split = pixels(&mut renderer, &split_scene);
+    let split_main = renderer.stats.terrain_opaque_indices;
+    let split_shadow = renderer.stats.shadow_terrain_indices;
+    assert_eq!(whole_main, 42);
+    assert_eq!(whole_shadow, 42);
+    // Camera at x=3,y=3 sees only -Z and +X of the box; the diagonal quad stays.
+    assert_eq!(split_main, 18, "front faces plus the non-planar quad");
+    assert!(
+        split_shadow < whole_shadow,
+        "light-facing partition must drop faces turned away from the sun"
+    );
+    assert_eq!(
+        whole, split,
+        "dropping back faces must not change a single pixel"
+    );
+    assert!(
+        whole.chunks_exact(4).any(|p| p[1] > p[0]),
+        "fixture must actually render"
+    );
 }
