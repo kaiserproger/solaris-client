@@ -166,6 +166,14 @@ impl Renderer {
             .sum::<usize>()));
         target["terrain_indirect_candidates_opaque"] = json!(self.stats.terrain_candidates_opaque);
         target["terrain_indirect_candidates_cutout"] = json!(self.stats.terrain_candidates_cutout);
+        target["terrain_hiz_occlusion"] =
+            json!(self.mdi.as_ref().is_some_and(mdi::Indirect::hiz) && !self.reference_mode);
+        target["terrain_phase2_api_calls"] = json!(self.stats.terrain_phase2_api_calls);
+        // Counters of the latest frame whose GPU work completed (not necessarily
+        // the frame this sample describes); captures carry the exact frame.
+        if let Some(mdi) = self.mdi.as_ref().filter(|_| !self.reference_mode) {
+            target["terrain_gpu_culling_latest"] = mdi.latest.clone();
+        }
         target["terrain_opaque_api_calls"] = json!(self.stats.terrain_opaque_api_calls);
         target["terrain_opaque_logical_draws"] = json!(self.stats.terrain_opaque_logical_draws);
         target["terrain_opaque_indices"] = json!(self.stats.terrain_opaque_indices);

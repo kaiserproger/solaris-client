@@ -200,6 +200,7 @@ impl Renderer {
                             instance,
                             bounds_min + offset,
                             bounds_max + offset,
+                            mdi::section_slot(key),
                         ) {
                             mdi.candidates[material].push(candidate);
                         }
@@ -480,15 +481,19 @@ impl Renderer {
                 label: Some("Solaris complete frame"),
             });
         self.timing.begin();
+        let hiz = !self.reference_mode && self.mdi.as_ref().is_some_and(mdi::Indirect::hiz);
         if !self.reference_mode
-            && let Some(mdi) = &self.mdi
+            && let Some(mdi) = &mut self.mdi
         {
-            mdi.encode(
-                &self.queue,
-                &mut encoder,
-                view_projection,
-                self.timing.compute_writes(16),
-            );
+            mdi.begin_frame();
+            mdi.upload(&self.queue, view_projection);
+            // Hi-Z: phase 1 keeps last frame's visible sections inside the
+            // frustum; the rest is decided after the pyramid exists (phase 2).
+            if hiz {
+                mdi.encode_phase1(&mut encoder, self.timing.compute_writes(16));
+            } else {
+                mdi.encode_frustum(&mut encoder, self.timing.compute_writes(16));
+            }
         }
         if fancy {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -604,7 +609,16 @@ impl Renderer {
                 self.stats.draw_calls += 1;
             }
         }
-        for material in 0..3 {
+        // Hi-Z splits the cutout pass so phase-2 terrain lands before any
+        // blended entity geometry, which must still draw over all terrain.
+        // (material, terrain, dynamic geometry)
+        let stages: &[(usize, bool, bool)] = if hiz {
+            &[(0, true, false), (1, true, false), (1, false, true), (2, true, true)]
+        } else {
+            &[(0, true, true), (1, true, true), (2, true, true)]
+        };
+        for (stage, &(material, terrain, dynamic)) in stages.iter().enumerate() {
+            let slot = if terrain { material + 1 } else { 20 };
             if material == 2 && fancy {
                 encoder.copy_texture_to_texture(
                     wgpu::TexelCopyTextureInfo {
@@ -627,7 +641,7 @@ impl Renderer {
                 );
             }
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some(timing::PASSES[material + 1]),
+                label: Some(timing::PASSES[slot]),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &self.post.scene_view,
                     resolve_target: None,
@@ -640,7 +654,7 @@ impl Renderer {
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                     view: &self.targets.depth_view,
                     depth_ops: Some(wgpu::Operations {
-                        load: if material == 0 {
+                        load: if stage == 0 {
                             wgpu::LoadOp::Clear(1.)
                         } else {
                             wgpu::LoadOp::Load
@@ -649,7 +663,7 @@ impl Renderer {
                     }),
                     stencil_ops: None,
                 }),
-                timestamp_writes: self.timing.writes(material + 1),
+                timestamp_writes: self.timing.writes(slot),
                 occlusion_query_set: None,
             });
             pass.set_pipeline(&self.pipelines.world[material]);
@@ -664,45 +678,51 @@ impl Renderer {
             let mut terrain_indices = 0;
             let mut entity_calls = 0;
             if material != 2 {
-                if let Some(mdi) = self.mdi.as_ref().filter(|_| !self.reference_mode) {
-                    // One API submission per terrain material. GPU writes zero
-                    // instance_count for coarse candidates outside the frustum.
-                    if !mdi.candidates[material].is_empty() {
-                        pass.set_vertex_buffer(0, self.vertex_arena.whole());
-                        pass.set_index_buffer(self.index_arena.whole(), wgpu::IndexFormat::Uint32);
-                        terrain_api += u64::from(mdi.draw(&mut pass, material));
-                        calls += terrain_api;
+                if terrain {
+                    if let Some(mdi) = self.mdi.as_ref().filter(|_| !self.reference_mode) {
+                        // One API submission per terrain material. GPU writes zero
+                        // instance_count for coarse candidates outside the frustum
+                        // (and, under Hi-Z, for those not decided by this phase).
+                        if !mdi.candidates[material].is_empty() {
+                            pass.set_vertex_buffer(0, self.vertex_arena.whole());
+                            pass.set_index_buffer(
+                                self.index_arena.whole(),
+                                wgpu::IndexFormat::Uint32,
+                            );
+                            terrain_api += u64::from(mdi.draw(&mut pass, material));
+                            calls += terrain_api;
+                        }
+                        for run in &self.terrain_runs[material] {
+                            let count = u64::from(run.range.end - run.range.start);
+                            indices += count;
+                            terrain_indices += count;
+                            terrain_logical += 1;
+                        }
+                    } else {
+                        for run in &self.terrain_runs[material] {
+                            let mesh = &self.chunks[&run.key].mesh;
+                            let count = u64::from(run.range.end - run.range.start);
+                            indices += count;
+                            terrain_indices += count;
+                            terrain_api += 1;
+                            terrain_logical += 1;
+                            calls += 1;
+                            self.draw_resident(&mut pass, mesh, run.range.clone(), run.instance);
+                        }
                     }
-                    for run in &self.terrain_runs[material] {
-                        let count = u64::from(run.range.end - run.range.start);
-                        indices += count;
-                        terrain_indices += count;
-                        terrain_logical += 1;
-                    }
-                } else {
-                    for run in &self.terrain_runs[material] {
-                        let mesh = &self.chunks[&run.key].mesh;
-                        let count = u64::from(run.range.end - run.range.start);
-                        indices += count;
-                        terrain_indices += count;
-                        terrain_api += 1;
-                        terrain_logical += 1;
-                        calls += 1;
-                        self.draw_resident(&mut pass, mesh, run.range.clone(), run.instance);
+                    if let Some(mesh) = &self.fixture {
+                        let range = mesh.ranges[material].clone();
+                        if !range.is_empty() {
+                            indices += u64::from(range.end - range.start);
+                            terrain_indices += u64::from(range.end - range.start);
+                            terrain_api += 1;
+                            terrain_logical += 1;
+                            calls += 1;
+                            self.draw_resident(&mut pass, mesh, range, 1);
+                        }
                     }
                 }
-                if let Some(mesh) = &self.fixture {
-                    let range = mesh.ranges[material].clone();
-                    if !range.is_empty() {
-                        indices += u64::from(range.end - range.start);
-                        terrain_indices += u64::from(range.end - range.start);
-                        terrain_api += 1;
-                        terrain_logical += 1;
-                        calls += 1;
-                        self.draw_resident(&mut pass, mesh, range, 1);
-                    }
-                }
-                if material == 1 {
+                if material == 1 && dynamic {
                     // Source RenderType ordering is independent of opaque/cutout
                     // terrain bins. Distinct shader/blend/depth families stay intact.
                     pass.set_vertex_buffer(0, self.dynamic.vertices.slice(..));
@@ -778,6 +798,54 @@ impl Renderer {
             drop(pass);
             self.stats.draw_calls += calls;
             self.stats.submitted_indices += indices;
+            if hiz && material == 1 && terrain {
+                // Phase 2: pyramid from the phase-1 depth, then draw the
+                // sections it proves visible that phase 1 did not draw.
+                let mdi = self.mdi.as_ref().expect("hi-z requires indirect culling");
+                mdi.encode_pyramid(&mut encoder, self.timing.compute_writes(17));
+                mdi.encode_phase2(&mut encoder, self.timing.compute_writes(18));
+                let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some(timing::PASSES[19]),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &self.post.scene_view,
+                        resolve_target: None,
+                        depth_slice: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Load,
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                        view: &self.targets.depth_view,
+                        depth_ops: Some(wgpu::Operations {
+                            load: wgpu::LoadOp::Load,
+                            store: wgpu::StoreOp::Store,
+                        }),
+                        stencil_ops: None,
+                    }),
+                    timestamp_writes: self.timing.writes(19),
+                    occlusion_query_set: None,
+                });
+                pass.set_bind_group(0, &self.camera_bind, &[]);
+                pass.set_bind_group(1, &self.atlas_bind, &[]);
+                pass.set_bind_group(2, &self.shadow.bind, &[]);
+                pass.set_vertex_buffer(1, self.instances.slice(..));
+                if mdi.candidates.iter().any(|candidates| !candidates.is_empty()) {
+                    // Arenas exist only once something is resident.
+                    pass.set_vertex_buffer(0, self.vertex_arena.whole());
+                    pass.set_index_buffer(self.index_arena.whole(), wgpu::IndexFormat::Uint32);
+                }
+                let mut phase2_calls = 0;
+                for material in 0..2 {
+                    if !mdi.candidates[material].is_empty() {
+                        pass.set_pipeline(&self.pipelines.world[material]);
+                        phase2_calls += u64::from(mdi.draw(&mut pass, material));
+                    }
+                }
+                drop(pass);
+                self.stats.draw_calls += phase2_calls;
+                self.stats.terrain_phase2_api_calls += phase2_calls;
+            }
         }
         self.post
             .encode(&mut encoder, &self.targets.color_view, fancy, &self.timing);

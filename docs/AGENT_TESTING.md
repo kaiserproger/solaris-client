@@ -588,6 +588,56 @@ Unsupported adapters retain the direct indexed terrain path. Captured
 actual path; whole-frame `draw_calls` still includes translucent/entities/UI.
 GPU timings include `terrain_frustum_cull`, not just the render passes.
 
+### Hi-Z occlusion culling of terrain sections
+
+Opaque and cutout terrain candidates are occlusion-culled on the GPU with a
+two-phase Hi-Z pass (`src/render/mdi.rs`, `mdi.wgsl`, `hiz.wgsl`):
+
+1. **Phase 1** (`terrain_frustum_cull`, compute): a candidate is drawn when it is
+   inside the frustum **and** its section was visible last frame (a per-section
+   history bit, hashed into 65 536 slots; a collision only merges two sections'
+   histories, it can never hide a section). Opaque pass, then cutout terrain pass.
+2. **Pyramid** (`hiz_pyramid_build`, compute): the scene depth is reduced into a
+   max-depth (farthest) `r32float` pyramid, level 0 = half the depth resolution,
+   down to 1x1; odd tails are absorbed by the last texel so no pixel escapes a
+   covering texel. Needs only a write-only `r32float` storage texture.
+3. **Phase 2** (`terrain_occlusion_cull`, compute): every candidate is re-tested
+   against the fresh pyramid (8 projected AABB corners, screen rectangle with
+   0.5 px slack, 2x2 texels of the matching level, depth margin `2e-6`; NaN
+   bounds, boxes reaching the near plane/eye or off-screen rectangles are never
+   culled). Candidates not drawn in phase 1 that survive are drawn in the
+   `terrain_occlusion_draw` pass **in the same frame**, so a quick turn cannot show
+   missing terrain; the verdict becomes next frame's history. Entities and other
+   dynamic geometry draw afterwards (`dynamic_geometry`) so blended geometry still
+   lands over all terrain.
+
+Cost model: a warm frame draws the visible set once plus nothing in phase 2; the
+first frame after a turn has an empty pyramid, so it costs like frustum-only
+culling plus the Hi-Z passes, then recovers next frame. Translucent terrain, entities
+and the shadow pass are **not** occlusion culled (shadow casters can hide behind
+camera occluders and still shade visible ground).
+
+Switches: `SOLARIS_CLIENT_HIZ=0` frustum-only (same executable A/B), `cold` forgets
+history every frame (diagnostic worst case; every section takes phase 2). Hi-Z is
+disabled automatically without MDI or when the adapter lacks a write-only
+`r32float` storage texture; `capabilities.hiz_occlusion_enabled` reports it.
+`terrain_hiz_occlusion` and `terrain_gpu_culling_latest` appear in render metrics;
+every capture carries `terrain_gpu_culling`, the **exact** counters of the captured
+frame (`phase1_*`, `phase2_*`, `hiz_rejected_*`, `late_hidden_*`, `drawn_*`,
+`frustum_visible_*` = what frustum-only culling draws, per opaque/cutout, draws and
+indices that really have a non-zero instance count). `index_count`/`submitted_indices`
+stay the CPU candidate sum and do not move with GPU culling.
+
+Proof: `render::mdi::hiz_tests` (occluder plane: hidden sections' indirect arguments
+zeroed, visible ones untouched, across cold/warm/quick-turn frames; odd-size pyramid
+tail), `hiz_rejects_hidden_sections_and_preserves_every_pixel_across_turns` (real
+renderer frames, pixel-identical to the direct path across turns) and
+`terrain_mdi_compute_matches_fallback_pixels_across_arena_growth`. Measurements:
+`.analysis/perf-indices/hiz/` (RTX 4050 Laptop, Vulkan, 1280x720 RD16 Fancy, plains
+world seed 8674276330747006396): frustum-visible -> drawn terrain indices, horizon
+668 166 -> 427 314 (-36%), left turn -75.7%, hills -64/-66%, deep cave -88.7%, open
+sky/flat poses -15%..-36%; Hi-Z costs ~0.11-0.17 ms pyramid + ~0.03 ms extra culling.
+
 ### Packed terrain vertices
 
 Resident terrain (the opaque/cutout/translucent arena, the fixture mesh and the

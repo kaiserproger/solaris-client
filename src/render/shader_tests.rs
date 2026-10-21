@@ -271,13 +271,21 @@ fn terrain_mdi_compute_matches_fallback_pixels_across_arena_growth() {
     scene.revision = 1;
     let fast = pixels(&mut renderer, &scene);
     let fast_calls = renderer.stats.draw_calls;
+    let fast_phase2 = renderer.stats.terrain_phase2_api_calls;
+    // Second frame: last frame's visible set now draws in phase 1.
+    let warm = pixels(&mut renderer, &scene);
+    assert_eq!(fast, warm, "warm Hi-Z history must not change any pixel");
     let mdi = renderer.mdi.take().unwrap();
     let fallback = pixels(&mut renderer, &scene);
     assert_eq!(
         fast, fallback,
         "MDI must preserve opaque/cutout/translucent terrain"
     );
-    assert!(fast_calls < renderer.stats.draw_calls);
+    assert!(fast_calls - fast_phase2 < renderer.stats.draw_calls);
+    assert!(
+        fast_phase2 <= 2,
+        "phase 2 is one indirect call per terrain material"
+    );
     assert!(
         fast.chunks_exact(4).any(|p| p[1] > p[0]),
         "fixture must actually render"
@@ -1045,4 +1053,122 @@ fn packed_terrain_shader_decode_matches_mesher_vertices() {
             near(got[21], 1., 0., "no tile marker");
         }
     }
+}
+
+fn gpu_culling_counters(renderer: &Renderer) -> Value {
+    let mdi = renderer.mdi.as_ref().unwrap();
+    let buffer = renderer.device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("hi-z test counters"),
+        size: mdi::COUNTER_BYTES,
+        usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    });
+    let mut encoder = renderer.device.create_command_encoder(&Default::default());
+    mdi.copy_counters(&mut encoder, &buffer);
+    let submission = renderer.queue.submit([encoder.finish()]);
+    let (tx, rx) = mpsc::sync_channel(1);
+    buffer
+        .slice(..)
+        .map_async(wgpu::MapMode::Read, move |result| tx.send(result).unwrap());
+    renderer
+        .device
+        .poll(wgpu::PollType::Wait {
+            submission_index: Some(submission),
+            timeout: Some(std::time::Duration::from_secs(30)),
+        })
+        .unwrap();
+    rx.recv().unwrap().unwrap();
+    let words: Vec<u32> = bytemuck::cast_slice(&buffer.slice(..).get_mapped_range()).to_vec();
+    mdi::counters_json(&words, true, 0)
+}
+
+/// Real renderer frames: a near ground quad hides two quads far below it. Hi-Z
+/// must reject those (counters), keep every pixel identical to the direct
+/// path on the cold first frame, on warm frames, and across quick turns that
+/// make the previous frame's history useless or stale.
+#[test]
+fn hiz_rejects_hidden_sections_and_preserves_every_pixel_across_turns() {
+    let mut renderer = pollster::block_on(Renderer::new_offscreen(
+        64,
+        64,
+        PathBuf::from(".analysis/clientcpu-regression"),
+    ))
+    .unwrap();
+    if !renderer.mdi.as_ref().is_some_and(mdi::Indirect::hiz) {
+        eprintln!("Hi-Z hardware unavailable");
+        return;
+    }
+    let mut scene = Scene::default();
+    scene.camera_position = [0., 2., 0.];
+    scene.pitch = 20.;
+    // (x0, x1, y, z0, z1, colour): all up-facing quads.
+    let quads: [(f32, f32, f32, f32, f32, [f32; 3]); 5] = [
+        (-6., 6., 0., 1., 6., [0.2, 0.7, 0.2]), // near ground: the occluder
+        (-1., 1., 0., 8., 10., [0.9, 0.2, 0.2]), // visible beyond the ground's far edge
+        (-1., 1., -6., 10., 14., [0.2, 0.2, 0.9]), // hidden below it
+        (-3., -2., -9., 12., 14., [0.9, 0.9, 0.2]), // hidden below it
+        (2., 4., 0., -9., -3., [0.5, 0.5, 0.5]), // behind the camera: frustum culled
+    ];
+    for (i, &(x0, x1, y, z0, z1, colour)) in quads.iter().enumerate() {
+        let mut geometry = crate::api::MeshGeometry::default();
+        // Section-local vertices (the packed format only spans [-8, 24) blocks).
+        let (w, d) = (x1 - x0, z1 - z0);
+        for position in [[0., 0., 0.], [0., 0., d], [w, 0., d], [w, 0., 0.]] {
+            geometry.vertices.push(crate::api::Vertex {
+                position,
+                color: colour,
+                normal: [0., 1., 0.],
+                alpha: 1.,
+                uv: [-1.; 2],
+                overlay_uv: [-1.; 2],
+                overlay_tint: [1.; 3],
+                light: [-1.; 2],
+                ..crate::api::Vertex::zeroed()
+            });
+        }
+        geometry.indices[0] = vec![0, 1, 2, 0, 2, 3];
+        scene.chunks.insert(
+            [i as i32, 0, 0],
+            crate::api::ChunkDraw {
+                revision: 1,
+                origin: [f64::from(x0), f64::from(y), f64::from(z0)],
+                bounds_min: [0., -0.05, 0.],
+                bounds_max: [w, 0.05, d],
+                visibility: visibility::ALL_OPEN,
+                geometry: Some(Arc::new(geometry)),
+                fade_duration_ms: Some(0),
+            },
+        );
+    }
+    scene.revision = 1;
+    let mut seen_rejection = false;
+    // Turn away and back so history goes stale in both directions.
+    let yaws = [0., 0., 0., 40., 40., 180., 0., 0., 90., 0.];
+    for (frame, yaw) in yaws.into_iter().enumerate() {
+        scene.yaw = yaw;
+        let fast = pixels(&mut renderer, &scene);
+        let counters = gpu_culling_counters(&renderer);
+        let mdi = renderer.mdi.take().unwrap();
+        let reference = pixels(&mut renderer, &scene);
+        renderer.mdi = Some(mdi);
+        assert_eq!(
+            fast, reference,
+            "frame {frame} yaw {yaw}: Hi-Z changed pixels"
+        );
+        if frame > 0 && yaw == 0. && yaws[frame - 1] == 0. {
+            // Same view as last frame: the pyramid built from phase-1 depth
+            // exposes the two buried quads (late-hidden while still in the
+            // history, rejected once history drops them).
+            let opaque = &counters["opaque"];
+            let hidden = opaque["hiz_rejected_draws"].as_u64().unwrap()
+                + opaque["late_hidden_draws"].as_u64().unwrap();
+            assert!(hidden >= 2, "frame {frame}: {counters}");
+            seen_rejection = true;
+        }
+        if yaw == 0. && frame == 0 {
+            // Cold frame: nothing was drawn in phase 1, everything visible lands in phase 2.
+            assert_eq!(counters["opaque"]["phase1_draws"], 0, "{counters}");
+        }
+    }
+    assert!(seen_rejection);
 }

@@ -179,6 +179,8 @@ struct Capture {
     path: PathBuf,
     metadata: Value,
     frame: u64,
+    // Exact GPU-side culling counters of the captured frame (Hi-Z/MDI path).
+    cull: Option<wgpu::Buffer>,
 }
 
 struct ResidentChunk {
@@ -308,6 +310,8 @@ struct FrameStats {
     graph_reached_sections: u64,
     terrain_candidates_opaque: u64,
     terrain_candidates_cutout: u64,
+    // API calls of the Hi-Z phase-2 terrain pass (zero without Hi-Z).
+    terrain_phase2_api_calls: u64,
     // Disjoint dynamic extraction contributions. Material draws are shared;
     // every dynamic index is submitted once (shadow depth is separate).
     entity_geometry_indices: u64,
@@ -386,6 +390,7 @@ pub struct Renderer {
     capabilities: Value,
     timing: timing::Timing,
     capture: Option<Capture>,
+    capture_cull: Option<wgpu::Buffer>,
     encoding: bool,
     encoded_tx: mpsc::Sender<(u64, Request, Result<Value, String>)>,
     encoded_rx: mpsc::Receiver<(u64, Request, Result<Value, String>)>,
@@ -504,6 +509,16 @@ impl Renderer {
         };
         if mdi_enabled { features |= mdi::FEATURES; }
         capabilities["multi_draw_indirect_enabled"] = json!(mdi_enabled);
+        let hiz_enabled = mdi_enabled
+            && mdi::hiz_supported(
+                adapter
+                    .get_texture_format_features(wgpu::TextureFormat::R32Float)
+                    .allowed_usages
+                    .contains(wgpu::TextureUsages::STORAGE_BINDING),
+                adapter.limits().max_storage_textures_per_shader_stage,
+                std::env::var_os("SOLARIS_CLIENT_HIZ").is_none_or(|value| value != "0"),
+            );
+        capabilities["hiz_occlusion_enabled"] = json!(hiz_enabled);
         capabilities["enabled_features"] = json!(format!("{features:?}"));
         capabilities["timestamp_query_enabled"] = json!(timestamps);
         capabilities["timestamp_query_nonblocking"] = json!(
@@ -659,7 +674,20 @@ impl Renderer {
         let dynamic = Stream::new(&device);
         let overlay = Stream::new(&device);
         let sunrise = Stream::new(&device);
-        let mdi = mdi_enabled.then(|| mdi::Indirect::new(&device));
+        let mut mdi = mdi_enabled.then(|| {
+            mdi::Indirect::new(
+                &device,
+                &targets.depth_view,
+                config.width,
+                config.height,
+                hiz_enabled,
+            )
+        });
+        if let Some(mdi) = &mut mdi {
+            mdi.set_cold_history(
+                std::env::var_os("SOLARIS_CLIENT_HIZ").is_some_and(|value| value == "cold"),
+            );
+        }
         let timing = timing::Timing::new(&device, &queue, timestamps);
         // Native indirect features also cover the shared-pipeline shadow batch.
         // Reference mode retains the portable direct path for pixel parity.
@@ -741,6 +769,7 @@ impl Renderer {
             monotonic_origin: Instant::now(),
             visibility_time_ms: 0,
             capture: None,
+            capture_cull: None,
             encoding: false,
             encoded_tx,
             encoded_rx,
@@ -1016,7 +1045,9 @@ impl Renderer {
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: DEPTH,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                | wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::COPY_SRC,
             view_formats: &[],
         });
         let depth_view = depth.create_view(&Default::default());
@@ -1047,6 +1078,14 @@ impl Renderer {
             surface.configure(&self.device, &self.config);
         }
         self.targets = Self::targets(&self.device, &self.config, &self.pipelines.blit);
+        if let Some(mdi) = &mut self.mdi {
+            mdi.resize(
+                &self.device,
+                &self.targets.depth_view,
+                self.config.width,
+                self.config.height,
+            );
+        }
         self.post = post::Post::new(&self.device, self.config.width, self.config.height);
         self.shadow.resize(&self.device, self.config.width, self.config.height);
         self.outline
@@ -1191,6 +1230,20 @@ impl Renderer {
                         usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
                         mapped_at_creation: false,
                     });
+                    self.capture_cull = self
+                        .mdi
+                        .as_ref()
+                        .filter(|_| !self.reference_mode)
+                        .map(|mdi| {
+                            let counters = self.device.create_buffer(&wgpu::BufferDescriptor {
+                                label: Some("terrain culling counters of captured frame"),
+                                size: mdi::COUNTER_BYTES,
+                                usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+                                mapped_at_creation: false,
+                            });
+                            mdi.copy_counters(&mut encoder, &counters);
+                            counters
+                        });
                     encoder.copy_texture_to_buffer(
                         wgpu::TexelCopyTextureInfo {
                             texture: &self.targets.color,
@@ -1267,6 +1320,7 @@ impl Renderer {
                     // Entity/block-entity contributions share material draws.
                     metadata["frame_pass_breakdown"] = json!({
                         "terrain_opaque_api_calls": self.stats.terrain_opaque_api_calls,
+                        "terrain_phase2_api_calls": self.stats.terrain_phase2_api_calls,
                         "terrain_opaque_logical_draws": self.stats.terrain_opaque_logical_draws,
                         "terrain_opaque_indices": self.stats.terrain_opaque_indices,
                         "terrain_cutout_api_calls": self.stats.terrain_cutout_api_calls,
@@ -1342,6 +1396,9 @@ impl Renderer {
             }
         });
         self.timing.submitted(self.frame_id);
+        if let Some(mdi) = &mut self.mdi {
+            mdi.submitted(self.frame_id);
+        }
         if let Some(frame) = frame {
             let presentation = Instant::now();
             let cpu = timing::thread_cpu_seconds();
@@ -1376,6 +1433,7 @@ impl Renderer {
                 path,
                 metadata,
                 frame: self.frame_id,
+                cull: self.capture_cull.take(),
             });
         }
         self.progress.submitted(submission)?;
@@ -1390,7 +1448,30 @@ impl Renderer {
             .as_ref()
             .and_then(|capture| capture.mapped.try_recv().ok());
         if let Some(result) = mapped {
-            let capture = self.capture.take().unwrap();
+            let mut capture = self.capture.take().unwrap();
+            if result.is_ok()
+                && let Some(counters) = capture.cull.take()
+            {
+                let (tx, rx) = mpsc::sync_channel(1);
+                counters
+                    .slice(..)
+                    .map_async(wgpu::MapMode::Read, move |mapped| {
+                        let _ = tx.send(mapped);
+                    });
+                let _ = self.device.poll(wgpu::PollType::Wait {
+                    submission_index: None,
+                    timeout: Some(std::time::Duration::from_secs(5)),
+                });
+                if rx.try_recv().is_ok_and(|mapped| mapped.is_ok()) {
+                    let words: Vec<u32> =
+                        bytemuck::cast_slice(&counters.slice(..).get_mapped_range()).to_vec();
+                    capture.metadata["terrain_gpu_culling"] = mdi::counters_json(
+                        &words,
+                        self.mdi.as_ref().is_some_and(mdi::Indirect::hiz),
+                        capture.frame,
+                    );
+                }
+            }
             if let Err(e) = result {
                 let _ = capture
                     .request

@@ -1,7 +1,7 @@
 use serde_json::{json, Value};
 use std::{cell::Cell, sync::mpsc};
 
-pub(super) const PASSES: [&str; 17] = [
+pub(super) const PASSES: [&str; 21] = [
     "sky",
     "opaque",
     "cutout",
@@ -19,6 +19,10 @@ pub(super) const PASSES: [&str; 17] = [
     "bloom_vertical",
     "aces_tonemap",
     "terrain_frustum_cull",
+    "hiz_pyramid_build",
+    "terrain_occlusion_cull",
+    "terrain_occlusion_draw",
+    "dynamic_geometry",
 ];
 const QUERIES: u32 = PASSES.len() as u32 * 2;
 const RESOLVE_STRIDE: u64 = wgpu::QUERY_RESOLVE_BUFFER_ALIGNMENT;

@@ -4,6 +4,9 @@ impl Renderer {
     pub(super) fn collect_completed(&mut self) {
         let _ = self.device.poll(wgpu::PollType::Poll);
         self.timing.collect();
+        if let Some(mdi) = &mut self.mdi {
+            mdi.collect();
+        }
         let completed = self.completed_frame.load(Ordering::Acquire);
         self.vertex_arena.reclaim(completed);
         self.index_arena.reclaim(completed);
