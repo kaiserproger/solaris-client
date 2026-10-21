@@ -3416,7 +3416,7 @@ impl UiState {
                     };
                     if let Some(Some(s)) = slots.get(*index) {
                         if !s.empty() {
-                            let model = self.models.model_with(content, s, &self.item_context)?;
+                            let model = self.models.icon_model(content, s, &self.item_context);
                             let icon = [x + 1., y + 1., w - 2., h - 2.];
                             append_item(model, icon, transform, p.out)?;
                             if s.count > 1 {
@@ -3445,7 +3445,7 @@ impl UiState {
                         return Err("creative_preset_not_retained".into());
                     }
                     let stack = &self.creative_stacks[id];
-                    let model = self.models.model_with(content, stack, &self.item_context)?;
+                    let model = self.models.icon_model(content, stack, &self.item_context);
                     append_item(model, node.bounds, transform, p.out)?;
                 }
                 Paint::TradeItem { offer, part } => {
@@ -3466,7 +3466,7 @@ impl UiState {
                         }
                         _ => &trade.sell,
                     };
-                    let model = self.models.model_with(content, stack, &self.item_context)?;
+                    let model = self.models.icon_model(content, stack, &self.item_context);
                     append_item(model, node.bounds, transform, p.out)?;
                 }
                 Paint::RecipeDisplay(id) => {
@@ -3491,7 +3491,7 @@ impl UiState {
                     let variants = &self.recipe_stacks[id].1;
                     if !variants.is_empty() {
                         let stack = &variants[(self.tick / 20) as usize % variants.len()];
-                        let model = self.models.model_with(content, stack, &self.item_context)?;
+                        let model = self.models.icon_model(content, stack, &self.item_context);
                         append_item(model, node.bounds, transform, p.out)?;
                     }
                 }
@@ -3501,7 +3501,7 @@ impl UiState {
                     }
                     if !variants.is_empty() {
                         let stack = &variants[(self.tick / 20) as usize % variants.len()];
-                        let model = self.models.model_with(content, stack, &self.item_context)?;
+                        let model = self.models.icon_model(content, stack, &self.item_context);
                         append_item(model, node.bounds, transform, p.out)?;
                     }
                     if *ghost {

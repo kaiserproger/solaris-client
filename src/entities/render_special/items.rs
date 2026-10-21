@@ -81,7 +81,14 @@ pub(crate) fn append_observed_item(
         seed,
         ..Default::default()
     };
-    let (model, bounds) = items.model_with_bounds(content, stack, &state)?;
+    // A stack whose model cannot be baked is drawn as nothing (logged once), never an error.
+    let (model, bounds) = match items.model_with_bounds(content, stack, &state) {
+        Ok(baked) => baked,
+        Err(error) => {
+            crate::ui::items::report_item_model_failure(content, stack, &error);
+            return Ok(());
+        }
+    };
     let matrix = crate::ui::items::display_matrix(model, display);
     if context == "ground_cluster" {
         let damage = stack

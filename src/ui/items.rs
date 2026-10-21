@@ -50,6 +50,19 @@ impl Default for ItemContext {
         }
     }
 }
+/// Logs a failed item-model bake once per item/error (never per frame).
+pub(crate) fn report_item_model_failure(c: &Content, s: &Stack, error: &str) {
+    static REPORTED: std::sync::Mutex<std::collections::BTreeSet<String>> =
+        std::sync::Mutex::new(std::collections::BTreeSet::new());
+    let item = c.item_names.get(&s.id).map_or("<unknown>", String::as_str);
+    let line = format!("item {item}: {error}");
+    if REPORTED
+        .lock()
+        .map_or(true, |mut seen| seen.insert(line.clone()))
+    {
+        eprintln!("item model unavailable, drawing empty icon: {line}");
+    }
+}
 #[derive(Default)]
 pub struct ItemModels {
     definitions: BTreeMap<String, Arc<Value>>,
@@ -81,6 +94,24 @@ impl ItemModels {
         self.definitions.clear();
         self.baked.clear();
         self.selected.clear();
+    }
+    /// GUI/icon variant of `model_with`: an item whose model cannot be baked is logged once per
+    /// item/error and drawn as an empty icon. A single bad item must never end the session.
+    pub fn icon_model<'a>(
+        &'a mut self,
+        c: &Content,
+        s: &Stack,
+        ctx: &ItemContext,
+    ) -> &'a BakedModel {
+        static EMPTY: std::sync::LazyLock<BakedModel> =
+            std::sync::LazyLock::new(BakedModel::default);
+        match self.model_with(c, s, ctx) {
+            Ok(model) => model,
+            Err(error) => {
+                report_item_model_failure(c, s, &error);
+                &EMPTY
+            }
+        }
     }
     pub fn model<'a>(
         &'a mut self,
@@ -670,5 +701,55 @@ mod tests {
         let model = models.model(&content, &stack, "gui").unwrap();
         assert_eq!(model.quads.len(), 6);
         assert!(model.quads.iter().all(|quad| quad.tint == TintKind::None));
+    }
+    fn empty_entity_models() -> entities::Models {
+        entities::Models {
+            rigs: BTreeMap::new(),
+            schemas: BTreeMap::new(),
+            families: BTreeMap::new(),
+            builtin_variants: BTreeMap::new(),
+            simple_particles: Vec::new(),
+            default_skins: Vec::new(),
+            poses: BTreeMap::new(),
+            attributes: BTreeMap::new(),
+            attribute_ids: BTreeMap::new(),
+            digest: String::new(),
+            armor_models: BTreeMap::new(),
+            motion: BTreeMap::new(),
+        }
+    }
+
+    /// An item whose graph cannot bake (unknown special family) is a hard error for
+    /// `model_with`, but the GUI entry point draws an empty icon instead of ending the session.
+    #[test]
+    fn icon_model_survives_unbakeable_item_graph() {
+        let content = Content::test_cube();
+        let mut models = ItemModels::new();
+        models.set_entity_models(Arc::new(empty_entity_models()));
+        models.definitions.insert(
+            "test:bad".into(),
+            Arc::new(json!({"model":{
+                "type":"minecraft:special",
+                "model":{"type":"minecraft:no_such_family"},
+                "base":"minecraft:item/potion"
+            }})),
+        );
+        let mut stack = Stack::default();
+        stack.id = 1;
+        stack.count = 1;
+        stack.components = Arc::new(BTreeMap::from([(
+            "minecraft:item_model".into(),
+            json!("test:bad"),
+        )]));
+        let ctx = ItemContext::default();
+        let error = models.model_with(&content, &stack, &ctx).unwrap_err();
+        assert!(error.contains("unknown special item render family"), "{error}");
+        let icon = models.icon_model(&content, &stack, &ctx);
+        assert!(icon.quads.is_empty());
+        // Repeated frames stay non-fatal.
+        assert!(models.icon_model(&content, &stack, &ctx).quads.is_empty());
+        // A healthy item next to it still bakes normally.
+        let (content, mut models, good) = potion_tint_fixture(json!({"potion":"minecraft:water"}));
+        assert_eq!(models.icon_model(&content, &good, &ctx).quads.len(), 6);
     }
 }
