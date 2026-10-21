@@ -385,3 +385,63 @@ fn village_bell_body_renders_and_swing_moves_it() {
     });
     assert!(moved, "rung bell body must swing away from rest");
 }
+
+/// Chest, trapped chest, ender chest and the festive/copper variants all select the one
+/// `minecraft:chest#main` rig; the Solaris-authored catalog must supply it even though the
+/// activated `Models` carries no explicit entry (regression: the item bake used to demand an
+/// explicit `models.rigs` entry and killed the session with "special model rig not activated").
+#[test]
+fn chest_item_variants_resolve_authored_rig_without_explicit_registry_entry() {
+    let models = models_with(Vec::new());
+    assert!(models.rigs.is_empty());
+    assert!(
+        models.has_authored_rig("minecraft:chest#main"),
+        "authored catalog must supply the chest rig"
+    );
+    let authored = models.rig("minecraft:chest#main");
+    assert!(!authored.is_placeholder());
+    let stack = crate::inventory::Stack::default();
+    for texture in ["normal", "trapped", "ender", "christmas"] {
+        let mut content = Content::test_cube();
+        content.insert_test_texture(&format!("minecraft:entity/chest/{texture}"), test_region(5));
+        let special = serde_json::json!({
+            "type": "minecraft:chest",
+            "texture": format!("minecraft:{texture}"),
+        });
+        let model = crate::entities::special_item(&models, &content, &stack, &special)
+            .unwrap_or_else(|e| panic!("chest item {texture}: {e}"));
+        let expected: usize = authored.bones.iter().map(|b| b.quads.len()).sum();
+        assert!(expected > 0);
+        assert_eq!(model.quads.len(), expected, "{texture}");
+        assert!(model.quads.iter().all(|q| q.texture_layer == 5));
+    }
+}
+
+/// A rig that is neither activated nor authored is a logged placeholder, never an error.
+#[test]
+fn unknown_special_rig_falls_back_to_placeholder_instead_of_failing() {
+    let models = models_with(Vec::new());
+    assert!(!models.has_authored_rig("minecraft:no_such_rig#main"));
+    assert!(models.rig("minecraft:no_such_rig#main").is_placeholder());
+    // Every special-item family's rig key resolves to a real authored model.
+    for key in [
+        "minecraft:shield#main",
+        "minecraft:trident#main",
+        "minecraft:chest#main",
+        "minecraft:shulker_box#main",
+        "minecraft:conduit_shell#main",
+        "minecraft:decorated_pot_base#main",
+        "minecraft:standing_banner#main",
+        "minecraft:bed_head#main",
+        "minecraft:skeleton_skull#main",
+        "minecraft:wither_skeleton_skull#main",
+        "minecraft:zombie_head#main",
+        "minecraft:creeper_head#main",
+        "minecraft:piglin_head#main",
+        "minecraft:dragon_skull#main",
+        "minecraft:player_head#main",
+        "minecraft:copper_golem#main",
+    ] {
+        assert!(models.has_authored_rig(key), "{key}");
+    }
+}

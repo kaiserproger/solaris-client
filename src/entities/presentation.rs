@@ -14,7 +14,7 @@ use crate::{
 use glam::{Mat4, Vec3};
 use serde::Serialize;
 use serde_json::Value;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 const MAX_DYNAMIC_VERTICES: usize = 2_000_000;
 #[derive(Debug)]
@@ -1179,10 +1179,19 @@ pub fn special_item(
         ),
         _ => return Err(format!("unknown special item render family {kind}")),
     };
-    let rig = models
-        .rigs
-        .get(rig)
-        .ok_or_else(|| format!("special model rig not activated: {rig}"))?;
+    // Solaris-authored rigs live in the embedded catalog, not in `models.rigs`; `Models::rig`
+    // resolves both. A key with neither renders the placeholder box (logged once) rather than
+    // failing the GUI/hand item bake and with it the session.
+    if !models.has_authored_rig(rig) {
+        static REPORTED: std::sync::Mutex<BTreeSet<String>> = std::sync::Mutex::new(BTreeSet::new());
+        if REPORTED
+            .lock()
+            .map_or(true, |mut seen| seen.insert(rig.to_owned()))
+        {
+            eprintln!("special model rig not activated: {rig}; using placeholder");
+        }
+    }
+    let rig = models.rig(rig);
     let tex = texture(content, &texture_name)?;
     let mut model = BakedModel::default();
     let mut matrices = Vec::with_capacity(rig.bones.len());
