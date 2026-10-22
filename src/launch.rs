@@ -10,11 +10,12 @@ Usage:
   solaris-client setup --from-dist DIR --assets PRISM_ASSETS [--data-dir DIR]
   solaris-client play [launch options] [--profile fixture|offline-test]
                  [--automation --mcp-http 127.0.0.1:0] [--headless|--windowed]
-                 [--artifact-dir .analysis/artifacts] [--runtime-dir .analysis/runtime]
+                 [--artifact-dir DIR] [--runtime-dir DIR]
   solaris-client doctor [--json]
   solaris-client mcp attach --instance ID --stdio [--descriptor FILE]
 
-Default data: $XDG_DATA_HOME/solaris-client (or ~/.local/share/solaris-client).
+Default data: $XDG_DATA_HOME/solaris-client (or ~/.local/share/solaris-client);
+relative --artifact-dir/--runtime-dir resolve there (defaults artifacts/, runtime/).
 SOLARIS_CLIENT_* environment variables optionally override individual content paths.
 Default username: Player. Server port defaults to 25565. --help / -h prints this text.
 WASD move, Space jump, Shift sneak, Ctrl sprint, mouse look, left break/right use,
@@ -41,9 +42,9 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Parsed, String> {
         options: Options {
             automation: false,
             bind: "127.0.0.1:0".parse().unwrap(),
-            artifacts: PathBuf::from(".analysis/artifacts"),
+            artifacts: PathBuf::from("artifacts"),
             headless: None,
-            runtime_dir: PathBuf::from(".analysis/runtime"),
+            runtime_dir: PathBuf::from("runtime"),
             profile: "fixture".into(),
             server: None,
             direct_join: false,
@@ -151,8 +152,8 @@ pub(crate) fn play(args: impl Iterator<Item = String>) -> Result<(), String> {
     if !headless || options.profile == "offline-test" {
         content_paths::validate(!headless)?;
     }
-    options.artifacts = artifact_root(&options.artifacts)?;
-    options.runtime_dir = artifact_root(&options.runtime_dir)?;
+    options.artifacts = artifact_root(&options.artifacts, &root)?;
+    options.runtime_dir = artifact_root(&options.runtime_dir, &root)?;
     if headless {
         return headless::run(options);
     }

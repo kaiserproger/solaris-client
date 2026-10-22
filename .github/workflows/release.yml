@@ -143,6 +143,18 @@ jobs:
           set -euo pipefail
           tar -C stage -czf "solaris-client-${TAG}-linux-x86_64.tar.gz" \
             "solaris-client-${TAG}-linux-x86_64"
+      # The packaged binary must start without the build checkout: extract it
+      # outside the workspace and make the workspace unwritable while it runs.
+      - name: Smoke packaged Linux client
+        if: matrix.name == 'linux-x86_64'
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          tar -C "$RUNNER_TEMP" -xzf "solaris-client-${TAG}-linux-x86_64.tar.gz"
+          chmod a-w "$GITHUB_WORKSPACE"
+          trap 'chmod u+w "$GITHUB_WORKSPACE"' EXIT
+          packaging/smoke-release.sh "$RUNNER_TEMP/solaris-client-${TAG}-linux-x86_64/solaris-client"
       - name: Package Windows zip
         if: matrix.name == 'windows-x86_64'
         env:

@@ -56,39 +56,24 @@ struct Options {
     fullscreen: bool,
 }
 
-fn artifact_root(path: &Path) -> Result<PathBuf, String> {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join(".analysis");
-    std::fs::create_dir_all(&root).map_err(|e| e.to_string())?;
-    let root = root.canonicalize().map_err(|e| e.to_string())?;
-    let requested = if path.is_absolute() {
-        path.to_owned()
-    } else {
-        Path::new(env!("CARGO_MANIFEST_DIR")).join(path)
-    };
-    if requested
+/// Resolves an artifact/runtime directory: absolute paths as given, relative ones
+/// under the client's data root (`--data-dir`, `$XDG_DATA_HOME/solaris-client`,
+/// `~/.local/share/solaris-client`). Never a compile-time path: release builds run
+/// on machines without the build checkout.
+fn artifact_root(path: &Path, data_root: &Path) -> Result<PathBuf, String> {
+    if path
         .components()
         .any(|c| matches!(c, std::path::Component::ParentDir))
     {
         return Err("artifact_dir_parent_traversal".into());
     }
-    // Resolve the nearest existing ancestor before creating anything outside the owned root.
-    let mut ancestor = requested.as_path();
-    while !ancestor.exists() {
-        ancestor = ancestor.parent().ok_or("invalid_artifact_dir")?;
-    }
-    if !ancestor
-        .canonicalize()
-        .map_err(|e| e.to_string())?
-        .starts_with(&root)
-    {
-        return Err("artifact_dir_must_be_within_project_analysis".into());
-    }
-    std::fs::create_dir_all(&requested).map_err(|e| e.to_string())?;
-    let requested = requested.canonicalize().map_err(|e| e.to_string())?;
-    if !requested.starts_with(root) {
-        return Err("artifact_dir_escape".into());
-    }
-    Ok(requested)
+    let requested = if path.is_absolute() {
+        path.to_owned()
+    } else {
+        data_root.join(path)
+    };
+    std::fs::create_dir_all(&requested).map_err(|e| format!("{}: {e}", requested.display()))?;
+    requested.canonicalize().map_err(|e| e.to_string())
 }
 
 pub fn cli(args: impl IntoIterator<Item = String>) -> Result<(), String> {
@@ -154,8 +139,8 @@ pub fn cli(args: impl IntoIterator<Item = String>) -> Result<(), String> {
                 {
                     return Err("invalid_instance_id".into());
                 }
-                Path::new(env!("CARGO_MANIFEST_DIR"))
-                    .join(".analysis/runtime")
+                content_paths::default_root()?
+                    .join("runtime")
                     .join(format!("{id}.json"))
             };
             automation::attach_stdio(&path)
