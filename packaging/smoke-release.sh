@@ -12,7 +12,7 @@ trap 'rm -rf "$home"' EXIT
 root="$home/.local/share/solaris-client"
 
 coproc CLIENT {
-  env -u XDG_DATA_HOME HOME="$home" "$client" play --headless --profile fixture --automation 2>&1
+  exec env -u XDG_DATA_HOME HOME="$home" "$client" play --headless --profile fixture --automation 2>&1
 }
 pid=$CLIENT_PID
 descriptor=""
