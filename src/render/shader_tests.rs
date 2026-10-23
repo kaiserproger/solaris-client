@@ -205,7 +205,9 @@ fn fancy_shader_gpu_toggle_preserves_ui_and_off_pixels() {
         night_off[sky_pixel + 2],
         night_fancy[sky_pixel + 2]
     );
-    renderer.resize(PhysicalSize::new(128, 96));
+    // The window owner reconciles every frame: only a real change reconfigures.
+    assert_eq!(renderer.resize(PhysicalSize::new(128, 96)), Some(PhysicalSize::new(64, 64)));
+    assert_eq!(renderer.resize(PhysicalSize::new(128, 96)), None);
     assert_eq!(renderer.shadow.opaque_depth.width(), 128);
     assert_eq!(renderer.shadow.opaque_depth.height(), 96);
 }

@@ -1297,12 +1297,25 @@ impl ApplicationHandler for App {
                 }
             }
             WindowEvent::RedrawRequested => {
-                if self.occluded
-                    || self.window.as_ref().unwrap().inner_size().width == 0
-                    || self.window.as_ref().unwrap().inner_size().height == 0
-                {
+                let window = self.window.as_ref().unwrap();
+                let size = window.inner_size();
+                if self.occluded || size.width == 0 || size.height == 0 {
                     return;
                 }
+                // Present only at the window's current physical size: a lost or
+                // reordered Resized/ScaleFactorChanged (Windows display scaling)
+                // otherwise leaves the surface or UI at a stale size, drawing
+                // into a corner and misplacing pointer hits.
+                let scale = window.scale_factor();
+                if let Some(renderer) = &mut self.renderer
+                    && let Some(stale) = renderer.resize(size)
+                {
+                    eprintln!(
+                        "window: surface {}x{} reconfigured to {}x{} (scale factor {scale})",
+                        stale.width, stale.height, size.width, size.height
+                    );
+                }
+                self.session.resize_ui(size.width, size.height, scale);
                 if let Err(error) = self.draw() {
                     self.fail(event_loop, error);
                     return;

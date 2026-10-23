@@ -566,6 +566,57 @@ fn inventory_captions_clear_slots_and_preview_pin_exists() {
     );
 }
 
+/// Windows 150% display scaling: winit's sizes and cursor positions are
+/// physical pixels and the scale factor only labels them. Layout, drawing and
+/// pointer hits share the physical framebuffer, so the menu spans the whole
+/// 1280x720 window (not the 854x480 default) and a click at a slot's observed
+/// physical centre is a click on that slot.
+#[test]
+fn inventory_slot_hit_at_physical_pixels_under_150_percent_scaling() {
+    use crate::ui::{PointerButton, PointerPhase, UiCommand, UiIntent};
+    let (content, mut inventory, mut ui) = state();
+    inventory.open_inventory().expect("player inventory must open");
+    // As after the join-time ContainerSetContent: every player slot observed.
+    inventory.player.slots.fill(Some(crate::inventory::Stack::default()));
+    ui.resize(1280, 720, 1.5);
+    assert_eq!((ui.width, ui.height, ui.scale), (427., 240., 3.));
+    ui.synchronize(&inventory, &content).expect("menu follows inventory");
+    ui.rebuild_for_test(&inventory, &content).expect("menu tree must build");
+    let nodes = ui.observed_nodes();
+    let bounds: Vec<f64> = nodes
+        .iter()
+        .find(|node| node["id"] == "slot/36")
+        .expect("first hotbar slot")["bounds"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_f64().unwrap())
+        .collect();
+    // The 176x166 menu is centred in the full window: hotbar row below 480.
+    assert!(bounds[1] > 480., "menu laid out for the default size: {bounds:?}");
+    let effects = ui
+        .execute(
+            UiIntent::Pointer {
+                phase: PointerPhase::Down,
+                x: bounds[0] + bounds[2] / 2.,
+                y: bounds[1] + bounds[3] / 2.,
+                button: Some(PointerButton::Left),
+                modifiers: Default::default(),
+            },
+            &mut inventory,
+            &content,
+        )
+        .expect("slot click");
+    assert!(
+        effects.commands.iter().any(|command| matches!(
+            command,
+            UiCommand::Inventory(UiIntent::ClickSlot { slot: 36, button: 0, .. })
+        )),
+        "physical click missed the slot: {:?}",
+        effects.commands
+    );
+}
+
 /// Dialog trees fit the 427x240 Auto viewport (1280x720 window, scale 3):
 /// every visible button rect stays inside the viewport. Title, death,
 /// pause, and settings all route through this.

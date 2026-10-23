@@ -1072,9 +1072,12 @@ impl Renderer {
         }
     }
 
-    pub fn resize(&mut self, size: PhysicalSize<u32>) {
-        if size.width == 0 || size.height == 0 {
-            return;
+    /// Reconfigure every size-dependent target; returns the replaced size, or
+    /// `None` when `size` is already current (cheap enough to call per frame).
+    pub fn resize(&mut self, size: PhysicalSize<u32>) -> Option<PhysicalSize<u32>> {
+        let stale = PhysicalSize::new(self.config.width, self.config.height);
+        if size.width == 0 || size.height == 0 || size == stale {
+            return None;
         }
         self.config.width = size.width;
         self.config.height = size.height;
@@ -1094,6 +1097,7 @@ impl Renderer {
         self.shadow.resize(&self.device, self.config.width, self.config.height);
         self.outline
             .resize(&self.device, self.config.width, self.config.height);
+        Some(stale)
     }
 
     pub(crate) fn update_desktop(&mut self, face: crate::computer::Face, frame: &crate::computer::Frame) {
