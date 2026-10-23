@@ -305,6 +305,7 @@ impl App {
             DesktopAction::Control if self.computer.managing
                 && self.computer.source.as_ref().is_some_and(|source| source.control_granted()) => {
                 let _ = self.session.input(InputIntent::ReleaseAll);
+                self.voice_focus_lost();
                 self.computer.managing = false;
                 self.computer.controlling = true;
                 self.computer.message = "CONTROLLING LOCAL DESKTOP — Esc releases; Shift+Esc closes".into();

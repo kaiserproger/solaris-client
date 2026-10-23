@@ -316,6 +316,7 @@ impl App {
             "renderable":self.renderer.is_some()&&size.width>0&&size.height>0&&!self.occluded})
     }
     fn release(&mut self, reason: &str) {
+        self.voice_focus_lost();
         self.computer.release_input();
         let tasks = std::mem::take(&mut self.pending_tasks);
         for (request, mut task) in tasks {
@@ -749,6 +750,9 @@ impl App {
             window.set_cursor_visible(false);
             self.cursor_locked = true;
         }
+        if game_input == self.last_dialog_screen {
+            self.voice_focus_lost();
+        }
         self.last_dialog_screen = !game_input;
     }
 
@@ -835,7 +839,6 @@ impl ApplicationHandler for App {
             WindowEvent::Focused(focused) => {
                 self.focused = focused;
                 if !focused {
-                    self.voice_focus_lost();
                     self.release("focus_lost");
                     self.hotbar_wheel.reset();
                 } else {
