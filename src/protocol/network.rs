@@ -287,6 +287,13 @@ fn run(
                     4 => write(&mut socket, 4, &body, compression)?,
                     5 => write(&mut socket, 5, &body, compression)?,
                     14 => write(&mut socket, 7, &[0], compression)?,
+                    // A Loader probe is answered here, in packet order, so the hello
+                    // is written before the KnownPacks reply the server waits behind.
+                    1 if matches!(&Reader::new(&body).string(32767), Ok(channel) if channel == "solaris:loader/probe") => {
+                        let mut w = Writer::default();
+                        w.string("solaris:loader/hello");
+                        write(&mut socket, 2, &w.0, compression)?
+                    }
                     0 => {
                         let mut r = Reader::new(&body);
                         let key = r.string(32767)?;
@@ -488,6 +495,45 @@ mod tests {
                 ));
             }
         }
+    }
+
+    #[test]
+    fn loader_hello_precedes_known_packs_without_session_consumption() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let peer = thread::spawn(move || {
+            let (mut login, _) = listener.accept().unwrap();
+            let (mut status, _) = listener.accept().unwrap();
+            for socket in [&mut login, &mut status] {
+                socket.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+                socket.set_write_timeout(Some(Duration::from_secs(5))).unwrap();
+            }
+            assert_eq!(read_packet(&mut status).0, 0);
+            assert_eq!(read_packet(&mut status), (0, Vec::new()));
+            let mut response = Writer::default();
+            response.string(r#"{"version":{"protocol":775}}"#);
+            write(&mut status, 0, &response.0, None).unwrap();
+            assert_eq!(read_packet(&mut login).0, 0);
+            assert_eq!(read_packet(&mut login).0, 0);
+            let mut success = Writer(vec![0; 16]);
+            success.string("LoaderProbe");
+            success.var(0);
+            write(&mut login, 2, &success.0, None).unwrap();
+            assert_eq!(read_packet(&mut login), (3, Vec::new()));
+            assert_eq!(read_packet(&mut login), (0, client_information(8)));
+            let mut probe = Writer::default();
+            probe.string("solaris:loader/probe");
+            write(&mut login, 1, &probe.0, None).unwrap();
+            write(&mut login, 14, &[0], None).unwrap();
+            let mut hello = Writer::default();
+            hello.string("solaris:loader/hello");
+            assert_eq!(read_packet(&mut login), (2, hello.0));
+            assert_eq!(read_packet(&mut login), (7, vec![0]));
+            login.shutdown(Shutdown::Write).unwrap();
+        });
+        let mut network = Network::connect(address.to_string(), "LoaderProbe".into(), 8, Arc::new(|| {})).unwrap();
+        peer.join().unwrap();
+        network.worker.take().unwrap().join().unwrap();
     }
 
     #[test]

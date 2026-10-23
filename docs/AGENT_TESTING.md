@@ -729,7 +729,8 @@ Options → Controls → **Desktop computer** is off by default. The persisted
 `desktop_computer` boolean in `client-settings.json` uses the ordinary client
 settings path (`SOLARIS_CLIENT_SETTINGS` may select an isolated test file).
 Enabling it alone never starts capture. Right-click the front of a `solaris:monitor`
-to select a desktop window. Monitor blocks require the server's hash-verified
+to open the local window picker; Enter selects a choice and starts the backend
+consent flow, even when NEW window is the sole entry. Monitor blocks require the server's hash-verified
 Loader bundle; ordinary iron blocks and unmodified servers are not intercepted.
 Default local grants admit `register_items,register_blocks,load_assets`; an explicit
 `SOLARIS_CLIENT_LOADER_PERMISSIONS` value replaces these defaults.
@@ -799,8 +800,13 @@ and an independently observed forwarded click/key in the target window.
 Do not call cross-compilation, numerical UV tests, a portal permission grant,
 or a raw captured frame proof of this end-to-end interaction.
 
-Unknown optional custom payload channels, including `solaris:loader/probe`,
-are ignored in Configuration and Play without claiming Loader activation.
+Configuration `solaris:loader/probe` is answered by the network owner with an empty
+`solaris:loader/hello` before the KnownPacks reply, so optional native bundles are
+offered without waiting for the UI/session event consumer. Other unknown optional
+custom payload channels are ignored in Configuration and Play.
+Mixed-platform manifests admit/request only native-compatible bundles. Java-only
+optional bundles grant no permissions and appear in no native ACK cache list;
+the server remains responsible for rejecting any unfulfilled required bundle.
 Recognized manifest/artifact/view channels still enforce their phase and
 existing validation. Optional probing never substitutes for the verified Loader
 bundle required to identify and present a `solaris:monitor`.

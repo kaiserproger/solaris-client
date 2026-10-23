@@ -35,8 +35,8 @@ impl Computer {
     pub fn lines(&self) -> Vec<String> {
         if let Some(lines) = self.sharing.lines() { return lines; }
         if !self.picker.is_empty() {
-            let mut lines =
-                vec!["LOCAL desktop window: Up/Down, Enter selects, Esc cancels".into()];
+            let mut lines = vec![format!("LOCAL desktop window — {} monitor block(s): Up/Down, Enter selects, Esc cancels",
+                self.face.map_or(1, |face| face.width))];
             let start = self.selection.saturating_sub(5);
             lines.extend(
                 self.picker
@@ -418,9 +418,6 @@ impl App {
                     self.computer.binding = Some(hit.position);
                     self.computer.epochs = self.session.context_epochs();
                     match super::list_windows() {
-                        Ok(windows) if cfg!(target_os = "linux") && windows.len() == 1 => {
-                            self.computer.start(windows[0].id)
-                        }
                         Ok(windows) if !windows.is_empty() => {
                             self.computer.picker = windows;
                             self.computer.selection = 0;
@@ -739,6 +736,16 @@ mod tests {
         assert!(computer.source.as_ref().unwrap().control_granted());
         computer.close();
         assert_eq!(&*log.lock(), &["close", "close"]);
+    }
+    #[test]
+    fn single_window_picker_displays_bound_row_before_capture() {
+        let mut computer = Computer::default();
+        computer.face = Some(Face { block: [1, 2, 3], side: 2, width: 3 });
+        computer.picker.push(WindowInfo { id: 0, title: "NEW window".into() });
+        assert!(computer.has_overlay());
+        assert!(computer.lines()[0].contains("3 monitor block(s)"));
+        assert!(computer.lines()[1].contains("NEW window"));
+        assert!(computer.source.is_none());
     }
     #[test]
     fn physical_keys_preserve_shortcuts_and_modifier_sides() {

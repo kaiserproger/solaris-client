@@ -144,8 +144,15 @@ impl Loader {
         if payload.len() > 32767 {
             return Err("Loader manifest byte limit".into());
         }
-        let manifest: Manifest = serde_json::from_slice(payload).map_err(|e| e.to_string())?;
+        let mut manifest: Manifest = serde_json::from_slice(payload).map_err(|e| e.to_string())?;
         validate_manifest(&manifest, grants)?;
+        // The server advertises optional bundles for all platforms. Only native
+        // bundles are requested or granted; the server checks required bundles.
+        manifest.bundles.retain(|bundle| bundle.loaders.iter().any(|p| p == "native"));
+        if manifest.bundles.is_empty() {
+            self.acknowledged = true;
+            return outgoing("solaris:loader/ack", json!({"protocol":3,"platform":"native","loader_version":env!("CARGO_PKG_VERSION"),"accepted_permissions":[],"cached_bundles":[]}));
+        }
         let size = manifest.bundles[0].size_bytes;
         self.transfer = Some(Transfer {
             manifest,
@@ -626,13 +633,15 @@ fn validate_manifest(manifest: &Manifest, grants: &BTreeSet<String>) -> Result<(
             return Err("native Loader total bundle byte limit".into());
         }
         if !unique_list(&bundle.loaders)
-            || !bundle.loaders.iter().any(|p| p == "native")
             || bundle
                 .loaders
                 .iter()
                 .any(|p| !["native", "fabric", "neoforge", "forge"].contains(&p.as_str()))
         {
             return Err("Loader bundle does not support native platform".into());
+        }
+        if !bundle.loaders.iter().any(|p| p == "native") {
+            continue;
         }
         if !unique_list(&bundle.content) || !unique_list(&bundle.permissions) {
             return Err("invalid Loader manifest list".into());
@@ -898,7 +907,7 @@ mod tests {
     fn native_loader_manifest_rejects_platform_permissions_and_identity() {
         let bytes = bundle();
         let mut value = manifest(&bytes);
-        value["bundles"][0]["loaders"] = json!(["fabric"]);
+        value["bundles"][0]["loaders"] = json!(["unknown-platform"]);
         assert!(begin(&value).is_err());
         value = manifest(&bytes);
         value["bundles"][0]["cache_key"] = json!("wrong");
@@ -916,6 +925,30 @@ mod tests {
         value["bundles"][0]["content"] = json!(["blocks"]);
         assert!(begin(&value).is_err());
     }
+    #[test]
+    fn mixed_platform_manifest_only_requests_and_acknowledges_native_bundles() {
+        let bytes = bundle();
+        let native = manifest(&bytes);
+        let mut foreign = native["bundles"][0].clone();
+        foreign["loaders"] = json!(["fabric", "neoforge", "forge"]);
+        foreign["permissions"] = json!(["foreign_only_permission"]);
+        let mut mixed = native.clone();
+        mixed["bundles"].as_array_mut().unwrap().push(foreign.clone());
+        let mut loader = begin(&mixed).unwrap();
+        let request: Value = serde_json::from_slice(&loader.request_artifact().unwrap().payload).unwrap();
+        assert_eq!(request["cache_key"], native["bundles"][0]["cache_key"]);
+        let ack = loader.artifact(&chunk(&native, &bytes)).unwrap().unwrap();
+        let ack: Value = serde_json::from_slice(&ack.payload).unwrap();
+        assert_eq!(ack["cached_bundles"], json!([native["bundles"][0]["cache_key"]]));
+        assert!(!loader.accepted.contains("foreign_only_permission"));
+        let mut only_foreign = Loader::default();
+        let ack = only_foreign.begin(&serde_json::to_vec(&json!({"protocol":3,"bundles":[foreign]})).unwrap(), &BTreeSet::new()).unwrap();
+        assert_eq!(ack.channel, "solaris:loader/ack");
+        let ack: Value = serde_json::from_slice(&ack.payload).unwrap();
+        assert_eq!(ack["cached_bundles"], json!([]));
+        assert_eq!(ack["accepted_permissions"], json!([]));
+    }
+
     #[test]
     fn native_loader_verifies_transfer_before_request_admission_and_cleanup() {
         let bytes = bundle();
