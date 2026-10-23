@@ -58,36 +58,59 @@ pub fn open(_: u64) -> Result<Box<dyn DesktopSource>, String> {
 pub(crate) struct Face {
     pub block: [i32; 3],
     pub side: i32,
-    /// Row length; block is the minimum-coordinate member, not image-left.
+    /// Rectangle dimensions; block is its minimum horizontal/Y coordinate.
     pub width: u8,
+    pub height: u8,
 }
 impl Face {
-    pub fn row(block: [i32; 3], side: i32, member: impl Fn([i32; 3]) -> bool) -> Option<Self> {
+    pub fn rectangle(block: [i32; 3], side: i32, member: impl Fn([i32; 3]) -> bool) -> Option<Self> {
         if !(2..=5).contains(&side) || !member(block) { return None; }
         let axis = if side <= 3 { 0 } else { 2 };
-        let mut first = block;
-        let mut width = 1u8;
+        let mut minimum = [block[axis], block[1]];
+        let mut maximum = minimum;
+        let position = |horizontal, y| {
+            let mut point = block;
+            point[axis] = horizontal;
+            point[1] = y;
+            point
+        };
+        // Expand the connected coplanar component's bounds without heap storage.
+        // A final full-area check rejects L shapes and holes rather than silently
+        // selecting a smaller row depending on which block was clicked.
         loop {
-            let mut previous = first;
-            previous[axis] = previous[axis].checked_sub(1)?;
-            if !member(previous) { break; }
-            if width == 16 { return None; }
-            first = previous;
-            width += 1;
+            let mut grew = false;
+            for dimension in 0..2 {
+                for positive in [false, true] {
+                    let edge = if positive { maximum[dimension].checked_add(1)? } else { minimum[dimension].checked_sub(1)? };
+                    let other = 1 - dimension;
+                    let connected = (minimum[other]..=maximum[other]).any(|coordinate| {
+                        member(if dimension == 0 { position(edge, coordinate) } else { position(coordinate, edge) })
+                    });
+                    if connected {
+                        if maximum[dimension] - minimum[dimension] >= 15 { return None; }
+                        if positive { maximum[dimension] = edge; } else { minimum[dimension] = edge; }
+                        grew = true;
+                    }
+                }
+            }
+            if !grew { break; }
         }
-        let mut next = block;
-        loop {
-            next[axis] = next[axis].checked_add(1)?;
-            if !member(next) { break; }
-            if width == 16 { return None; }
-            width += 1;
+        for y in minimum[1]..=maximum[1] {
+            for horizontal in minimum[0]..=maximum[0] {
+                if !member(position(horizontal, y)) { return None; }
+            }
         }
-        Some(Self { block: first, side, width })
+        Some(Self {
+            block: position(minimum[0], minimum[1]), side,
+            width: (maximum[0] - minimum[0] + 1) as u8,
+            height: (maximum[1] - minimum[1] + 1) as u8,
+        })
     }
     pub fn contains(self, block: [i32; 3], side: i32) -> bool {
         let axis = if self.side <= 3 { 0 } else { 2 };
-        side == self.side && (0..3).all(|i| if i == axis {
-            (0..i64::from(self.width)).contains(&(i64::from(block[i]) - i64::from(self.block[i])))
+        side == self.side && (0..3).all(|i| if i == axis || i == 1 {
+            let length = if i == axis { self.width } else { self.height };
+            (0..i64::from(length)).contains(&(i64::from(block[i]) - i64::from(self.block[i])))
         } else { block[i] == self.block[i] })
     }
     // Origin at upper left as viewed from outside, with image-right and image-down axes.
@@ -102,7 +125,8 @@ impl Face {
         };
         (
             std::array::from_fn(|i| f64::from(self.block[i]) + corner[i]
-                + if right[i] < 0. { f64::from(self.width.saturating_sub(1)) } else { 0. }),
+                + if right[i] < 0. { f64::from(self.width.saturating_sub(1)) } else { 0. }
+                + if down[i] < 0. { f64::from(self.height.saturating_sub(1)) } else { 0. }),
             right,
             down,
         )
@@ -111,8 +135,8 @@ impl Face {
         let (origin, right, down) = self.basis();
         let p: [f64; 3] = std::array::from_fn(|i| point[i] - origin[i]);
         let uv = [dot(p, right), dot(p, down)];
-        let extent = fit(size, self.width);
-        let bounds = [f64::from(self.width), 1.];
+        let extent = fit(size, self.width, self.height);
+        let bounds = [f64::from(self.width), f64::from(self.height)];
         let normalized: [f64; 2] =
             std::array::from_fn(|i| (uv[i] - (bounds[i] - extent[i]) * 0.5) / extent[i]);
         normalized
@@ -124,9 +148,9 @@ impl Face {
 fn dot(a: [f64; 3], b: [f64; 3]) -> f64 {
     a.into_iter().zip(b).map(|(a, b)| a * b).sum()
 }
-pub(crate) fn fit(size: [u32; 2], width: u8) -> [f64; 2] {
-    // Preserve the outer bezel; internal seams are covered by the continuous image.
-    let bounds = [f64::from(width) - 0.125, 0.875];
+pub(crate) fn fit(size: [u32; 2], width: u8, height: u8) -> [f64; 2] {
+    // Preserve one outer bezel; the full-face quad covers every internal seam.
+    let bounds = [f64::from(width) - 0.125, f64::from(height) - 0.125];
     let scale = (bounds[0] / f64::from(size[0].max(1)))
         .min(bounds[1] / f64::from(size[1].max(1)));
     [f64::from(size[0]) * scale, f64::from(size[1]) * scale]
@@ -142,6 +166,7 @@ mod tests {
                 block: [-3, 20, 7],
                 side,
                 width: 1,
+                height: 1,
             };
             let (o, r, d) = face.basis();
             let center = std::array::from_fn(|i| o[i] + r[i] * 0.5 + d[i] * 0.5);
@@ -157,7 +182,7 @@ mod tests {
             let member = |p: [i32; 3]| p[1] == 4 && p[2 - axis] == 7 && (0..3).contains(&p[axis]);
             let mut clicked = [7, 4, 7];
             clicked[axis] = 1;
-            let face = Face::row(clicked, side, member).unwrap();
+            let face = Face::rectangle(clicked, side, member).unwrap();
             assert_eq!(face.width, 3);
             let (o, r, d) = face.basis();
             let center = std::array::from_fn(|i| o[i] + 1.5 * r[i] + 0.5 * d[i]);
@@ -167,8 +192,33 @@ mod tests {
             assert!(face.pixel(left, [1920, 640]).unwrap()[0] < 960.);
             assert!(face.pixel(right, [1920, 640]).unwrap()[0] > 960.);
             assert!(face.contains(clicked, side));
-            assert_eq!(Face::row(clicked, side, |p| member(p) && p[axis] < 2).unwrap().width, 2);
-            assert!(Face::row(clicked, side, |_| true).is_none());
+            assert_eq!(Face::rectangle(clicked, side, |p| member(p) && p[axis] < 2).unwrap().width, 2);
+            assert!(Face::rectangle(clicked, side, |_| true).is_none());
+        }
+    }
+    #[test]
+    fn rectangles_share_one_surface_from_every_member_and_reject_holes() {
+        for side in 2..=5 {
+            let axis = if side <= 3 { 0 } else { 2 };
+            let member = |p: [i32; 3]| (4..6).contains(&p[1]) && p[2 - axis] == 7 && (0..4).contains(&p[axis]);
+            let mut anchor = [7, 4, 7];
+            anchor[axis] = 0;
+            let face = Face::rectangle(anchor, side, member).unwrap();
+            assert_eq!((face.width, face.height), (4, 2));
+            for horizontal in 0..4 {
+                for y in 4..6 {
+                    let mut clicked = anchor; clicked[axis] = horizontal; clicked[1] = y;
+                    assert_eq!(Face::rectangle(clicked, side, member), Some(face));
+                    assert!(face.contains(clicked, side));
+                }
+            }
+            let (origin, right, down) = face.basis();
+            let center = std::array::from_fn(|i| origin[i] + right[i] * 2. + down[i]);
+            assert_eq!(face.pixel(center, [1280, 640]), Some([640., 320.]));
+            let upper = std::array::from_fn(|i| center[i] - down[i] * 0.5);
+            assert!(face.pixel(upper, [1280, 640]).unwrap()[1] < 320.);
+            assert!(Face::rectangle(anchor, side, |p| member(p) && !(p[axis] == 1 && p[1] == 5)).is_none());
+            assert!(Face::rectangle(anchor, side, |p| p[2-axis] == 7 && p[axis] == 0 && (4..21).contains(&p[1])).is_none());
         }
     }
 }

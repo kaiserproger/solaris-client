@@ -701,6 +701,13 @@ impl Session {
                     .ok_or("client setting damage_tilt_strength lost its number")?;
                 self.camera();
             }
+            "gamma" => {
+                self.gamma = clean
+                    .as_f64()
+                    .ok_or("client setting gamma lost its number")? as f32;
+                // The lightmap is rebuilt from the session state on the next scene update.
+                self.revision += 1;
+            }
             "volume" => {
                 self.volume = clean
                     .as_f64()
@@ -740,6 +747,7 @@ impl Session {
             "damage_tilt_strength".into(),
             json!(self.damage_tilt_strength),
         );
+        out.insert("gamma".into(), json!(self.gamma));
         out.insert("volume".into(), json!(self.volume));
         out.extend(self.presentation_settings.iter().map(|(key, value)| (key.clone(), value.clone())));
         if let Some(ui) = &self.ui {
@@ -790,6 +798,11 @@ impl Session {
                 "damage_tilt_strength" => {
                     if let Some(f) = clean.as_f64() {
                         self.damage_tilt_strength = f;
+                    }
+                }
+                "gamma" => {
+                    if let Some(f) = clean.as_f64() {
+                        self.gamma = f as f32;
                     }
                 }
                 "volume" => {
@@ -1363,6 +1376,33 @@ mod client_settings_tests {
         assert_eq!(
             UiState::next_setting_value("damage_tilt_strength", Some(&json!(0.))),
             Some(json!(0.1))
+        );
+    }
+
+    #[test]
+    fn brightness_setting_loads_clamps_persists_and_defaults_to_half() {
+        let mut session = Session::new_mode("gamma-settings".into(), false);
+        session.apply_persisted_settings(BTreeMap::new());
+        assert_eq!(session.gamma, 0.5);
+        assert_eq!(UiState::default_setting_value("gamma"), Some(json!(0.5)));
+        session.apply_persisted_settings(BTreeMap::from([("gamma".into(), json!(1.))]));
+        assert_eq!(session.gamma, 1.);
+        assert_eq!(session.client_settings_snapshot()["gamma"], json!(1.));
+        session.apply_persisted_settings(BTreeMap::from([("gamma".into(), json!(7.))]));
+        assert_eq!(session.gamma, 1.);
+        session.apply_persisted_settings(BTreeMap::from([("gamma".into(), json!("dark"))]));
+        assert_eq!(session.gamma, 0.5);
+        let before = session.revision;
+        session.apply_client_setting("gamma", &json!(0.)).unwrap();
+        assert_eq!(session.gamma, 0.);
+        assert!(session.revision > before, "scene must rebuild the lightmap");
+        assert_eq!(
+            UiState::next_setting_value("gamma", Some(&json!(1.))),
+            Some(json!(0.))
+        );
+        assert_eq!(
+            UiState::next_setting_value("gamma", Some(&json!(0.5))),
+            Some(json!(0.6))
         );
     }
 }

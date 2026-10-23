@@ -595,6 +595,7 @@ impl Session {
                     .is_some(),
                 entity_tick: self.client_tick,
                 flat_world: self.flat_world,
+                gamma: self.gamma,
                 ..Default::default()
             };
             self.scene.environment = self.environment.evaluate(

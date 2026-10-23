@@ -1,30 +1,60 @@
 use super::*;
 use crate::computer::{Frame, relay::{self, Encoder, Id, Request}};
-use std::{collections::BTreeSet, time::{Duration, Instant}};
+use std::{collections::{BTreeMap, BTreeSet}, time::{Duration, Instant}};
 
 #[derive(Default)]
 pub(super) struct Sharing {
     epochs: Option<(u64, u64)>,
     announced: Option<Id>,
     pub pending: Option<Request>,
-    allow: bool,
-    viewers: BTreeSet<[u8; 16]>,
+    pub viewers: BTreeMap<[u8; 16], String>,
     watching: BTreeSet<Id>,
     next_frame: Option<Instant>,
     encoder: Encoder,
 }
 impl Sharing {
-    pub fn lines(&self) -> Option<Vec<String>> {
+    pub fn dialog(&self, selected: usize) -> Option<crate::ui::desktop::DesktopDialog> {
+        use crate::ui::desktop::{DesktopAction, DesktopDialog};
         let request = self.pending.as_ref()?;
-        Some(vec![
-            format!("{} requests permission to VIEW your desktop screens", request.name),
-            "Allows pictures from all your open screens, only while they look. No remote input.".into(),
-            format!("{} Deny     {} Allow", if self.allow { " " } else { ">" }, if self.allow { ">" } else { " " }),
-            "Up/Down selects; Enter confirms; Esc denies. F8 later revokes all viewers.".into(),
-        ])
+        Some(DesktopDialog {
+            title: "Allow desktop viewing?".into(),
+            body: vec![format!("{} wants to view your screens.", request.name),
+                "Pictures only, while looking. No remote input.".into()],
+            entries: vec![
+                ("Deny".into(), DesktopAction::ViewPermission { request: request.number, allow: false }),
+                ("Allow viewing all my open screens".into(), DesktopAction::ViewPermission { request: request.number, allow: true }),
+            ],
+            selected,
+        })
     }
 }
 impl App {
+    pub(super) fn answer_screen_request(&mut self, number: u32, allow: bool) {
+        if self.computer.sharing.pending.as_ref().is_none_or(|request| request.number != number) { return; }
+        let request = self.computer.sharing.pending.take().unwrap();
+        match self.session.send_screen(request.answer(allow)) {
+            Ok(()) => {
+                if allow { self.computer.sharing.viewers.insert(request.viewer, request.name); }
+                self.computer.message = if allow {
+                    "Viewing allowed while they look. F8 revokes ALL viewers; Shift+Esc closes"
+                } else { "Viewing denied; desktop remains private" }.into();
+            }
+            Err(error) => self.computer.message = error,
+        }
+        self.computer.selection = 0;
+    }
+    pub(super) fn revoke_screen_viewer(&mut self, viewer: [u8; 16]) {
+        if self.computer.sharing.viewers.remove(&viewer).is_none() { return; }
+        if let Some(id) = self.computer.sharing.announced {
+            let mut packet = id.packet(5);
+            packet.extend(viewer);
+            self.computer.message = match self.session.send_screen(packet) {
+                Ok(()) => "Viewer permission revoked".into(),
+                Err(error) => error,
+            };
+        }
+        self.computer.selection = 0;
+    }
     pub(super) fn sync_screen_sharing(&mut self, enabled: bool) {
         let epochs = self.session.context_epochs();
         if self.computer.sharing.epochs != Some(epochs) {
@@ -72,7 +102,7 @@ impl App {
             while let Some(request) = self.session.screen_relay.requests.pop_front() {
                 if live && Some(request.screen) == self.computer.sharing.announced {
                     self.release("desktop viewing permission request");
-                    self.computer.sharing.allow = false;
+                    self.computer.selection = 0;
                     self.computer.sharing.pending = Some(request);
                     self.publish_session();
                     break;
@@ -130,41 +160,12 @@ impl App {
         true
     }
     pub(super) fn sharing_event(&mut self, event: &WindowEvent) -> bool {
-        if self.computer.sharing.pending.is_some() {
-            if let WindowEvent::KeyboardInput { event, .. } = event
-                && event.state == ElementState::Pressed && !event.repeat
-            {
-                match event.physical_key {
-                    PhysicalKey::Code(KeyCode::ArrowUp | KeyCode::ArrowDown) => {
-                        self.computer.sharing.allow = !self.computer.sharing.allow;
-                    }
-                    PhysicalKey::Code(KeyCode::Enter | KeyCode::Escape) => {
-                        if let Some(request) = self.computer.sharing.pending.take() {
-                            let allow = self.computer.sharing.allow && event.physical_key != PhysicalKey::Code(KeyCode::Escape);
-                            match self.session.send_screen(request.answer(allow)) {
-                                Ok(()) => {
-                                    if allow { self.computer.sharing.viewers.insert(request.viewer); }
-                                    self.computer.message = if allow {
-                                        "Viewing allowed while they look. F8 revokes ALL viewers; Shift+Esc closes"
-                                    } else { "Viewing denied; desktop remains private" }.into();
-                                }
-                                Err(error) => self.computer.message = error,
-                            }
-                            self.computer.sharing.allow = false;
-                        }
-                    }
-                    _ => {}
-                }
-                self.publish_session();
-            }
-            return matches!(event, WindowEvent::KeyboardInput { .. } | WindowEvent::MouseInput { .. } | WindowEvent::MouseWheel { .. });
-        }
         if let WindowEvent::KeyboardInput { event, .. } = event
             && event.physical_key == PhysicalKey::Code(KeyCode::F8)
             && event.state == ElementState::Pressed && !event.repeat
         {
             if let Some(id) = self.computer.sharing.announced {
-                for viewer in std::mem::take(&mut self.computer.sharing.viewers) {
+                for (viewer, _) in std::mem::take(&mut self.computer.sharing.viewers) {
                     let mut packet = id.packet(5); packet.extend(viewer);
                     let _ = self.session.send_screen(packet);
                 }
@@ -193,15 +194,15 @@ mod tests {
     fn permission_prompt_defaults_to_deny_and_discloses_scope() {
         let sharing = Sharing {
             pending: Some(Request {
-                screen: Id { face: Face { block: [0, 1, 2], side: 2, width: 1 }, dimension: 0 },
+                screen: Id { face: Face { block: [0, 1, 2], side: 2, width: 1, height: 1 }, dimension: 0 },
                 number: 7, viewer: [0; 16], name: "Viewer".into(),
             }),
             ..Default::default()
         };
-        assert!(!sharing.allow);
         assert!(sharing.viewers.is_empty());
-        let lines = sharing.lines().unwrap();
-        assert!(lines[1].contains("all your open screens"));
-        assert!(lines[2].starts_with("> Deny"));
+        let dialog = sharing.dialog(0).unwrap();
+        assert_eq!(dialog.selected, 0);
+        assert!(dialog.entries[1].0.contains("all my open screens"));
+        assert_eq!(dialog.entries[0].1, crate::ui::desktop::DesktopAction::ViewPermission { request: 7, allow: false });
     }
 }

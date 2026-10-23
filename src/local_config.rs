@@ -264,6 +264,7 @@ mod tests {
         settings.insert("volume".into(), serde_json::json!(0.5));
         settings.insert("render_distance".into(), serde_json::json!(12));
         settings.insert("damage_tilt_strength".into(), serde_json::json!(0.5));
+        settings.insert("gamma".into(), serde_json::json!(0.25));
         settings.insert("fullscreen".into(), serde_json::json!(true));
         settings.insert("vsync".into(), serde_json::json!(false));
         settings.insert("fancy_shaders".into(), serde_json::json!(false));
@@ -275,6 +276,7 @@ mod tests {
         assert_eq!(loaded["volume"], serde_json::json!(0.5));
         assert_eq!(loaded["render_distance"], serde_json::json!(12));
         assert_eq!(loaded["damage_tilt_strength"], serde_json::json!(0.5));
+        assert_eq!(loaded["gamma"], serde_json::json!(0.25));
         assert_eq!(loaded.get("fullscreen"), Some(&serde_json::json!(true)));
         assert_eq!(loaded.get("vsync"), Some(&serde_json::json!(false)));
         assert_eq!(loaded.get("fancy_shaders"), Some(&serde_json::json!(false)));

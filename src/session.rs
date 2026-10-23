@@ -128,6 +128,8 @@ pub struct Session {
     fov_deg: f32,
     mouse_sensitivity: f32,
     damage_tilt_strength: f64,
+    /// Vanilla Brightness option fed to the lightmap gamma (0 Moody .. 1 Bright).
+    gamma: f32,
     volume: f32,
     presentation_settings: BTreeMap<String, Value>,
     /// Singleplayer: the running local server, a start in flight, first-join
@@ -219,6 +221,7 @@ impl Session {
             fov_deg: UiState::DEFAULT_FOV_DEG,
             mouse_sensitivity: UiState::DEFAULT_MOUSE_SENSITIVITY,
             damage_tilt_strength: UiState::DEFAULT_DAMAGE_TILT_STRENGTH,
+            gamma: UiState::DEFAULT_GAMMA as f32,
             volume: UiState::DEFAULT_VOLUME,
             presentation_settings: BTreeMap::new(),
             local_server: None,

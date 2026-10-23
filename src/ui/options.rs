@@ -31,12 +31,18 @@ pub(super) const TABS: [&str; 4] = ["Video", "Controls", "Audio", "Interface"];
 /// Tab shown for the Accessibility entry of the pause menu.
 pub(super) const INTERFACE_TAB: usize = 3;
 
-const VIDEO: [Row; 6] = [
+const VIDEO: [Row; 7] = [
     row(
         "fov",
         "Field of view",
         Kind::Slider,
         "Wider view shows more but stretches the edges.",
+    ),
+    row(
+        "gamma",
+        "Brightness",
+        Kind::Slider,
+        "Lifts the darkest light. Moody to Bright.",
     ),
     row(
         "render_distance",
@@ -86,7 +92,7 @@ const CONTROLS: [Row; 3] = [
         "desktop_computer",
         "Desktop computer",
         Kind::Toggle,
-        "Local capture/control: right-click a Monitor. OS permission required. Esc releases.",
+        "Show a desktop window on monitor blocks",
     ),
 ];
 const AUDIO: [Row; 2] = [
@@ -177,7 +183,7 @@ fn spec(key: &str) -> Option<Spec> {
         // 30..=260 in tens, then one extra stop for Unlimited (value 0).
         "max_fps" => (30., 10., 25),
         "ui_scale" => (0., 1., 5),
-        "volume" | "damage_tilt_strength" | "text_background_opacity" => (0., 0.05, 21),
+        "volume" | "damage_tilt_strength" | "text_background_opacity" | "gamma" => (0., 0.05, 21),
         _ => return None,
     };
     Some(Spec {
@@ -253,6 +259,11 @@ pub(super) fn value_text(key: &str, value: Option<&Value>) -> String {
         },
         "mouse_sensitivity" => pct(num.unwrap_or(1.)),
         "damage_tilt_strength" => pct(num.unwrap_or(1.)),
+        "gamma" => match num.unwrap_or(0.5) {
+            v if v <= 0.005 => "Moody".into(),
+            v if v >= 0.995 => "Bright".into(),
+            v => pct(v),
+        },
         "volume" => pct(num.unwrap_or(1.)),
         "text_background_opacity" => pct(num.unwrap_or(0.5)),
         "narrator" => ["Off", "All", "Chat", "System"]
@@ -762,6 +773,9 @@ mod tests {
         assert_eq!(value_text("fullscreen", None), "Off");
         assert_eq!(value_text("narrator", Some(&json!(2))), "Chat");
         assert_eq!(value_text("volume", Some(&json!(0.5))), "50%");
+        assert_eq!(value_text("gamma", None), "50%");
+        assert_eq!(value_text("gamma", Some(&json!(0.))), "Moody");
+        assert_eq!(value_text("gamma", Some(&json!(1.))), "Bright");
     }
 
     #[test]

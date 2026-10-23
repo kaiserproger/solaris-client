@@ -18,17 +18,18 @@ impl Id {
         let block = [r.i32()?, r.i32()?, r.i32()?];
         let side = i32::from(r.u8()?);
         let width = r.u8()?;
+        let height = r.u8()?;
         let dimension = r.u8()?;
-        if !(2..=5).contains(&side) || !(1..=16).contains(&width) || dimension > 2 {
+        if !(2..=5).contains(&side) || !(1..=16).contains(&width) || !(1..=16).contains(&height) || dimension > 2 {
             return Err("invalid shared screen identity".into());
         }
-        Ok(Self { face: Face { block, side, width }, dimension })
+        Ok(Self { face: Face { block, side, width, height }, dimension })
     }
     pub fn packet(self, kind: u8) -> Vec<u8> {
         let mut out = Vec::with_capacity(32);
         out.extend([1, kind]);
         for coordinate in self.face.block { out.extend(coordinate.to_be_bytes()); }
-        out.extend([self.face.side as u8, self.face.width, self.dimension]);
+        out.extend([self.face.side as u8, self.face.width, self.face.height, self.dimension]);
         out
     }
 }
@@ -116,7 +117,7 @@ impl Relay {
                 let reason = r.u8()?;
                 r.done()?;
                 let reason = match reason {
-                    0 => "not allowed", 1 => "monitor row changed", 2 => "out of reach",
+                    0 => "not allowed", 1 => "monitor rectangle changed", 2 => "out of reach",
                     3 => "screen limit", 4 => "another player's screen", 5 => "invalid picture",
                     6 => "screen closed", 7 => "request rate limited",
                     _ => return Err("invalid screen refusal".into()),
@@ -240,7 +241,7 @@ pub(crate) fn on_frame() -> Frame {
 #[cfg(test)]
 mod tests {
     use super::*;
-    fn id() -> Id { Id { face: Face { block: [-2, 4, 9], side: 2, width: 3 }, dimension: 0 } }
+    fn id() -> Id { Id { face: Face { block: [-2, 4, 9], side: 2, width: 3, height: 2 }, dimension: 0 } }
     #[test]
     fn wire_consent_and_active_do_not_create_picture_data() {
         let mut relay = Relay::default();
@@ -262,10 +263,10 @@ mod tests {
         let frame = Frame { width: 900, height: 700, rgba: vec![180; 900 * 700 * 4] };
         let packets = Encoder::default().encode(id(), &frame, 640).unwrap();
         assert!(packets.len() <= 5);
-        assert!(packets.iter().all(|p| p.len() <= 30_028));
+        assert!(packets.iter().all(|p| p.len() <= 30_029));
         let mut received = id().packet(1);
-        received.extend_from_slice(&packets[0][17..26]);
-        for part in &packets { received.extend_from_slice(&part[28..]); }
+        received.extend_from_slice(&packets[0][18..27]);
+        for part in &packets { received.extend_from_slice(&part[29..]); }
         let mut relay = Relay::default();
         let mut active = id().packet(6); active.push(1); relay.receive(&active).unwrap();
         relay.receive(&received).unwrap();
@@ -275,10 +276,25 @@ mod tests {
         let mut stop = id().packet(2); stop.push(2); relay.receive(&stop).unwrap();
         assert!(relay.active[&id()].frame.is_none());
         let mut corrupt = received;
-        corrupt[21..23].copy_from_slice(&641u16.to_be_bytes());
+        corrupt[22..24].copy_from_slice(&641u16.to_be_bytes());
         // New sequence makes the dimension error observable rather than a duplicate.
-        corrupt[17..21].copy_from_slice(&2u32.to_be_bytes());
+        corrupt[18..22].copy_from_slice(&2u32.to_be_bytes());
         assert!(relay.receive(&corrupt).is_err());
         assert!(relay.active[&id()].frame.is_none());
+    }
+    #[test]
+    fn screen_identity_places_height_before_dimension_without_legacy_fallback() {
+        let mut wire = id().packet(0);
+        assert_eq!(wire.len(), 18);
+        assert_eq!(&wire[14..18], &[2, 3, 2, 0]);
+        let mut reader = Reader::new(&wire[2..]);
+        assert_eq!(Id::read(&mut reader).unwrap(), id());
+        reader.done().unwrap();
+        wire[16] = 0;
+        assert!(Id::read(&mut Reader::new(&wire[2..])).is_err());
+        wire[16] = 17;
+        assert!(Id::read(&mut Reader::new(&wire[2..])).is_err());
+        wire.remove(16);
+        assert!(Id::read(&mut Reader::new(&wire[2..])).is_err());
     }
 }

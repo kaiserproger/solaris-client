@@ -1,7 +1,6 @@
 use super::{DesktopKey, DesktopSource, Frame, PointerButton, WindowInfo};
 use ashpd::desktop::{
     PersistMode,
-    remote_desktop::{DeviceType, KeyState, RemoteDesktop, SelectDevicesOptions},
     screencast::{CursorMode, Screencast, SelectSourcesOptions, SourceType},
 };
 use parking_lot::Mutex;
@@ -9,25 +8,14 @@ use std::{
     io::Read,
     os::{fd::AsRawFd, unix::process::CommandExt},
     process::{Command, Stdio},
-    sync::{Arc, atomic::{AtomicBool, Ordering}},
+    sync::Arc,
     thread,
 };
 
 type Latest = Arc<Mutex<Result<Option<Frame>, String>>>;
-// Portals may reject a new session until the previous session's Close has completed.
-// Serialize only backend workers; the render/input thread never waits for D-Bus.
-static PORTAL_SESSION: Mutex<()> = Mutex::new(());
-enum Input {
-    Pointer(f64, f64),
-    Button(PointerButton, bool),
-    Scroll(f64, f64),
-    Key(DesktopKey, bool),
-}
 struct WaylandSource {
     latest: Latest,
-    input: tokio::sync::mpsc::Sender<Input>,
     cancel: Option<tokio::sync::oneshot::Sender<()>>,
-    control: Arc<AtomicBool>,
 }
 struct CaptureChild(std::process::Child);
 impl Drop for CaptureChild {
@@ -54,13 +42,9 @@ pub fn open(id: u64) -> Result<Box<dyn DesktopSource>, String> {
         .build()
         .map_err(|e| e.to_string())?;
     let latest: Latest = Arc::new(Mutex::new(Ok(None)));
-    let (tx, mut rx) = tokio::sync::mpsc::channel(128);
     let (cancel, mut cancelled) = tokio::sync::oneshot::channel();
     let output = latest.clone();
-    let control = Arc::new(AtomicBool::new(false));
-    let granted = control.clone();
     thread::Builder::new().name("desktop-portal".into()).spawn(move || {
-        let _session_guard = PORTAL_SESSION.lock();
         if !matches!(cancelled.try_recv(), Err(tokio::sync::oneshot::error::TryRecvError::Empty)) {
             return;
         }
@@ -69,21 +53,13 @@ pub fn open(id: u64) -> Result<Box<dyn DesktopSource>, String> {
             // belonged to the first capture's now-dropped Tokio runtime.
             let connection = portal_connection().await?;
             let result = async {
-            let remote = RemoteDesktop::with_connection(connection.clone()).await.map_err(|e|format!("RemoteDesktop proxy: {e}"))?;
             let cast = Screencast::with_connection(connection.clone()).await.map_err(|e|format!("ScreenCast proxy: {e}"))?;
-            let session = remote.create_session(Default::default()).await.map_err(|e|format!("CreateSession: {e}"))?;
+            let session = cast.create_session(Default::default()).await.map_err(|e|format!("CreateSession: {e}"))?;
             let run = async {
-                remote.select_devices(&session, SelectDevicesOptions::default().set_devices(DeviceType::Keyboard | DeviceType::Pointer)
-                    .set_persist_mode(PersistMode::DoNot))
-                    .await.map_err(|e|format!("SelectDevices: {e}"))?.response().map_err(|e|format!("SelectDevices: {e}"))?;
                 cast.select_sources(&session, SelectSourcesOptions::default().set_sources(Some(SourceType::Window.into()))
-                    .set_multiple(false).set_cursor_mode(CursorMode::Embedded))
+                    .set_multiple(false).set_cursor_mode(CursorMode::Embedded).set_persist_mode(PersistMode::DoNot))
                     .await.map_err(|e|format!("SelectSources: {e}"))?.response().map_err(|e|format!("SelectSources: {e}"))?;
-                let selected = remote.start(&session, None, Default::default()).await.map_err(|e|format!("Start consent dialog: {e}"))?.response().map_err(|e|format!("Start consent dialog: {e}"))?;
-                // GNOME grants input only when "Allow remote interaction" is on; still show the window.
-                let control = selected.devices().contains(DeviceType::Pointer) && selected.devices().contains(DeviceType::Keyboard);
-                granted.store(control, Ordering::Release);
-                if !control { eprintln!("Desktop computer: view only (enable \"Allow remote interaction\" in the share dialog for control)"); }
+                let selected = cast.start(&session, None, Default::default()).await.map_err(|e|format!("Start consent dialog: {e}"))?.response().map_err(|e|format!("Start consent dialog: {e}"))?;
                 let stream = selected.streams().first().ok_or("Portal returned no window")?;
                 let node = stream.pipe_wire_node_id();
                 let (width,height) = stream.size().ok_or("Portal did not supply capture dimensions")?;
@@ -101,7 +77,7 @@ pub fn open(id: u64) -> Result<Box<dyn DesktopSource>, String> {
                 let mut child = CaptureChild(command.spawn().map_err(|e|format!("Cannot start GStreamer PipeWire capture: {e}"))?);
                 let mut pipe = child.0.stdout.take().ok_or("Missing GStreamer frame pipe")?;
                 let frames = output.clone();
-                let (ended_tx, mut ended_rx) = tokio::sync::oneshot::channel();
+                let (ended_tx, ended_rx) = tokio::sync::oneshot::channel();
                 let reader = thread::spawn(move || {
                     let size = width as usize * height as usize * 4;
                     let mut rgba = vec![0; size];
@@ -114,23 +90,7 @@ pub fn open(id: u64) -> Result<Box<dyn DesktopSource>, String> {
                     };
                     let _ = ended_tx.send(result);
                 });
-                let result = loop {
-                    let input = tokio::select! {
-                        end = &mut ended_rx => break end.unwrap_or_else(|_|Err("Capture reader stopped".into())),
-                        input = rx.recv() => input,
-                    };
-                    let state = |pressed| if pressed { KeyState::Pressed } else { KeyState::Released };
-                    let result = match input {
-                        None => break Ok(()),
-                        Some(_) if !control => continue,
-                        Some(Input::Pointer(x,y)) => remote.notify_pointer_motion_absolute(&session,node,x,y,Default::default()).await,
-                        Some(Input::Button(button,pressed)) => remote.notify_pointer_button(&session,match button { PointerButton::Left=>272,PointerButton::Right=>273,PointerButton::Middle=>274 },state(pressed),Default::default()).await,
-                        Some(Input::Scroll(dx,dy)) => remote.notify_pointer_axis(&session,dx*15.,-dy*15.,Default::default()).await,
-                        Some(Input::Key(DesktopKey::Code(code),pressed)) => remote.notify_keyboard_keycode(&session,code as i32,state(pressed),Default::default()).await,
-                        Some(Input::Key(DesktopKey::Char(ch),pressed)) => remote.notify_keyboard_keysym(&session,if u32::from(ch)<=255 { ch as i32 } else { (u32::from(ch)|0x01000000) as i32 },state(pressed),Default::default()).await,
-                    };
-                    if let Err(error) = result { break Err(error.to_string()); }
-                };
+                let result = ended_rx.await.unwrap_or_else(|_|Err("Capture reader stopped".into()));
                 drop(child);
                 let _ = reader.join();
                 result
@@ -147,21 +107,12 @@ pub fn open(id: u64) -> Result<Box<dyn DesktopSource>, String> {
     }).map_err(|e|e.to_string())?;
     Ok(Box::new(WaylandSource {
         latest,
-        control,
-        input: tx,
         cancel: Some(cancel),
     }))
 }
-impl WaylandSource {
-    fn send(&self, input: Input) -> Result<(), String> {
-        self.input
-            .try_send(input)
-            .map_err(|e| format!("Desktop input queue: {e}"))
-    }
-}
 impl DesktopSource for WaylandSource {
     fn control_granted(&self) -> bool {
-        self.control.load(Ordering::Acquire)
+        false
     }
     fn next_frame(&mut self) -> Result<Option<Frame>, String> {
         self.latest
@@ -170,20 +121,19 @@ impl DesktopSource for WaylandSource {
             .map(Option::take)
             .map_err(|e| e.clone())
     }
-    fn send_pointer(&mut self, x: f64, y: f64) -> Result<(), String> {
-        self.send(Input::Pointer(x, y))
+    fn send_pointer(&mut self, _: f64, _: f64) -> Result<(), String> {
+        Err("Portal capture is view-only; launch an app in the monitor for control".into())
     }
-    fn send_button(&mut self, b: PointerButton, p: bool) -> Result<(), String> {
-        self.send(Input::Button(b, p))
+    fn send_button(&mut self, _: PointerButton, _: bool) -> Result<(), String> {
+        Err("Portal capture is view-only; launch an app in the monitor for control".into())
     }
-    fn send_scroll(&mut self, x: f64, y: f64) -> Result<(), String> {
-        self.send(Input::Scroll(x, y))
+    fn send_scroll(&mut self, _: f64, _: f64) -> Result<(), String> {
+        Err("Portal capture is view-only; launch an app in the monitor for control".into())
     }
-    fn send_key(&mut self, k: DesktopKey, p: bool) -> Result<(), String> {
-        self.send(Input::Key(k, p))
+    fn send_key(&mut self, _: DesktopKey, _: bool) -> Result<(), String> {
+        Err("Portal capture is view-only; launch an app in the monitor for control".into())
     }
     fn close(&mut self) {
-        self.control.store(false, Ordering::Release);
         *self.latest.lock() = Ok(None);
         if let Some(cancel) = self.cancel.take() {
             let _ = cancel.send(());

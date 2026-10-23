@@ -729,56 +729,57 @@ Options → Controls → **Desktop computer** is off by default. The persisted
 `desktop_computer` boolean in `client-settings.json` uses the ordinary client
 settings path (`SOLARIS_CLIENT_SETTINGS` may select an isolated test file).
 Enabling it alone never starts capture. Right-click the front of a `solaris:monitor`
-to open the local window picker; Enter selects a choice and starts the backend
-consent flow, even when NEW window is the sole entry. Monitor blocks require the server's hash-verified
+to open a centered, mouse-clickable window picker; Up/Down, Enter and Esc also
+work. Text wraps using measured font heights, including desktop HUD status/errors.
+Choosing NEW starts fresh system consent. Monitor blocks require the server's hash-verified
 Loader bundle; ordinary iron blocks and unmodified servers are not intercepted.
 Default local grants admit `register_items,register_blocks,load_assets`; an explicit
 `SOLARIS_CLIENT_LOADER_PERMISSIONS` value replaces these defaults.
 The monitor bundle maps the four `minecraft:black_glazed_terracotta` facing states
 to its north-authored model, rotated per facing; clearing the connection restores
 the vanilla models. Sneak+right-click bypasses capture for ordinary placement.
-Adjacent same-facing monitors on one horizontal row (up to 16 blocks) share one
-aspect-fit image and continuous pointer coordinates. The original clicked block
-owns the capture; extending/shrinking its row updates the geometry immediately.
-Removing that block closes capture. Taller/mixed-facing arrangements do not merge.
-On Wayland the system RemoteDesktop/ScreenCast picker supplies explicit capture
-and input consent in one combined session. `gst-launch-1.0` with the PipeWire,
-videoconvert, videoscale and fdsink plugins must be installed. The portal fd is
-inherited only by that capture child. Windows uses a local window list
-(Up/Down, Enter), Windows Graphics Capture, and window-targeted input.
+Connected, coplanar, same-facing monitors form one complete rectangle, up to
+16×16 blocks. A single quad covers that whole surface: one outer bezel, black
+aspect-fit bars, no internal model seams, and continuous pointer coordinates.
+The original clicked block owns capture; rectangle edits recompute geometry.
+Removing it closes capture. Holes, L shapes and mixed facings do not merge.
+Wayland uses a view-only ScreenCast portal with explicit system capture consent.
+`gst-launch-1.0` with PipeWire, videoconvert, videoscale and fdsink must be installed.
+The portal fd is inherited only by that capture child. Windows uses a local
+window list, Windows Graphics Capture, and window-targeted input.
 
 The latest RGBA frame is uploaded to a separate depth-tested world texture on
-the clicked face, aspect-fit without stretching. Right-click that screen again
-to explicitly enter control mode. Looking at the face maps the crosshair hit
+the clicked rectangle, aspect-fit without stretching. Right-click your active screen
+for **Change window**, **Stop sharing**, granted viewers' **Revoke** buttons and,
+only for controllable backends, **Control**. Changing windows preserves the bound
+surface and explicitly closes the previous source. Looking at the face maps the crosshair hit
 to window pixels; clicks, wheel and keyboard are local desktop input, never
-Minecraft packets. Escape releases all held desktop keys/buttons and leaves
-capture visible; Shift+Escape closes capture. Focus loss or looking away
-releases input. Disabling the option, removing/unloading the block, changing
+Minecraft packets. Escape is consumed only to leave active control; while merely
+streaming it opens vanilla pause. Shift+Escape closes only while looking at the
+bound screen; the monitor menu also provides Stop sharing. Focus loss or looking
+away releases input. Disabling the option, removing/unloading the block, changing
 dimension/connection, or closing the client releases capture and its GPU image.
 Portal denial/backend errors are visible in the local HUD, not fatal to play.
-Portal capture workers serialize session teardown before opening the next session;
-removing a block or reconnecting clears the old binding so another explicit click
-can start a fresh capture. View-only portal grants never enter input-control mode.
+Removing a block or reconnecting clears the binding so another explicit click
+can start fresh capture. Wayland capture is always view-only: it does not request
+RemoteDesktop permission or inject any input into the desktop seat.
 Wayland always requests fresh system consent (no stored restore tokens). Each
-capture owns its own D-Bus connection on its worker runtime; both portal proxies
-share that connection, then await Session.Close and connection close before the
-next capture. Never use ashpd's global connection on per-capture runtimes.
+capture owns a fresh D-Bus connection on its own worker runtime and awaits
+Session.Close and connection close. No global lock blocks a new picker behind an
+old closing session. Never use ashpd's global connection on per-capture runtimes.
 The real-bus reopen regression runs via `dbus-run-session -- cargo test
 reopening_capture_uses_a_live_connection_after_runtime_drop -- --ignored`.
 Portal errors carry their failing stage into the desktop HUD.
-Wayland RemoteDesktop input is seat-global, not captured-window-targeted. Control
-requires windowed mode and an uncovered target; the client releases cursor grab,
-blocks clicks/scroll over its own window, and never reinjects keyboard presses
-while the game is focused. Background-window keyboard control is therefore not
-supported by this portal path. Windows uses window-targeted messages instead.
+Windows uses window-targeted messages. Input eligibility is per-source
+`control_granted()`, not a platform-wide foreground/fullscreen heuristic.
 
 ### Optional permission-gated pictures
 
 The native `solaris:screen` protocol shows other players a generic lit panel,
 not desktop bytes, by default. Right-clicking another player's active monitor
 requests viewing permission rather than opening local capture. The owner receives
-a modal **Deny / Allow** prompt, defaulting to Deny; Up/Down selects and Enter
-confirms (Esc denies). It explicitly grants pictures from all the owner's open
+a centered native **Deny / Allow** dialog, defaulting to Deny. Mouse buttons and
+Up/Down/Enter work; Esc denies. It explicitly grants pictures from all the owner's open
 screens, only while the viewer looks. Viewers cannot forward any input.
 
 F8 revokes all locally approved viewers and leaves all requested viewing sessions.
@@ -791,6 +792,10 @@ Remote JPEG dimensions and allocation limits are checked before decoding; STOP
 replaces the last image with the generic panel rather than retaining private pixels.
 The local full-resolution texture and remote textures have separate geometry
 buffers but share GPU material handles.
+Screen identity is a clean 16-byte cutover: big-endian i32 x/y/z of the minimum
+anchor, then u8 side, width, height, dimension. Width/height are each 1..16;
+height extends +Y. Including the version/kind bytes, REQUESTED's request number
+starts at offset 18. Old 15-byte identities are not accepted.
 
 Sharing acceptance requires two real native clients: verify generic-only before
 Allow, denial, live changes after Allow while looking, looking-away STOP, F8 revoke,

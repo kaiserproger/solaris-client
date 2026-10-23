@@ -16,6 +16,7 @@ pub(crate) struct Texture {
 struct Vertex {
     position: [f32; 4],
     uv: [f32; 2],
+    image: [f32; 4],
 }
 impl Texture {
     pub fn new(device: &wgpu::Device, face: Face, size: [u32; 2], shared: Option<&Self>) -> Self {
@@ -79,9 +80,9 @@ impl Texture {
                 entry_point: Some("vs"),
                 compilation_options: Default::default(),
                 buffers: &[wgpu::VertexBufferLayout {
-                    array_stride: 24,
+                    array_stride: 40,
                     step_mode: wgpu::VertexStepMode::Vertex,
-                    attributes: &wgpu::vertex_attr_array![0=>Float32x4,1=>Float32x2],
+                    attributes: &wgpu::vertex_attr_array![0=>Float32x4,1=>Float32x2,2=>Float32x4],
                 }],
             },
             fragment: Some(wgpu::FragmentState {
@@ -130,6 +131,7 @@ impl Texture {
                 &[Vertex {
                     position: [0.; 4],
                     uv: [0.; 2],
+                    image: [0.; 4],
                 }; 6],
             ),
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
@@ -178,20 +180,7 @@ impl Texture {
         camera: [f64; 3],
         matrix: glam::Mat4,
     ) {
-        let (origin, right, down) = self.face.basis();
-        let extent = fit(self.size, self.face.width);
-        let uv = [[0., 0.], [0., 1.], [1., 1.], [0., 0.], [1., 1.], [1., 0.]];
-        let vertices = uv.map(|uv| {
-            let point: [f32; 3] = std::array::from_fn(|i| {
-                (origin[i] - camera[i]
-                    + right[i] * ((f64::from(self.face.width) - extent[0]) * 0.5 + uv[0] * extent[0])
-                    + down[i] * ((1. - extent[1]) * 0.5 + uv[1] * extent[1])) as f32
-            });
-            Vertex {
-                position: (matrix * glam::Vec3::from_array(point).extend(1.)).to_array(),
-                uv: uv.map(|v| v as f32),
-            }
-        });
+        let vertices = face_vertices(self.face, self.size, camera, matrix);
         queue.write_buffer(&self.vertices, 0, bytemuck::cast_slice(&vertices));
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("desktop on monitor face"),
@@ -221,10 +210,67 @@ impl Texture {
         pass.draw(0..6, 0..1);
     }
 }
+fn face_vertices(face: Face, size: [u32; 2], camera: [f64; 3], matrix: glam::Mat4) -> [Vertex; 6] {
+    let (origin, right, down) = face.basis();
+    let bounds = [f64::from(face.width), f64::from(face.height)];
+    let extent = fit(size, face.width, face.height);
+    let image = [
+        ((bounds[0] - extent[0]) * 0.5) as f32,
+        ((bounds[1] - extent[1]) * 0.5) as f32,
+        extent[0] as f32, extent[1] as f32,
+    ];
+    [[0., 0.], [0., 1.], [1., 1.], [0., 0.], [1., 1.], [1., 0.]].map(|corner| {
+        let uv = [corner[0] * bounds[0], corner[1] * bounds[1]];
+        let point = std::array::from_fn(|i| (origin[i] - camera[i] + right[i] * uv[0] + down[i] * uv[1]) as f32);
+        Vertex {
+            position: (matrix * glam::Vec3::from_array(point).extend(1.)).to_array(),
+            uv: uv.map(|value| value as f32),
+            image,
+        }
+    })
+}
 const SHADER:&str = "
-struct Out { @builtin(position) position:vec4<f32>, @location(0) uv:vec2<f32> }
-@vertex fn vs(@location(0) position:vec4<f32>, @location(1) uv:vec2<f32>)->Out { var o:Out; o.position=position; o.uv=uv; return o; }
+struct Out { @builtin(position) position:vec4<f32>, @location(0) uv:vec2<f32>, @location(1) image:vec4<f32> }
+@vertex fn vs(@location(0) position:vec4<f32>, @location(1) uv:vec2<f32>, @location(2) image:vec4<f32>)->Out { var o:Out; o.position=position; o.uv=uv; o.image=image; return o; }
 @group(0) @binding(0) var image:texture_2d<f32>;
 @group(0) @binding(1) var sample_image:sampler;
-@fragment fn fs(i:Out)->@location(0) vec4<f32> { return vec4<f32>(textureSample(image,sample_image,i.uv).rgb,1.); }
+@fragment fn fs(i:Out)->@location(0) vec4<f32> {
+    let picture_uv = (i.uv-i.image.xy)/i.image.zw;
+    let color = textureSample(image,sample_image,clamp(picture_uv,vec2<f32>(0.),vec2<f32>(1.)));
+    let bounds = 2.*i.image.xy+i.image.zw;
+    let edge = min(i.uv,bounds-i.uv);
+    if (any(edge<vec2<f32>(0.0625))) { return vec4<f32>(0.055,0.065,0.075,1.); }
+    if (any(picture_uv<vec2<f32>(0.)) || any(picture_uv>vec2<f32>(1.))) { return vec4<f32>(0.,0.,0.,1.); }
+    return vec4<f32>(color.rgb,1.);
+}
 ";
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn full_surface_shader_validates_without_nonuniform_derivatives() {
+        let module = wgpu::naga::front::wgsl::parse_str(SHADER).unwrap();
+        wgpu::naga::valid::Validator::new(
+            wgpu::naga::valid::ValidationFlags::all(), wgpu::naga::valid::Capabilities::empty()
+        ).validate(&module).unwrap();
+    }
+    #[test]
+    fn a_single_quad_covers_the_entire_rectangle_including_letterbox() {
+        for side in 2..=5 {
+            let face = Face { block: [10, 20, 30], side, width: 4, height: 2 };
+            let vertices = face_vertices(face, [1920, 1080], [0.; 3], glam::Mat4::IDENTITY);
+            let (origin, right, down) = face.basis();
+            for vertex in vertices {
+                assert!(vertex.uv[0] == 0. || vertex.uv[0] == 4.);
+                assert!(vertex.uv[1] == 0. || vertex.uv[1] == 2.);
+                for axis in 0..3 {
+                    let expected = origin[axis] + right[axis] * f64::from(vertex.uv[0]) + down[axis] * f64::from(vertex.uv[1]);
+                    assert!((f64::from(vertex.position[axis]) - expected).abs() < 0.00001);
+                }
+                assert!((2. * vertex.image[0] + vertex.image[2] - 4.).abs() < 0.00001);
+                assert!((2. * vertex.image[1] + vertex.image[3] - 2.).abs() < 0.00001);
+            }
+        }
+    }
+}

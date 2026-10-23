@@ -13,6 +13,9 @@ impl UiState {
     pub(crate) fn rebuild(&mut self, inventory: &InventoryStore, content: &Content) -> Result<()> {
         self.nodes.clear();
         self.anim.nodes_epoch += 1;
+        if self.desktop_dialog.is_some() {
+            return self.desktop_dialog_tree();
+        }
         match self.screen {
             Screen::Game => self.hud_tree(inventory, content)?,
             Screen::Menu => self.menu_tree(inventory, content)?,
@@ -1129,23 +1132,25 @@ impl UiState {
         // F3 overlay (vanilla): renders on top even when HUD is hidden.
         if !self.debug_lines.is_empty() {
             let lines: Vec<String> = self.debug_lines.iter().take(16).cloned().collect();
-            let height = lines.len() as f32 * 12. + 8.;
+            let width = (self.width - 16.).clamp(1., 332.);
+            let layouts = lines.iter().map(|line| self.text.layout(&json!({"text":line}), width).map(std::sync::Arc::new)).collect::<Result<Vec<_>>>()?;
+            let height = layouts.iter().map(|layout| layout.height.max(9.) + 4.).sum::<f32>() + 8.;
             self.add(
                 "debug/panel".into(),
                 "presentation",
                 String::new(),
-                [4., 4., 340., height],
+                [4., 4., width + 8., height],
                 true,
                 None,
                 NodeAction::None,
                 Paint::Solid([0.; 3], 0.5),
             )?;
-            for (i, line) in lines.into_iter().enumerate() {
-                self.label(
-                    &format!("debug/line/{i}"),
-                    line,
-                    [8., 8. + i as f32 * 12., 332., 12.],
-                )?;
+            let mut top = 8.;
+            for (i, (line, layout)) in lines.into_iter().zip(layouts).enumerate() {
+                let height = layout.height.max(9.);
+                self.add(format!("debug/line/{i}"), "text", line, [8., top, width, height],
+                    true, None, NodeAction::None, Paint::RichText(layout))?;
+                top += height + 4.;
             }
         }
         if self.settings.get("hide_hud").and_then(Value::as_bool) == Some(true) {

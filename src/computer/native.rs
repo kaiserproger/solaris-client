@@ -20,7 +20,8 @@ pub(crate) struct Computer {
     size: [u32; 2],
     pointer: Option<[f64; 2]>,
     controlling: bool,
-    pointer_outside_game: bool,
+    managing: bool,
+    waiting: bool,
     keys: Vec<(PhysicalKey, DesktopKey)>,
     buttons: Vec<PointerButton>,
     picker: Vec<WindowInfo>,
@@ -30,34 +31,44 @@ pub(crate) struct Computer {
 }
 impl Computer {
     pub fn has_overlay(&self) -> bool {
-        self.sharing.pending.is_some() || !self.picker.is_empty() || !self.message.is_empty()
+        self.has_modal() || !self.message.is_empty()
+    }
+    pub fn has_modal(&self) -> bool {
+        self.sharing.pending.is_some() || self.managing || !self.picker.is_empty()
+    }
+    pub(crate) fn dialog(&self) -> Option<crate::ui::desktop::DesktopDialog> {
+        use crate::ui::desktop::{DesktopAction, DesktopDialog};
+        if let Some(dialog) = self.sharing.dialog(self.selection) { return Some(dialog); }
+        if self.managing {
+            let mut entries = vec![
+                ("Change window".into(), DesktopAction::ChangeWindow),
+                ("Stop sharing".into(), DesktopAction::StopCapture),
+            ];
+            if self.source.as_ref().is_some_and(|source| source.control_granted()) {
+                entries.insert(0, ("Control".into(), DesktopAction::Control));
+            }
+            entries.extend(self.sharing.viewers.iter().map(|(viewer, name)| (
+                format!("Revoke: {name}"), DesktopAction::RevokeViewer(*viewer)
+            )));
+            entries.push(("Done".into(), DesktopAction::DismissMenu));
+            return Some(DesktopDialog {
+                title: "Your monitor".into(),
+                body: vec!["Change its window or manage viewer permissions.".into()],
+                entries, selected: self.selection,
+            });
+        }
+        if self.picker.is_empty() { return None; }
+        let mut entries = self.picker.iter().map(|window| (window.title.clone(), DesktopAction::PickWindow(window.id))).collect::<Vec<_>>();
+        entries.push(("Cancel".into(), DesktopAction::CancelPicker));
+        Some(DesktopDialog {
+            title: format!("Desktop window — {} monitor block(s)", self.face.map_or(1, |face| u16::from(face.width) * u16::from(face.height))),
+            body: vec!["Choose a window to display on this monitor.".into()],
+            entries,
+            selected: self.selection,
+        })
     }
     pub fn lines(&self) -> Vec<String> {
-        if let Some(lines) = self.sharing.lines() { return lines; }
-        if !self.picker.is_empty() {
-            let mut lines = vec![format!("LOCAL desktop window — {} monitor block(s): Up/Down, Enter selects, Esc cancels",
-                self.face.map_or(1, |face| face.width))];
-            let start = self.selection.saturating_sub(5);
-            lines.extend(
-                self.picker
-                    .iter()
-                    .enumerate()
-                    .skip(start)
-                    .take(12)
-                    .map(|(i, w)| {
-                        format!(
-                            "{} {}",
-                            if i == self.selection { ">" } else { " " },
-                            w.title
-                        )
-                    }),
-            );
-            lines
-        } else if !self.message.is_empty() {
-            vec![self.message.clone()]
-        } else {
-            Vec::new()
-        }
+        if self.has_modal() || self.message.is_empty() { Vec::new() } else { vec![self.message.clone()] }
     }
     pub fn release_input(&mut self) {
         let mut failed = false;
@@ -76,6 +87,17 @@ impl Computer {
         self.controlling = false;
         self.pointer = None;
     }
+    fn escape(&mut self, close_looked_at_screen: bool) -> bool {
+        if close_looked_at_screen {
+            self.close();
+        } else if self.controlling {
+            self.release_input();
+            self.message = "Desktop control released. Right-click for monitor menu".into();
+        } else {
+            return false;
+        }
+        true
+    }
     fn close(&mut self) {
         self.release_input();
         if let Some(mut source) = self.source.take() {
@@ -84,7 +106,8 @@ impl Computer {
         self.face = None;
         self.state = None;
         self.binding = None;
-        self.pointer_outside_game = false;
+        self.managing = false;
+        self.waiting = false;
         self.epochs = (0, 0);
         self.selection = 0;
         self.size = [0; 2];
@@ -95,8 +118,12 @@ impl Computer {
         self.picker.clear();
         match super::open(id) {
             Ok(source) => {
+                self.release_input();
+                if let Some(mut previous) = self.source.take() { previous.close(); }
+                self.managing = false;
+                self.waiting = true;
                 self.source = Some(source);
-                self.message="Approve the system window/capture/control dialog. Esc cancels; Shift+Esc closes.".into();
+                self.message="Approve the system window picker. Shift+Esc while looking closes capture.".into();
             }
             Err(error) => self.fail(error),
         }
@@ -146,14 +173,15 @@ impl App {
             self.computer.close();
         }
         if let (Some(binding), Some(face)) = (self.computer.binding, self.computer.face) {
-            if let Some(row) = Face::row(binding, face.side, |p| self.session.world.block(p) == self.computer.state) {
-                self.computer.face = Some(row);
-                if let Some(renderer) = &mut self.renderer { renderer.set_desktop_face(row); }
+            if let Some(rectangle) = Face::rectangle(binding, face.side, |p| self.session.world.block(p) == self.computer.state) {
+                self.computer.face = Some(rectangle);
+                if let Some(renderer) = &mut self.renderer { renderer.set_desktop_face(rectangle); }
             } else {
                 self.computer.close();
             }
         }
         self.sync_screen_sharing(enabled);
+        self.consume_computer_dialog_action();
         if self.computer.controlling {
             let pixel = self.computer_hit().and_then(|hit| {
                 self.computer
@@ -188,7 +216,8 @@ impl App {
                     } else if let (Some(renderer), Some(face)) =
                         (&mut self.renderer, self.computer.face)
                     {
-                        let first = self.computer.size == [0; 2];
+                        let first = self.computer.waiting || self.computer.size == [0; 2];
+                        self.computer.waiting = false;
                         self.computer.size = size;
                         renderer.update_desktop(face, &frame);
                         if first {
@@ -196,7 +225,7 @@ impl App {
                             self.computer.message = if source.control_granted() {
                                 "LIVE desktop. Right-click to control; Esc releases; Shift+Esc closes"
                             } else {
-                                "View only — enable 'Allow remote interaction' in the share dialog to control"
+                                "LIVE view-only desktop. Right-click for Change window, Stop sharing and viewer permissions"
                             }.into();
                             self.publish_session();
                         }
@@ -216,13 +245,51 @@ impl App {
             renderer.clear_desktop();
         }
     }
-    pub(crate) fn computer_event(&mut self, event: &WindowEvent) -> bool {
-        match event {
-            WindowEvent::CursorLeft { .. } => self.computer.pointer_outside_game = true,
-            WindowEvent::CursorEntered { .. } | WindowEvent::CursorMoved { .. } =>
-                self.computer.pointer_outside_game = false,
+    fn consume_computer_dialog_action(&mut self) {
+        if let Some(action) = self.session.ui_mut().and_then(|ui| ui.take_desktop_action()) {
+            self.apply_computer_dialog_action(action);
+        }
+    }
+    fn pick_computer_window(&mut self) {
+        self.computer.managing = false;
+        self.computer.selection = 0;
+        match super::list_windows() {
+            Ok(windows) if !windows.is_empty() => self.computer.picker = windows,
+            Ok(_) => self.computer.fail("No capturable desktop windows".into()),
+            Err(error) => self.computer.fail(error),
+        }
+    }
+    fn apply_computer_dialog_action(&mut self, action: crate::ui::desktop::DesktopAction) {
+        use crate::ui::desktop::DesktopAction;
+        match action {
+            DesktopAction::PickWindow(id) if self.computer.picker.iter().any(|window| window.id == id) => self.computer.start(id),
+            DesktopAction::CancelPicker if !self.computer.picker.is_empty() => {
+                if self.computer.source.is_some() { self.computer.picker.clear(); } else { self.computer.close(); }
+            }
+            DesktopAction::ViewPermission { request, allow } => self.answer_screen_request(request, allow),
+            DesktopAction::DismissMenu => self.computer.managing = false,
+            DesktopAction::ChangeWindow if self.computer.managing => self.pick_computer_window(),
+            DesktopAction::StopCapture if self.computer.managing => self.computer.close(),
+            DesktopAction::RevokeViewer(viewer) if self.computer.managing => self.revoke_screen_viewer(viewer),
+            DesktopAction::Control if self.computer.managing
+                && self.computer.source.as_ref().is_some_and(|source| source.control_granted()) => {
+                self.computer.managing = false;
+                self.computer.controlling = true;
+                self.computer.message = "CONTROLLING LOCAL DESKTOP — Esc releases; Shift+Esc closes".into();
+                if let Some(window) = &self.window {
+                    use winit::window::CursorGrabMode;
+                    if window.set_cursor_grab(CursorGrabMode::Locked)
+                        .or_else(|_| window.set_cursor_grab(CursorGrabMode::Confined)).is_ok() {
+                        window.set_cursor_visible(false);
+                        self.cursor_locked = true;
+                    }
+                }
+            }
             _ => {}
         }
+        self.publish_session();
+    }
+    pub(crate) fn computer_event(&mut self, event: &WindowEvent) -> bool {
         if matches!(event, WindowEvent::CloseRequested) {
             self.computer.close();
             return false;
@@ -236,39 +303,48 @@ impl App {
         {
             return false;
         }
-        if self.sharing_event(event) { return true; }
-        if let WindowEvent::KeyboardInput { event, .. } = event {
-            let pressed = event.state == ElementState::Pressed;
-            if event.physical_key == PhysicalKey::Code(KeyCode::Escape)
-                && pressed
-                && (self.computer.source.is_some() || !self.computer.picker.is_empty())
-            {
-                if self.shift_held || self.computer.size == [0; 2] {
-                    self.computer.close();
-                } else {
-                    self.computer.release_input();
-                    self.computer.message =
-                        "Desktop control released. Right-click screen resumes; Shift+Esc closes"
-                            .into();
+        if self.computer.has_modal() {
+            let pointer = match event {
+                WindowEvent::CursorMoved { position, .. } => {
+                    self.last_cursor = Some((position.x, position.y));
+                    Some((crate::ui::PointerPhase::Move, position.x, position.y))
                 }
+                WindowEvent::MouseInput { state: ElementState::Pressed, button: MouseButton::Left, .. } =>
+                    self.last_cursor.map(|(x, y)| (crate::ui::PointerPhase::Down, x, y)),
+                _ => None,
+            };
+            if let Some((phase, x, y)) = pointer {
+                let _ = self.session.execute_ui(crate::ui::UiIntent::Pointer {
+                    phase, x, y, button: Some(crate::ui::PointerButton::Left), modifiers: Default::default(),
+                });
+                if matches!(phase, crate::ui::PointerPhase::Down) {
+                    let _ = self.session.execute_ui(crate::ui::UiIntent::Pointer {
+                        phase: crate::ui::PointerPhase::Up, x, y, button: Some(crate::ui::PointerButton::Left), modifiers: Default::default(),
+                    });
+                }
+                self.consume_computer_dialog_action();
                 self.publish_session();
                 return true;
             }
-            if !self.computer.picker.is_empty() {
-                if pressed {
+            if matches!(event, WindowEvent::MouseInput { .. } | WindowEvent::MouseWheel { .. }) { return true; }
+            if let WindowEvent::KeyboardInput { event, .. } = event {
+                if event.state == ElementState::Pressed && !event.repeat {
+                    use crate::ui::desktop::DesktopAction;
+                    let dialog = self.computer.dialog().unwrap();
+                    let count = dialog.entries.len();
                     match event.physical_key {
-                        PhysicalKey::Code(KeyCode::ArrowDown) => {
-                            self.computer.selection =
-                                (self.computer.selection + 1) % self.computer.picker.len()
-                        }
-                        PhysicalKey::Code(KeyCode::ArrowUp) => {
-                            self.computer.selection =
-                                (self.computer.selection + self.computer.picker.len() - 1)
-                                    % self.computer.picker.len()
-                        }
+                        PhysicalKey::Code(KeyCode::ArrowDown) => self.computer.selection = (self.computer.selection + 1) % count,
+                        PhysicalKey::Code(KeyCode::ArrowUp) => self.computer.selection = (self.computer.selection + count - 1) % count,
                         PhysicalKey::Code(KeyCode::Enter) => {
-                            let id = self.computer.picker[self.computer.selection].id;
-                            self.computer.start(id);
+                            if let Some((_, action)) = dialog.entries.get(self.computer.selection) {
+                                self.apply_computer_dialog_action(action.clone());
+                            }
+                        }
+                        PhysicalKey::Code(KeyCode::Escape) => {
+                            let action = if let Some(request) = &self.computer.sharing.pending {
+                                DesktopAction::ViewPermission { request: request.number, allow: false }
+                            } else if self.computer.managing { DesktopAction::DismissMenu } else { DesktopAction::CancelPicker };
+                            self.apply_computer_dialog_action(action);
                         }
                         _ => {}
                     }
@@ -276,17 +352,24 @@ impl App {
                 }
                 return true;
             }
+        }
+        if self.sharing_event(event) { return true; }
+        if let WindowEvent::KeyboardInput { event, .. } = event {
+            let pressed = event.state == ElementState::Pressed;
+            if event.physical_key == PhysicalKey::Code(KeyCode::Escape) && pressed {
+                let close = self.shift_held && self.computer_hit().is_some_and(|hit|
+                    self.computer.face.is_some_and(|face| face.contains(hit.position, hit.face)));
+                if self.computer.escape(close) {
+                    self.publish_session();
+                    return true;
+                }
+            }
             if self.computer.controlling {
                 if matches!(
                     event.physical_key,
                     PhysicalKey::Code(KeyCode::ShiftLeft | KeyCode::ShiftRight)
                 ) {
                     self.shift_held = pressed;
-                }
-                // RemoteDesktop injects into the seat, not into the captured window.
-                // Never feed keys back into this focused game.
-                if cfg!(target_os = "linux") && pressed && self.focused {
-                    return true;
                 }
                 let key = if pressed {
                     self.computer.input_key(event)
@@ -324,9 +407,6 @@ impl App {
         if let WindowEvent::MouseInput { state, button, .. } = event {
             let pressed = *state == ElementState::Pressed;
             if self.computer.controlling {
-                if cfg!(target_os = "linux") && pressed && !self.computer.pointer_outside_game {
-                    return true;
-                }
                 let button = match button {
                     MouseButton::Left => Some(PointerButton::Left),
                     MouseButton::Right => Some(PointerButton::Right),
@@ -363,8 +443,8 @@ impl App {
                 if !pressed {
                     return true;
                 }
-                let Some(face) = Face::row(hit.position, hit.face, |p| self.session.world.block(p) == Some(hit.state)) else {
-                    self.computer.message = "Monitor rows support at most 16 blocks".into();
+                let Some(face) = Face::rectangle(hit.position, hit.face, |p| self.session.world.block(p) == Some(hit.state)) else {
+                    self.computer.message = "Monitors must form a complete rectangle, at most 16×16 blocks".into();
                     self.publish_session();
                     return true;
                 };
@@ -373,58 +453,16 @@ impl App {
                     .session
                     .command(Command::Input(InputIntent::ReleaseAll));
                 if self.computer.face == Some(face) && self.computer.size != [0; 2] {
-                    if !self.computer.source.as_ref().is_some_and(|source| source.control_granted()) {
-                        self.computer.message = "View only — enable 'Allow remote interaction' in the share dialog to control".into();
-                        self.publish_session();
-                        return true;
-                    }
-                    if cfg!(target_os = "linux")
-                        && self.window.as_ref().is_some_and(|window| window.fullscreen().is_some()) {
-                        self.computer.message = "Wayland input requires windowed mode; keep the captured window uncovered".into();
-                        self.publish_session();
-                        return true;
-                    }
-                    self.computer.controlling = true;
-                    if let Some(window) = &self.window {
-                        #[cfg(target_os = "linux")]
-                        {
-                            let _ = window.set_cursor_grab(winit::window::CursorGrabMode::None);
-                            window.set_cursor_visible(true);
-                            self.cursor_locked = false;
-                            self.computer.pointer_outside_game = false;
-                        }
-                        #[cfg(not(target_os = "linux"))]
-                        {
-                        use winit::window::CursorGrabMode;
-                        if window
-                            .set_cursor_grab(CursorGrabMode::Locked)
-                            .or_else(|_| window.set_cursor_grab(CursorGrabMode::Confined))
-                            .is_ok()
-                        {
-                            window.set_cursor_visible(false);
-                            self.cursor_locked = true;
-                        }
-                        }
-                    }
-                    self.computer.message = if cfg!(target_os = "linux") {
-                        "Keep captured window uncovered. Seat input is blocked over the game; keyboard cannot target a background window. Esc releases."
-                    } else {
-                        "CONTROLLING LOCAL DESKTOP — Esc releases; Shift+Esc closes"
-                    }.into();
+                    self.computer.managing = true;
+                    self.computer.selection = 0;
+                    self.release("desktop monitor menu");
                 } else {
                     self.computer.close();
                     self.computer.face = Some(face);
                     self.computer.state = Some(hit.state);
                     self.computer.binding = Some(hit.position);
                     self.computer.epochs = self.session.context_epochs();
-                    match super::list_windows() {
-                        Ok(windows) if !windows.is_empty() => {
-                            self.computer.picker = windows;
-                            self.computer.selection = 0;
-                        }
-                        Ok(_) => self.computer.fail("No capturable desktop windows".into()),
-                        Err(error) => self.computer.fail(error),
-                    }
+                    self.pick_computer_window();
                 }
                 self.publish_session();
                 return true;
@@ -433,9 +471,6 @@ impl App {
         if self.computer.controlling
             && let WindowEvent::MouseWheel { delta, .. } = event
         {
-            if cfg!(target_os = "linux") && !self.computer.pointer_outside_game {
-                return true;
-            }
             let (x, y) = match delta {
                 MouseScrollDelta::LineDelta(x, y) => (f64::from(*x), f64::from(*y)),
                 MouseScrollDelta::PixelDelta(p) => (p.x / 40., p.y / 40.),
@@ -692,7 +727,8 @@ mod tests {
             epochs: (0, 0),
             size: [0; 2],
             pointer: None,
-            pointer_outside_game: false,
+            managing: false,
+            waiting: false,
             picker: Vec::new(),
             selection: 0,
             message: String::new(),
@@ -713,14 +749,15 @@ mod tests {
         let log = std::sync::Arc::new(parking_lot::Mutex::new(Vec::new()));
         let mut computer = Computer {
             source: Some(Box::new(RecordingSource(log.clone()))),
-            face: Some(Face { block: [1, 2, 3], side: 2, width: 1 }),
+            face: Some(Face { block: [1, 2, 3], side: 2, width: 1, height: 1 }),
             binding: Some([1, 2, 3]),
             state: Some(10),
             epochs: (9, 3),
             size: [640, 480],
             pointer: None,
             controlling: false,
-            pointer_outside_game: false,
+            managing: false,
+            waiting: false,
             keys: Vec::new(),
             buttons: Vec::new(),
             picker: Vec::new(),
@@ -740,12 +777,40 @@ mod tests {
     #[test]
     fn single_window_picker_displays_bound_row_before_capture() {
         let mut computer = Computer::default();
-        computer.face = Some(Face { block: [1, 2, 3], side: 2, width: 3 });
+        computer.face = Some(Face { block: [1, 2, 3], side: 2, width: 3, height: 1 });
         computer.picker.push(WindowInfo { id: 0, title: "NEW window".into() });
         assert!(computer.has_overlay());
-        assert!(computer.lines()[0].contains("3 monitor block(s)"));
-        assert!(computer.lines()[1].contains("NEW window"));
+        let dialog = computer.dialog().unwrap();
+        assert!(dialog.title.contains("3 monitor block(s)"));
+        assert_eq!(dialog.entries[0].0, "NEW window");
+        assert_eq!(dialog.entries[1].1, crate::ui::desktop::DesktopAction::CancelPicker);
         assert!(computer.source.is_none());
+    }
+    #[test]
+    fn streaming_escape_keeps_vanilla_pause_and_only_control_consumes_it() {
+        let log = std::sync::Arc::new(parking_lot::Mutex::new(Vec::new()));
+        let mut computer = Computer::default();
+        computer.source = Some(Box::new(RecordingSource(log.clone())));
+        assert!(!computer.escape(false));
+        assert!(computer.source.is_some());
+        computer.controlling = true;
+        assert!(computer.escape(false));
+        assert!(!computer.controlling && computer.source.is_some());
+        assert!(!computer.escape(false));
+        assert!(computer.escape(true));
+        assert!(computer.source.is_none());
+        assert_eq!(&*log.lock(), &["close"]);
+    }
+    #[test]
+    fn owner_menu_exposes_change_stop_and_named_viewer_revocation() {
+        let mut computer = Computer::default();
+        computer.managing = true;
+        computer.sharing.viewers.insert([7; 16], "Viewer".into());
+        let dialog = computer.dialog().unwrap();
+        use crate::ui::desktop::DesktopAction;
+        assert_eq!(dialog.entries[0].1, DesktopAction::ChangeWindow);
+        assert_eq!(dialog.entries[1].1, DesktopAction::StopCapture);
+        assert!(dialog.entries.iter().any(|(name, action)| name == "Revoke: Viewer" && *action == DesktopAction::RevokeViewer([7; 16])));
     }
     #[test]
     fn physical_keys_preserve_shortcuts_and_modifier_sides() {

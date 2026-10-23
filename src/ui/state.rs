@@ -335,6 +335,7 @@ pub(crate) enum NodeAction {
     Generate,
     Loader(super::loader::LoaderControl),
     Dialog(super::dialog::DialogControl),
+    Desktop(super::desktop::DesktopAction),
 }
 #[derive(Clone, Debug, Default)]
 pub(crate) enum Paint {
@@ -460,6 +461,8 @@ pub struct UiState {
     pub(crate) selected_slot: u8,
     pub(crate) selected_name_tick: u64,
     pub(crate) debug_lines: Vec<String>,
+    pub(crate) desktop_dialog: Option<super::desktop::DesktopDialog>,
+    pub(crate) desktop_action: Option<super::desktop::DesktopAction>,
     pub(crate) title_error: Option<String>,
     pub(crate) last_server: Option<String>,
     pub(crate) last_username: Option<String>,
@@ -578,6 +581,8 @@ impl UiState {
             selected_slot: 0,
             selected_name_tick: u64::MAX,
             debug_lines: Vec::new(),
+            desktop_dialog: None,
+            desktop_action: None,
             title_error: None,
             last_server: None,
             last_username: None,
@@ -616,6 +621,8 @@ impl UiState {
     pub const MAX_MOUSE_SENSITIVITY: f32 = 3.;
     pub const MOUSE_SENSITIVITY_STEP: f32 = 0.25;
     pub const DEFAULT_DAMAGE_TILT_STRENGTH: f64 = 1.;
+    /// Vanilla Brightness (`gamma` in options.txt): 0 Moody .. 1 Bright.
+    pub const DEFAULT_GAMMA: f64 = 0.5;
     pub const DEFAULT_VOLUME: f32 = 1.;
     pub const MAX_VOLUME: f32 = 1.;
     pub const VOLUME_STEP: f32 = 0.1;
@@ -627,6 +634,7 @@ impl UiState {
         "fov",
         "mouse_sensitivity",
         "damage_tilt_strength",
+        "gamma",
         "volume",
         "ui_scale",
         "fullscreen",
@@ -684,7 +692,7 @@ impl UiState {
                     Self::MAX_MOUSE_SENSITIVITY as f64
                 )))
             }
-            "volume" | "damage_tilt_strength" => {
+            "volume" | "damage_tilt_strength" | "gamma" => {
                 let f = Self::setting_f64(value)?;
                 if !f.is_finite() {
                     return None;
@@ -712,6 +720,7 @@ impl UiState {
             "fov" => Some(json!(Self::DEFAULT_FOV_DEG)),
             "mouse_sensitivity" => Some(json!(Self::DEFAULT_MOUSE_SENSITIVITY)),
             "damage_tilt_strength" => Some(json!(Self::DEFAULT_DAMAGE_TILT_STRENGTH)),
+            "gamma" => Some(json!(Self::DEFAULT_GAMMA)),
             "volume" => Some(json!(Self::DEFAULT_VOLUME)),
             "ui_scale" => Some(json!(Self::DEFAULT_UI_SCALE)),
             _ => None,
@@ -765,6 +774,17 @@ impl UiState {
                     0.1
                 } else {
                     stepped.min(Self::MAX_MOUSE_SENSITIVITY as f64)
+                }))
+            }
+            "gamma" => {
+                let Some(cur) = current.and_then(sane).and_then(|v| Self::setting_f64(&v)) else {
+                    return Some(json!(Self::DEFAULT_GAMMA));
+                };
+                let stepped = ((cur + Self::VOLUME_STEP as f64) * 10.).round() / 10.;
+                Some(json!(if cur >= 1. - 1e-9 {
+                    0.
+                } else {
+                    stepped.min(1.)
                 }))
             }
             "volume" | "damage_tilt_strength" => {
@@ -2643,6 +2663,7 @@ impl UiState {
             NodeAction::None => return Err("target_not_interactive".into()),
             NodeAction::Loader(control) => self.activate_loader(control, e)?,
             NodeAction::Dialog(control) => self.activate_dialog(control, e)?,
+            NodeAction::Desktop(action) => self.activate_desktop(action)?,
             NodeAction::Focus(id) => {
                 self.focus = Some(id);
                 self.invalidate();

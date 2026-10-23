@@ -258,6 +258,8 @@ impl App {
         let publish_start = Instant::now();
         // Synchronize derived UI state before building the snapshot. An idle
         // publication gate cannot rely on another turn to publish these nodes.
+        let desktop_dialog = self.computer.dialog();
+        if let Some(ui) = self.session.ui_mut() { ui.set_desktop_dialog(desktop_dialog); }
         if self.computer.has_overlay() {
             let lines = self.computer.lines();
             if let Some(ui) = self.session.ui_mut() { ui.set_debug_lines(lines); }
@@ -723,7 +725,7 @@ impl App {
         }
         let game_input = self.focused && !self.occluded && self.session.phase() == "play"
             && self.session.screen() == "game" && !self.session.chat_open()
-            && !self.session.dialog_screen_active();
+            && !self.session.dialog_screen_active() && !self.computer.has_modal();
         if !game_input && self.cursor_locked {
             let _ = window.set_cursor_grab(CursorGrabMode::None);
             window.set_cursor_visible(true);
