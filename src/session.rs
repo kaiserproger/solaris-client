@@ -51,6 +51,11 @@ pub(crate) const TICK_DETAIL_NAMES: [&str; 11] = [
     "ui_synchronize", "commands_effects_atlas", "refresh_scene",
 ];
 
+#[derive(Default)]
+pub(crate) struct ScreenAudioStats {
+    pub packets: u64,
+}
+
 pub struct Session {
     instance_id: String,
     presentation: bool,
@@ -72,6 +77,8 @@ pub struct Session {
     ui_clock: std::time::Instant,
     loader: crate::loader::Loader,
     pub(crate) screen_relay: crate::computer::relay::Relay,
+    /// Per-screen audio counters for observation (viewer side, owner's own monitor).
+    pub(crate) screen_audio: std::collections::BTreeMap<crate::computer::relay::Id, ScreenAudioStats>,
     pub(crate) voice_net: crate::voice::Net,
     environment: Environment,
     terrain: Option<Terrain>,
@@ -177,6 +184,7 @@ impl Session {
             ui_clock: std::time::Instant::now(),
             loader: crate::loader::Loader::default(),
             screen_relay: Default::default(),
+            screen_audio: Default::default(),
             voice_net: Default::default(),
             environment: Environment::new(),
             terrain: None,
@@ -513,6 +521,7 @@ impl Session {
         self.loading = None;
         self.loader.reset();
         self.screen_relay = Default::default();
+        self.screen_audio.clear();
         self.content = None;
         if let Some(audio) = &self.audio {
             audio.stop();
@@ -745,6 +754,24 @@ impl Session {
             }
         }
         Ok(())
+    }
+    /// Hear one screen's Opus packet at the monitor rectangle's centre (silent beyond 32 blocks).
+    pub(crate) fn play_screen_audio(&mut self, screen: crate::computer::relay::Id, seq: u32, opus: &[u8]) -> Result<()> {
+        let Some(audio) = &self.audio else { return Ok(()) };
+        let centre = screen.face.centre().map(|v| v as f32);
+        audio.voice().push(screen.speaker(), centre, Some(crate::computer::relay::AUDIO_RANGE), seq, opus)?;
+        self.screen_audio.entry(screen).or_default().packets += 1;
+        Ok(())
+    }
+    /// Deliver relayed screen audio queued by the relay to the mixer.
+    pub(crate) fn pump_screen_audio(&mut self) {
+        let dimension = self.screen_dimension();
+        while let Some(packet) = self.screen_relay.audio.pop_front() {
+            if Some(packet.screen.dimension) != dimension { continue; }
+            if let Err(error) = self.play_screen_audio(packet.screen, packet.seq, &packet.opus) {
+                self.event(json!({"type":"screen_audio_rejected","error":error}));
+            }
+        }
     }
     pub(crate) fn send_screen(&self, payload: Vec<u8>) -> Result<()> {
         if self.phase != "play" || payload.len() > 32767 {

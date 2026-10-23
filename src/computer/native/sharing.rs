@@ -1,5 +1,6 @@
 use super::*;
-use crate::computer::{Frame, relay::{self, Encoder, Id, Request}};
+use crate::computer::{Frame, audio::AudioSource, relay::{self, Encoder, Id, Request}};
+use crate::voice::{self, FRAME};
 use std::{collections::{BTreeMap, BTreeSet}, time::{Duration, Instant}};
 
 #[derive(Default)]
@@ -11,7 +12,24 @@ pub(super) struct Sharing {
     watching: BTreeSet<Id>,
     next_frame: Option<Instant>,
     encoder: Encoder,
+    audio: Option<AudioCapture>,
+    /// `source.audio()` returned nothing (or failed) for this announcement: do not retry.
+    audio_unavailable: bool,
 }
+/// Owner side of a monitor's audio: capture -> 20 ms Opus packets -> relay and/or own mixer.
+struct AudioCapture {
+    source: Box<dyn AudioSource>,
+    encoder: voice::Encoder,
+    pcm: Vec<f32>,
+    seq: u32,
+    sent: u64,
+    /// Demand went off at this time; the capture stays warm briefly for looks away and back.
+    idle_since: Option<Instant>,
+}
+/// A non-private capture (Windows loopback) is released this long after demand ends.
+const AUDIO_GRACE: Duration = Duration::from_secs(3);
+/// Never queue more than this much owner audio (240 ms) behind a stalled frame.
+const MAX_PENDING_FRAMES: usize = 12;
 impl Sharing {
     pub fn dialog(&self, selected: usize) -> Option<crate::ui::desktop::DesktopDialog> {
         use crate::ui::desktop::{DesktopAction, DesktopDialog};
@@ -77,6 +95,8 @@ impl App {
             }
             self.computer.sharing.viewers.clear();
             self.computer.sharing.next_frame = None;
+            self.computer.sharing.audio = None;
+            self.computer.sharing.audio_unavailable = false;
             if let Some(id) = current {
                 match self.session.send_screen(id.packet(0)) {
                     Ok(()) => self.computer.sharing.announced = Some(id),
@@ -140,6 +160,90 @@ impl App {
                 Ok(())
             });
         if let Err(error) = result { self.computer.message = format!("Screen sharing: {error}"); }
+    }
+    /// Capture the shared source's audio and relay it while viewers are demanded; a
+    /// private-sink app (nested monitor) is also played at its own monitor.
+    pub(super) fn pump_screen_audio(&mut self) {
+        let announced = self.computer.sharing.announced;
+        let demanded = announced.is_some_and(|id| {
+            !self.computer.sharing.viewers.is_empty() && self.session.screen_relay.demand.contains_key(&id)
+        });
+        let private = self.computer.source.as_ref().is_some_and(|source| source.private_audio());
+        let now = Instant::now();
+        let sharing = &mut self.computer.sharing;
+        if announced.is_none() || self.computer.source.is_none() {
+            sharing.audio = None;
+            return;
+        }
+        if demanded || private {
+            if let Some(capture) = &mut sharing.audio { capture.idle_since = None; }
+        } else if let Some(capture) = &mut sharing.audio
+            && now.duration_since(*capture.idle_since.get_or_insert(now)) >= AUDIO_GRACE
+        {
+            sharing.audio = None;
+        }
+        if sharing.audio.is_none() && (demanded || private) && !sharing.audio_unavailable {
+            let native = self.computer.source.as_mut().and_then(|source| source.audio());
+            match (crate::computer::audio::resolve(native), voice::Encoder::new()) {
+                (Some(source), Ok(encoder)) => {
+                    sharing.audio = Some(AudioCapture { source, encoder, pcm: Vec::new(), seq: 0, sent: 0, idle_since: None });
+                }
+                (_, encoder) => {
+                    sharing.audio_unavailable = true;
+                    if let Err(error) = encoder { eprintln!("screen audio: {error}"); }
+                }
+            }
+        }
+        let (Some(id), Some(capture)) = (announced, &mut sharing.audio) else { return };
+        let mut failure = capture.source.drain(&mut capture.pcm).err();
+        let excess = capture.pcm.len().saturating_sub(MAX_PENDING_FRAMES * FRAME);
+        capture.pcm.drain(..excess - excess % FRAME);
+        let mut packets = Vec::new();
+        while failure.is_none() && capture.pcm.len() >= FRAME {
+            let frame: [f32; FRAME] = capture.pcm[..FRAME].try_into().expect("one frame");
+            capture.pcm.drain(..FRAME);
+            match capture.encoder.encode(&frame) {
+                Ok(opus) => {
+                    capture.seq = capture.seq.wrapping_add(1);
+                    packets.push((capture.seq, opus));
+                }
+                Err(error) => failure = Some(error),
+            }
+        }
+        capture.sent += packets.len() as u64;
+        let local = private;
+        if let Some(error) = failure {
+            eprintln!("screen audio: {error}");
+            sharing.audio = None;
+            sharing.audio_unavailable = true;
+        }
+        for (seq, opus) in packets {
+            if local && let Err(error) = self.session.play_screen_audio(id, seq, &opus) {
+                eprintln!("screen audio playback: {error}");
+            }
+            if demanded {
+                let mut packet = id.packet(7);
+                packet.extend(seq.to_be_bytes());
+                packet.extend(&opus);
+                if let Err(error) = self.session.send_screen(packet) {
+                    self.computer.message = format!("Screen sharing: {error}");
+                    break;
+                }
+            }
+        }
+    }
+    /// Observation of monitor audio: what this client captured and what it heard.
+    pub(crate) fn screen_audio_facts(&self) -> serde_json::Value {
+        let capture = self.computer.sharing.audio.as_ref();
+        let heard: Vec<_> = self.session.screen_audio.iter().map(|(id, stats)| {
+            serde_json::json!({"block": id.face.block, "side": id.face.side, "packets": stats.packets})
+        }).collect();
+        serde_json::json!({
+            "capturing": capture.is_some(),
+            "packets_sent": capture.map_or(0, |c| c.sent),
+            "unavailable": self.computer.sharing.audio_unavailable,
+            "heard": heard,
+        })
     }
     pub(super) fn request_shared_screen(&mut self, face: Face) -> bool {
         let Some(dimension) = self.session.screen_dimension() else { return false; };

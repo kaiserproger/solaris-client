@@ -279,6 +279,7 @@ impl App {
         observation.data["window"] = self.window_state();
         observation.data["profile"] = json!(self.options.profile);
         observation.data["debug_overlay"] = json!(self.debug_overlay);
+        observation.data["screen_audio"] = self.screen_audio_facts();
         let mut shared = self
             .shared
             .observation

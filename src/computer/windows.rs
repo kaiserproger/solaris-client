@@ -694,6 +694,14 @@ impl DesktopSource for WindowsDesktopSource {
     fn control_granted(&self) -> bool {
         true
     }
+    fn audio(&mut self) -> Option<Box<dyn super::audio::AudioSource>> {
+        let mut pid = 0;
+        // SAFETY: the out pointer is a live local.
+        unsafe { GetWindowThreadProcessId(self.hwnd(), Some(&mut pid)) };
+        super::loopback::open(pid)
+            .inspect_err(|error| eprintln!("desktop audio: {error}"))
+            .ok()
+    }
     fn next_frame(&mut self) -> Result<Option<Frame>, String> {
         if let Some(message) = self.shared.error.lock().take() {
             return Err(message);

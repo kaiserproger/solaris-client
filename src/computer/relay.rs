@@ -25,6 +25,10 @@ impl Id {
         }
         Ok(Self { face: Face { block, side, width, height }, dimension })
     }
+    /// The 16 identity bytes on the wire: the key of this screen's audio speaker.
+    pub fn speaker(self) -> [u8; 16] {
+        self.packet(0)[2..18].try_into().expect("screen id is 16 bytes")
+    }
     pub fn packet(self, kind: u8) -> Vec<u8> {
         let mut out = Vec::with_capacity(32);
         out.extend([1, kind]);
@@ -59,8 +63,20 @@ pub(crate) struct Demand {
     pub width: u16,
     pub fps: u8,
 }
+/// One relayed Opus packet of a screen's audio, waiting for the session mixer.
+pub(crate) struct AudioIn {
+    pub screen: Id,
+    pub seq: u32,
+    pub opus: Vec<u8>,
+}
+/// At most this many undelivered packets (1.3 s); the oldest are dropped.
+const MAX_AUDIO_QUEUE: usize = 64;
+pub(crate) const MAX_OPUS: usize = 1000;
+/// Monitor audio is silent beyond this many blocks (the server's looking range).
+pub(crate) const AUDIO_RANGE: f32 = 32.;
 #[derive(Default)]
 pub(crate) struct Relay {
+    pub audio: VecDeque<AudioIn>,
     pub registered: bool,
     pub active: BTreeMap<Id, Remote>,
     pub demand: BTreeMap<Id, Demand>,
@@ -107,6 +123,7 @@ impl Relay {
                 let reason = r.u8()?;
                 r.done()?;
                 if reason > 3 { return Err("invalid screen stop reason".into()); }
+                self.audio.retain(|packet| packet.screen != id);
                 if let Some(remote) = self.active.get_mut(&id) {
                     remote.frame = None;
                     remote.dirty = true;
@@ -151,6 +168,17 @@ impl Relay {
                 } else {
                     self.active.remove(&id);
                     self.demand.remove(&id);
+                    self.audio.retain(|packet| packet.screen != id);
+                }
+            }
+            7 => {
+                let seq = r.i32()? as u32;
+                let opus = r.take(r.bytes.len() - r.offset)?;
+                if opus.is_empty() || opus.len() > MAX_OPUS { return Err("invalid screen audio packet".into()); }
+                // Audio racing a STOP/ACTIVE-off is ordinary: ignore it silently.
+                if self.active.contains_key(&id) {
+                    if self.audio.len() >= MAX_AUDIO_QUEUE { self.audio.pop_front(); }
+                    self.audio.push_back(AudioIn { screen: id, seq, opus: opus.to_vec() });
                 }
             }
             _ => return Err("unknown screen relay message".into()),
@@ -281,6 +309,28 @@ mod tests {
         corrupt[18..22].copy_from_slice(&2u32.to_be_bytes());
         assert!(relay.receive(&corrupt).is_err());
         assert!(relay.active[&id()].frame.is_none());
+    }
+    #[test]
+    fn relayed_audio_is_queued_only_for_active_screens_bounded_and_dropped_on_stop() {
+        let mut relay = Relay::default();
+        let audio = |seq: u32, opus: &[u8]| {
+            let mut packet = id().packet(7);
+            packet.extend(seq.to_be_bytes());
+            packet.extend(opus);
+            packet
+        };
+        relay.receive(&audio(1, b"early")).unwrap();
+        assert!(relay.audio.is_empty(), "no ACTIVE screen: ignored, not an error");
+        let mut active = id().packet(6); active.push(1); relay.receive(&active).unwrap();
+        for seq in 0..70 { relay.receive(&audio(seq, &[seq as u8; 20])).unwrap(); }
+        assert_eq!(relay.audio.len(), MAX_AUDIO_QUEUE);
+        assert_eq!(relay.audio.front().unwrap().seq, 6, "oldest dropped");
+        assert_eq!(relay.audio.back().unwrap().opus, [69; 20]);
+        assert_eq!(relay.audio[0].screen.speaker(), id().packet(0)[2..18]);
+        assert!(relay.receive(&audio(1, b"")).is_err());
+        assert!(relay.receive(&audio(1, &[0; MAX_OPUS + 1])).is_err());
+        let mut stop = id().packet(2); stop.push(0); relay.receive(&stop).unwrap();
+        assert!(relay.audio.is_empty(), "STOP discards queued audio");
     }
     #[test]
     fn screen_identity_places_height_before_dimension_without_legacy_fallback() {

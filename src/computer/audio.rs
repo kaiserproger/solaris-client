@@ -52,7 +52,7 @@ impl Pcm {
     pub fn fail(&self, error: String) {
         self.0.lock().error.get_or_insert(error);
     }
-    fn drain(&self, out: &mut Vec<f32>) -> Result<(), String> {
+    pub fn drain(&self, out: &mut Vec<f32>) -> Result<(), String> {
         let mut queue = self.0.lock();
         out.extend(queue.samples.drain(..));
         queue.error.clone().map_or(Ok(()), Err)
@@ -339,6 +339,36 @@ mod tests {
         assert_eq!(&out[..4], [0., 0.25, 0., 0.25], "the clip loops");
         assert!(WavSource::parse(&wav(44_100, 1, &[1])).is_err());
         assert!(WavSource::parse(b"nope").is_err());
+    }
+    /// Real PipeWire graph: an app (`pw-play`) routed by `PIPEWIRE_NODE` into the
+    /// private null sink is heard by the monitor capture, and nothing before it plays.
+    /// Run through `tools/screen_audio_graph.sh` (private PipeWire + WirePlumber).
+    #[cfg(target_os = "linux")]
+    #[test]
+    #[ignore = "needs a PipeWire graph: run tools/screen_audio_graph.sh"]
+    fn null_sink_monitor_captures_only_what_the_routed_app_plays() {
+        let sink = NullSink::create().unwrap();
+        let mut capture = sink.capture().unwrap();
+        assert!(capture.replaces_app_output());
+        let tone: Vec<i16> = (0..48_000 * 2 * 2)
+            .map(|i| ((i / 2) as f32 * 440. * std::f32::consts::TAU / RATE as f32).sin().mul_add(12_000., 0.) as i16)
+            .collect();
+        let path = std::env::temp_dir().join(format!("solaris-screen-audio-{}.wav", std::process::id()));
+        std::fs::write(&path, wav(RATE, 2, &tone)).unwrap();
+        let status = Command::new("pw-play")
+            .envs(sink.env())
+            .arg(&path)
+            .stderr(Stdio::null())
+            .status()
+            .unwrap();
+        let _ = std::fs::remove_file(&path);
+        assert!(status.success());
+        let mut heard = Vec::new();
+        capture.drain(&mut heard).unwrap();
+        let loud = heard.iter().filter(|s| s.abs() > 0.05).count();
+        assert!(loud > RATE as usize / 2, "monitor heard {loud} loud samples of {}", heard.len());
+        capture.close();
+        drop(sink);
     }
     #[test]
     fn pipe_bytes_become_bounded_finite_samples_across_split_floats() {

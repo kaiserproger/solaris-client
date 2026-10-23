@@ -266,6 +266,7 @@ impl App {
                 }
             }
         }
+        self.pump_screen_audio();
         if self.computer.source.is_none()
             && let Some(renderer) = &mut self.renderer
         {

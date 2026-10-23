@@ -310,6 +310,9 @@ impl DesktopSource for Nested {
     fn audio(&mut self) -> Option<Box<dyn AudioSource>> {
         self.sink.as_ref()?.capture().ok()
     }
+    fn private_audio(&self) -> bool {
+        self.sink.is_some()
+    }
     fn send_pointer(&mut self, x: f64, y: f64) -> Result<(), String> {
         self.send(Cmd::Pointer(x, y))
     }

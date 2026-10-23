@@ -176,6 +176,7 @@ impl Session {
             if let Err(error) = self.screen_relay.receive(payload) {
                 self.event(json!({"type":"screen_payload_rejected","error":error}));
             }
+            self.pump_screen_audio();
         } else if channel == crate::voice::CHANNEL && self.phase == "play" {
             let payload = r.take(r.bytes.len() - r.offset)?;
             if let Err(error) = self.receive_voice(payload) {
@@ -504,6 +505,7 @@ impl Session {
                 self.phase = "configuration".into();
                 self.loader.reset();
                 self.screen_relay = Default::default();
+                self.screen_audio.clear();
                 self.reset_voice();
                 self.clear_loader_content()?;
                 self.keys.clear();
@@ -625,6 +627,7 @@ impl Session {
         self.flat_world = flat;
         self.dimension = Some(dimension.clone());
         self.screen_relay = Default::default();
+        self.screen_audio.clear();
         self.dimension_epoch += 1;
         self.entities.clear_dimension();
         self.predicted_blocks.clear();

@@ -8,6 +8,8 @@ pub(crate) mod nested;
 #[cfg(target_os = "linux")]
 mod wayland;
 #[cfg(windows)]
+mod loopback;
+#[cfg(windows)]
 mod windows;
 
 pub struct Frame {
@@ -45,6 +47,11 @@ pub trait DesktopSource: Send {
     /// not (a whole-system monitor would feed Solaris's own playback back).
     fn audio(&mut self) -> Option<Box<dyn audio::AudioSource>> {
         None
+    }
+    /// True when `audio()` is the app's only output (a private sink), so the
+    /// owner hears it through the world mixer and capture runs without demand.
+    fn private_audio(&self) -> bool {
+        false
     }
     fn close(&mut self);
 }
@@ -147,6 +154,18 @@ impl Face {
             height: (maximum[1] - minimum[1] + 1) as u8,
         })
     }
+    /// World position of the rectangle's face centre (where its audio is heard).
+    pub fn centre(self) -> [f64; 3] {
+        let [x, y, z] = self.block.map(f64::from);
+        let half = f64::from(self.width) / 2.;
+        let up = y + f64::from(self.height) / 2.;
+        match self.side {
+            2 => [x + half, up, z],
+            3 => [x + half, up, z + 1.],
+            4 => [x, up, z + half],
+            _ => [x + 1., up, z + half],
+        }
+    }
     pub fn contains(self, block: [i32; 3], side: i32) -> bool {
         let axis = if self.side <= 3 { 0 } else { 2 };
         side == self.side && (0..3).all(|i| if i == axis || i == 1 {
@@ -210,6 +229,14 @@ mod tests {
         assert!(too_wide.unwrap_err().message(2, None).contains("17 blocks wide"));
     }
 
+    #[test]
+    fn face_centre_sits_on_the_front_plane_of_the_rectangle() {
+        let face = |side| Face { block: [10, 64, -4], side, width: 4, height: 2 };
+        assert_eq!(face(2).centre(), [12., 65., -4.]);
+        assert_eq!(face(3).centre(), [12., 65., -3.]);
+        assert_eq!(face(4).centre(), [10., 65., -2.]);
+        assert_eq!(face(5).centre(), [11., 65., -2.]);
+    }
     #[test]
     fn every_face_maps_center_and_rejects_letterbox() {
         for side in 0..6 {
