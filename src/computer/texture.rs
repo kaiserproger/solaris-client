@@ -185,7 +185,7 @@ impl Texture {
         });
         queue.write_buffer(&self.vertices, 0, bytemuck::cast_slice(&vertices));
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("local desktop on iron face"),
+            label: Some("desktop on monitor face"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                 view: color,
                 resolve_target: None,

@@ -728,8 +728,14 @@ sleep-based gameplay readiness claim.
 Options → Controls → **Desktop computer** is off by default. The persisted
 `desktop_computer` boolean in `client-settings.json` uses the ordinary client
 settings path (`SOLARIS_CLIENT_SETTINGS` may select an isolated test file).
-Enabling it alone never starts capture. Right-click an ordinary iron block to
-select a desktop window; no server computer channel or server opt-in is used.
+Enabling it alone never starts capture. Right-click the front of a `solaris:monitor`
+to select a desktop window. Monitor blocks require the server's hash-verified
+Loader bundle; ordinary iron blocks and unmodified servers are not intercepted.
+Default local grants admit `register_items,register_blocks,load_assets`; an explicit
+`SOLARIS_CLIENT_LOADER_PERMISSIONS` value replaces these defaults.
+The monitor bundle maps the four `minecraft:black_glazed_terracotta` facing states
+to its north-authored model, rotated per facing; clearing the connection restores
+the vanilla models. Sneak+right-click bypasses capture for ordinary placement.
 On Wayland the system RemoteDesktop/ScreenCast picker supplies explicit capture
 and input consent in one combined session. `gst-launch-1.0` with the PipeWire,
 videoconvert, videoscale and fdsink plugins must be installed. The portal fd is
@@ -752,10 +758,15 @@ Saved Wayland window choices use `ExplicitlyRevoked` persistence and a private
 `desktop-windows.json` in the client data root. Selecting a saved choice reuses and
 replaces its restore token; selecting **NEW window** always opens the system picker.
 The compositor can still prompt again or reject an expired/revoked token.
+Wayland RemoteDesktop input is seat-global, not captured-window-targeted. Control
+requires windowed mode and an uncovered target; the client releases cursor grab,
+blocks clicks/scroll over its own window, and never reinjects keyboard presses
+while the game is focused. Background-window keyboard control is therefore not
+supported by this portal path. Windows uses window-targeted messages instead.
 
 For acceptance, use an isolated offline world and a dedicated non-sensitive
 desktop text window. Record the exact client/server builds, the explicit consent
-step, a completed client GPU screenshot of the live window on the iron face,
+step, a completed client GPU screenshot of the live window on the monitor face,
 and an independently observed forwarded click/key in the target window.
 Do not call cross-compilation, numerical UV tests, a portal permission grant,
 or a raw captured frame proof of this end-to-end interaction.

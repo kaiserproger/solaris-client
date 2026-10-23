@@ -27,10 +27,20 @@ impl ResourceSource {
                 .split_once('/')
                 .ok_or("Loader resource namespace missing")?;
             split_id(&format!("{ns}:{resource}"))?;
-            if ns == "minecraft" || ns == "solaris" {
+            if ns == "minecraft" {
                 return Err(format!(
                     "Loader resource cannot override built-in namespace {ns}"
                 ));
+            }
+            if ns == "solaris" {
+                for root in &self.roots {
+                    if root_resource_bytes(root, path, self.limits.max_source_bytes)?.is_some() {
+                        return Err(format!("Loader resource overrides built-in resource {path}"));
+                    }
+                }
+                if self.indexed.contains_key(path) {
+                    return Err(format!("Loader resource overrides built-in resource {path}"));
+                }
             }
             if bytes.len() as u64 > self.limits.max_source_bytes {
                 return Err(format!("Loader resource byte bound {path}"));
@@ -89,6 +99,7 @@ impl Content {
         &mut self,
         paths: &BTreeMap<String, Arc<[u8]>>,
         entries: &[Value],
+        block_entries: &[Value],
     ) -> Result<()> {
         let declarations = items::parse_items(entries)?;
         let source = self.source.with_loader(paths)?;
@@ -114,6 +125,7 @@ impl Content {
             }
         }
         let mut baker = Baker::new(&source);
+        let blocks = super::loader_blocks::PreparedBlocks::new(self, &source, block_entries, &declarations, paths)?;
         let mut raw = Vec::new();
         let mut sprite_names = BTreeSet::new();
         let mut visited = BTreeSet::new();
@@ -142,6 +154,7 @@ impl Content {
                 raw.push((item.id.clone(), model));
             }
         }
+        blocks.textures(&mut sprite_names);
         let base_textures = self
             .loader_base
             .as_ref()
@@ -189,6 +202,8 @@ impl Content {
                     .finish(&textures, &materials)
                     .map_err(|e| format!("Loader item {id}: {e}"))?;
             }
+            let blocks = blocks.finish(&textures, &materials)?;
+            self.install_loader_blocks(blocks);
             self.source = source;
             self.loader_items = declarations;
             return Ok(());
@@ -249,6 +264,7 @@ impl Content {
                 .finish(&textures, &materials)
                 .map_err(|e| format!("Loader item {id}: {e}"))?;
         }
+        let blocks = blocks.finish(&textures, &materials)?;
         let atlas_bytes = base_rgba.len()
             + base_mips.iter().map(|m| m.rgba.len()).sum::<usize>()
             + atlas.rgba.len()
@@ -293,6 +309,7 @@ impl Content {
             animation.layer += base_layers;
         }
         // No fallible work after this point: the source, atlas and declarations publish together.
+        self.install_loader_blocks(blocks);
         if self.loader_base.is_none() {
             self.loader_base = Some(BaseResources {
                 rgba: Arc::clone(&self.rgba),
@@ -328,12 +345,13 @@ impl Content {
             self.animations.truncate(base.animation_count);
         }
         self.source.loader.clear();
+        self.clear_loader_blocks();
         self.loader_items.clear();
         Ok(())
     }
 }
 
-fn validate_model(
+pub(super) fn validate_model(
     source: &ResourceSource,
     id: &str,
     stack: &mut Vec<String>,
@@ -485,6 +503,33 @@ pub(super) fn validate_png_header(bytes: &[u8], limits: ResourceLimits, name: &s
 mod tests {
     use super::*;
     use serde_json::json;
+    #[test]
+    fn monitor_carriers_rotate_and_restore_without_touching_vanilla_identity() {
+        let (mut content, paths, items) = resources();
+        let block = content.names.len();
+        content.names.push("minecraft:black_glazed_terracotta".into());
+        let mut states = Vec::new();
+        for (facing, side) in [("north", 2), ("east", 5), ("south", 3), ("west", 4)] {
+            let mut info = content.states[1].clone();
+            info.block = block;
+            states.push((content.states.len() as u32, side, info.model));
+            content.states.push(info);
+            content.properties.push(BTreeMap::from([("facing".into(), facing.into())]));
+        }
+        let blocks = [json!({"id":"example:monitor","name":"Monitor","model":"example:item/sword",
+            "carrier":"minecraft:black_glazed_terracotta","drop_item":"example:sword"})];
+        content.activate_loader_resources(&paths, &items, &blocks).unwrap();
+        for &(state, side, _) in &states {
+            assert_eq!(content.loader_block(state), Some(("example:monitor", side)));
+            assert_eq!(content.name(state), Some("minecraft:black_glazed_terracotta"));
+            assert_eq!(content.model_for(state).unwrap().unwrap().quads[0].face, side as u8);
+        }
+        content.clear_loader_resources().unwrap();
+        for (state, _, model) in states {
+            assert!(content.loader_block(state).is_none());
+            assert_eq!(content.states[state as usize].model, model);
+        }
+    }
 
     fn resources() -> (Content, BTreeMap<String, Arc<[u8]>>, Vec<Value>) {
         let mut content = Content::test_cube();
@@ -540,7 +585,7 @@ mod tests {
         let (mut content, mut paths, entries) = resources();
         let base = Arc::clone(&content.rgba);
         let kept = content.texture("minecraft:kept").unwrap();
-        content.activate_loader_resources(&paths, &entries).unwrap();
+        content.activate_loader_resources(&paths, &entries, &[]).unwrap();
         let texture = content.texture("example:item/blade").unwrap();
         assert!(texture.layer >= 1);
         let quad = &content.bake_model("example:item/sword").unwrap().quads[0];
@@ -563,7 +608,7 @@ mod tests {
         );
         assert!(
             content
-                .activate_loader_resources(&paths, &entries)
+                .activate_loader_resources(&paths, &entries, &[])
                 .unwrap_err()
                 .contains("cycle")
         );
@@ -586,13 +631,13 @@ mod tests {
     #[test]
     fn replacing_connection_resources_does_not_accumulate_atlas_pages() {
         let (mut content, paths, entries) = resources();
-        content.activate_loader_resources(&paths, &entries).unwrap();
+        content.activate_loader_resources(&paths, &entries, &[]).unwrap();
         let layers = content.texture_layers;
-        content.activate_loader_resources(&paths, &entries).unwrap();
+        content.activate_loader_resources(&paths, &entries, &[]).unwrap();
         assert_eq!(content.texture_layers, layers);
         content.clear_loader_resources().unwrap();
         assert_eq!(content.texture_layers, 1);
-        content.activate_loader_resources(&paths, &entries).unwrap();
+        content.activate_loader_resources(&paths, &entries, &[]).unwrap();
         assert_eq!(content.texture_layers, layers);
     }
 
@@ -606,7 +651,7 @@ mod tests {
         );
         assert!(
             content
-                .activate_loader_resources(&paths, &entries)
+                .activate_loader_resources(&paths, &entries, &[])
                 .unwrap_err()
                 .contains("unsupported Loader animated texture")
         );
@@ -621,7 +666,7 @@ mod tests {
         entries[0]["base_item"] = json!("minecraft:nonexistent");
         assert!(
             content
-                .activate_loader_resources(&paths, &entries)
+                .activate_loader_resources(&paths, &entries, &[])
                 .unwrap_err()
                 .contains("base_item")
         );
@@ -630,7 +675,7 @@ mod tests {
         invalid.remove("assets/example/textures/item/blade.png");
         assert!(
             content
-                .activate_loader_resources(&invalid, &entries)
+                .activate_loader_resources(&invalid, &entries, &[])
                 .unwrap_err()
                 .contains("resource")
         );
@@ -641,7 +686,7 @@ mod tests {
         );
         assert!(
             content
-                .activate_loader_resources(&invalid, &entries)
+                .activate_loader_resources(&invalid, &entries, &[])
                 .unwrap_err()
                 .contains("overrides")
         );
@@ -667,7 +712,7 @@ mod tests {
             paths.insert(path.into(), Arc::from(png));
             assert!(
                 content
-                    .activate_loader_resources(&paths, &entries)
+                    .activate_loader_resources(&paths, &entries, &[])
                     .unwrap_err()
                     .contains("PNG dimensions")
             );

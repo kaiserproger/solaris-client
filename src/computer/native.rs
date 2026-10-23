@@ -18,6 +18,7 @@ pub(crate) struct Computer {
     size: [u32; 2],
     pointer: Option<[f64; 2]>,
     controlling: bool,
+    pointer_outside_game: bool,
     keys: Vec<(PhysicalKey, DesktopKey)>,
     buttons: Vec<PointerButton>,
     picker: Vec<WindowInfo>,
@@ -119,7 +120,7 @@ impl App {
             )
             .ok()??;
         match hit {
-            Hit::Block(hit) if content.name(hit.state) == Some("minecraft:iron_block") => Some(hit),
+            Hit::Block(hit) if content.loader_block(hit.state) == Some(("solaris:monitor", hit.face)) => Some(hit),
             _ => None,
         }
     }
@@ -200,6 +201,12 @@ impl App {
         }
     }
     pub(crate) fn computer_event(&mut self, event: &WindowEvent) -> bool {
+        match event {
+            WindowEvent::CursorLeft { .. } => self.computer.pointer_outside_game = true,
+            WindowEvent::CursorEntered { .. } | WindowEvent::CursorMoved { .. } =>
+                self.computer.pointer_outside_game = false,
+            _ => {}
+        }
         if matches!(event, WindowEvent::CloseRequested) {
             self.computer.close();
             return false;
@@ -259,6 +266,11 @@ impl App {
                 ) {
                     self.shift_held = pressed;
                 }
+                // RemoteDesktop injects into the seat, not into the captured window.
+                // Never feed keys back into this focused game.
+                if cfg!(target_os = "linux") && pressed && self.focused {
+                    return true;
+                }
                 let key = if pressed {
                     self.computer.input_key(event)
                 } else {
@@ -295,6 +307,9 @@ impl App {
         if let WindowEvent::MouseInput { state, button, .. } = event {
             let pressed = *state == ElementState::Pressed;
             if self.computer.controlling {
+                if cfg!(target_os = "linux") && pressed && !self.computer.pointer_outside_game {
+                    return true;
+                }
                 let button = match button {
                     MouseButton::Left => Some(PointerButton::Left),
                     MouseButton::Right => Some(PointerButton::Right),
@@ -344,8 +359,23 @@ impl App {
                         self.publish_session();
                         return true;
                     }
+                    if cfg!(target_os = "linux")
+                        && self.window.as_ref().is_some_and(|window| window.fullscreen().is_some()) {
+                        self.computer.message = "Wayland input requires windowed mode; keep the captured window uncovered".into();
+                        self.publish_session();
+                        return true;
+                    }
                     self.computer.controlling = true;
                     if let Some(window) = &self.window {
+                        #[cfg(target_os = "linux")]
+                        {
+                            let _ = window.set_cursor_grab(winit::window::CursorGrabMode::None);
+                            window.set_cursor_visible(true);
+                            self.cursor_locked = false;
+                            self.computer.pointer_outside_game = false;
+                        }
+                        #[cfg(not(target_os = "linux"))]
+                        {
                         use winit::window::CursorGrabMode;
                         if window
                             .set_cursor_grab(CursorGrabMode::Locked)
@@ -355,9 +385,13 @@ impl App {
                             window.set_cursor_visible(false);
                             self.cursor_locked = true;
                         }
+                        }
                     }
-                    self.computer.message =
-                        "CONTROLLING LOCAL DESKTOP — Esc releases; Shift+Esc closes".into();
+                    self.computer.message = if cfg!(target_os = "linux") {
+                        "Keep captured window uncovered. Seat input is blocked over the game; keyboard cannot target a background window. Esc releases."
+                    } else {
+                        "CONTROLLING LOCAL DESKTOP — Esc releases; Shift+Esc closes"
+                    }.into();
                 } else {
                     self.computer.close();
                     self.computer.face = Some(face);
@@ -382,6 +416,9 @@ impl App {
         if self.computer.controlling
             && let WindowEvent::MouseWheel { delta, .. } = event
         {
+            if cfg!(target_os = "linux") && !self.computer.pointer_outside_game {
+                return true;
+            }
             let (x, y) = match delta {
                 MouseScrollDelta::LineDelta(x, y) => (f64::from(*x), f64::from(*y)),
                 MouseScrollDelta::PixelDelta(p) => (p.x / 40., p.y / 40.),
@@ -637,6 +674,7 @@ mod tests {
             epochs: (0, 0),
             size: [0; 2],
             pointer: None,
+            pointer_outside_game: false,
             picker: Vec::new(),
             selection: 0,
             message: String::new(),
@@ -662,6 +700,7 @@ mod tests {
             size: [640, 480],
             pointer: None,
             controlling: false,
+            pointer_outside_game: false,
             keys: Vec::new(),
             buttons: Vec::new(),
             picker: Vec::new(),

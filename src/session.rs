@@ -1049,7 +1049,7 @@ impl Session {
             .as_mut()
             .ok_or("Loader activation requires loaded content")?;
         content
-            .activate_loader_resources(self.loader.verified_paths(), self.loader.item_entries())?;
+            .activate_loader_resources(self.loader.verified_paths(), self.loader.item_entries(), self.loader.block_entries())?;
         self.loader.validate_previews(content, self.presentation)?;
         self.resource_epoch += 1;
         self.player.clear_visual_resources();

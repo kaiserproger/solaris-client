@@ -1,4 +1,5 @@
 //! Native Loader wire-3 admission. Server bytes never grant local permissions.
+pub(crate) mod blocks;
 pub(crate) mod items;
 pub(crate) mod previews;
 pub(crate) mod sounds;
@@ -17,20 +18,22 @@ use std::{
 
 const MAX_BYTES: usize = 64 * 1024 * 1024;
 const MAX_MESSAGE: usize = 64 * 1024;
-const PERMISSIONS: [&str; 7] = [
+const PERMISSIONS: [&str; 8] = [
     "present_views",
     "send_view_actions",
     "load_assets",
     "register_items",
+    "register_blocks",
     "send_world_selection",
     "present_world_previews",
     "play_sounds",
 ];
-const CONTENT: [&str; 7] = [
+const CONTENT: [&str; 8] = [
     "views",
     "view_actions",
     "assets",
     "items",
+    "blocks",
     "world_selection",
     "world_previews",
     "sounds",
@@ -108,6 +111,7 @@ pub(crate) struct Loader {
     previews: BTreeMap<String, Arc<previews::WorldPreview>>,
     sounds: sounds::Registry,
     items: Vec<Value>,
+    blocks: Vec<Value>,
     admitted_content: BTreeSet<String>,
     content_ids: BTreeSet<String>,
     accepted: BTreeSet<String>,
@@ -123,7 +127,8 @@ pub(crate) struct Outgoing {
 impl Loader {
     /// This opt-in is supplied by the local launcher, never a received manifest.
     pub fn local_permissions() -> Result<BTreeSet<String>> {
-        let value = std::env::var("SOLARIS_CLIENT_LOADER_PERMISSIONS").unwrap_or_default();
+        let value = std::env::var("SOLARIS_CLIENT_LOADER_PERMISSIONS")
+            .unwrap_or_else(|_| "register_items,register_blocks,load_assets".into());
         let mut grants = BTreeSet::new();
         for permission in value.split(',').filter(|s| !s.is_empty()) {
             if !PERMISSIONS.contains(&permission) || !grants.insert(permission.to_owned()) {
@@ -215,6 +220,7 @@ impl Loader {
         )?;
         if self.previews.len() + activated.previews.len() > 64
             || self.items.len() + activated.items.len() > 128
+            || self.blocks.len() + activated.blocks.len() > 128
         {
             return Err("Loader activated preview/item registry limit".into());
         }
@@ -225,6 +231,7 @@ impl Loader {
         self.verified_paths.extend(activated.paths);
         self.previews.extend(activated.previews);
         self.items.extend(activated.items);
+        self.blocks.extend(activated.blocks);
         self.admitted_content.extend(bundle.content.iter().cloned());
         self.content_ids.extend(activated.ids);
         self.accepted.extend(bundle.permissions.iter().cloned());
@@ -240,7 +247,7 @@ impl Loader {
         self.transfer = None;
         // This is activation acknowledgement, not an acknowledgement of receiving a manifest.
         self.acknowledged = true;
-        outgoing("solaris:loader/ack", json!({"protocol":3,"platform":"native","loader_version":env!("CARGO_PKG_VERSION"),"accepted_permissions":self.accepted,"cached_bundles":self.cache_keys,"carrier_block_state_ids":{}})).map(Some)
+        outgoing("solaris:loader/ack", json!({"protocol":3,"platform":"native","loader_version":env!("CARGO_PKG_VERSION"),"accepted_permissions":self.accepted,"cached_bundles":self.cache_keys})).map(Some)
     }
     pub fn sound(&mut self, payload: &[u8], active: bool, tick: u64) -> Result<sounds::Resolved> {
         self.sounds
@@ -251,6 +258,9 @@ impl Loader {
     }
     pub fn item_entries(&self) -> &[Value] {
         &self.items
+    }
+    pub fn block_entries(&self) -> &[Value] {
+        &self.blocks
     }
     pub fn validate_previews(
         &self,
@@ -484,6 +494,7 @@ impl Loader {
             "transfer_pending":self.transfer.is_some(),"declared_views":if self.acknowledged {self.screens.keys().collect::<Vec<_>>()} else {Vec::new()},
             "activated_assets":if self.acknowledged {self.assets.keys().collect::<Vec<_>>()} else {Vec::new()},
             "registered_items":if self.acknowledged {self.items.iter().map(|v| &v["id"]).collect::<Vec<_>>()} else {Vec::new()},
+            "registered_blocks":if self.acknowledged {self.blocks.iter().map(|v| &v["id"]).collect::<Vec<_>>()} else {Vec::new()},
             "world_previews":if self.acknowledged {self.previews.keys().collect::<Vec<_>>()} else {Vec::new()},
             "registered_sounds":self.sounds.ids().filter(|_| self.acknowledged).collect::<Vec<_>>(),
             "admitted_content":self.admitted_content.iter().filter(|_| self.acknowledged).collect::<Vec<_>>(),
@@ -491,7 +502,7 @@ impl Loader {
             "cached_bundles":if self.acknowledged {self.cache_keys.as_slice()} else {&[]},
             "view":self.view.as_ref().map(|v| json!({"view_instance_id":v.id,"view_id":v.key,"revision":v.revision})),
             "supported_content":CONTENT,"origin":"hash_verified_received_bundle",
-            "gated_content":{"blocks":"dynamic block registry/carrier-state mapping unsupported","overlay":"native Loader overlays unsupported","input_bindings":"native Loader keyboard bindings unsupported"}})
+            "gated_content":{"overlay":"native Loader overlays unsupported","input_bindings":"native Loader keyboard bindings unsupported"}})
     }
 }
 fn selection_actions(model: &Value) -> BTreeMap<String, String> {
@@ -635,7 +646,7 @@ fn validate_manifest(manifest: &Manifest, grants: &BTreeSet<String>) -> Result<(
                 "world_selection" => "send_world_selection",
                 "world_previews" => "present_world_previews",
                 "sounds" => "play_sounds",
-                "blocks" => return Err("unsupported native Loader content blocks: dynamic block registry and carrier states are not implemented".into()),
+                "blocks" => "register_blocks",
                 _ => return Err(format!("unsupported native Loader content {content}")),
             };
             if !bundle.permissions.iter().any(|p| p == permission) {
@@ -665,6 +676,7 @@ struct ActivatedBundle {
     paths: BTreeMap<String, Arc<[u8]>>,
     previews: BTreeMap<String, Arc<previews::WorldPreview>>,
     items: Vec<Value>,
+    blocks: Vec<Value>,
     sounds: Vec<Value>,
     ids: BTreeSet<String>,
 }
@@ -702,9 +714,6 @@ fn activate(
             index.schema
         ));
     }
-    if !index.blocks.is_empty() {
-        return Err("unsupported native Loader index blocks: dynamic block registry and carrier states are not implemented".into());
-    }
     if screens.len() + index.screens.len() > 64 || assets.len() + index.assets.len() > 128 {
         return Err("Loader activated registry limit".into());
     }
@@ -713,6 +722,7 @@ fn activate(
         ("views", !index.screens.is_empty()),
         ("assets", !index.assets.is_empty()),
         ("items", !index.items.is_empty()),
+        ("blocks", !index.blocks.is_empty()),
         ("world_previews", !index.world_previews.is_empty()),
         ("sounds", !index.sounds.is_empty()),
     ] {
@@ -756,6 +766,17 @@ fn activate(
         if !ids.insert(id.to_owned()) || existing_ids.contains(id) {
             return Err(format!("duplicate activated Loader id {id}"));
         }
+    }
+    for block in blocks::parse(&index.blocks)? {
+        owned(&block.id, &bundle.owner)?;
+        owned(&block.model, &bundle.owner)?;
+        owned(&block.drop_item, &bundle.owner)?;
+        // Block and its inventory item intentionally share one resource identity.
+        if existing_ids.contains(&block.id)
+            || (ids.contains(&block.id) && !index.items.iter().any(|item| item["id"] == block.id)) {
+            return Err(format!("duplicate activated Loader block {}", block.id));
+        }
+        ids.insert(block.id);
     }
     let mut by_path = BTreeMap::new();
     let mut total = assets.values().map(|data| data.len()).sum::<usize>();
@@ -821,6 +842,7 @@ fn activate(
         paths: staged_paths,
         previews,
         items: index.items,
+        blocks: index.blocks,
         sounds: index.sounds,
         ids,
     })

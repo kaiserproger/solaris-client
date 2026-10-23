@@ -86,7 +86,7 @@ const CONTROLS: [Row; 3] = [
         "desktop_computer",
         "Desktop computer",
         Kind::Toggle,
-        "Local capture/control: right-click iron. OS permission required. Esc releases.",
+        "Local capture/control: right-click a Monitor. OS permission required. Esc releases.",
     ),
 ];
 const AUDIO: [Row; 2] = [
