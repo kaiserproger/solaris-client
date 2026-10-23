@@ -317,6 +317,126 @@ fn animation_local_render_slot_is_restored_even_when_extraction_fails() {
 }
 
 #[test]
+fn falling_block_is_collected_with_its_spawn_block_state_not_reported_unrendered() {
+    let (models, mut entity) = fixture();
+    entity.type_name = "minecraft:falling_block".into();
+    entity.spawn_data = 42;
+    entity.transform.position = [1.5, 70.25, -2.5];
+    entity.previous.position = entity.transform.position;
+    let mut store = Store::new();
+    store.models = Some(Arc::new(models));
+    store.local_avatar = Some(entity);
+    store.set_local_visible(true);
+    let stats = store
+        .append_geometry(
+            &Content::test_cube(),
+            [0.; 3],
+            [0., 64., 0.],
+            [0.; 2],
+            32.,
+            0,
+            0.,
+            &|_| Ok(Some([15., 0.])),
+            &mut DynamicGeometry::default(),
+        )
+        .unwrap();
+    assert!(stats.unrendered.is_empty(), "{:?}", stats.unrendered);
+    assert_eq!(store.falling_blocks, vec![(42, [1.5, 70.25, -2.5])]);
+}
+
+#[test]
+fn falling_block_falls_between_server_updates_and_rests_on_the_block_below() {
+    use crate::protocol::world::{Chunk, Palette, Section, SurfaceHeightmap, World};
+    let (mut models, mut entity) = fixture();
+    let schema = models.schemas.remove("minecraft:pig").unwrap();
+    models
+        .schemas
+        .insert("minecraft:falling_block".into(), schema);
+    entity.type_name = "minecraft:falling_block".into();
+    entity.source = None;
+    entity.transform.position = [8.5, 10., 8.5];
+    entity.previous = entity.transform;
+    entity.position = entity.transform.position;
+    let mut store = Store::new();
+    store.models = Some(Arc::new(models));
+    let id = entity.handle.network_id;
+    store.slots.push(entity);
+    store.ids.insert(id, 0);
+    store.physical_active.insert(id);
+    let palette = |size| Palette {
+        bits: 0,
+        values: vec![0],
+        words: Vec::new(),
+        size,
+    };
+    let mut world = World::new(0, 16);
+    world
+        .insert(
+            [0, 0],
+            Chunk {
+                sections: vec![Arc::new(Section {
+                    blocks: palette(4096),
+                    biomes: palette(64),
+                    non_empty_block_count: 0,
+                })],
+                sky: BTreeMap::new(),
+                block: BTreeMap::new(),
+                block_entities: crate::protocol::world::empty_block_entities(),
+                surface_heightmap: Arc::new(SurfaceHeightmap::new(16).unwrap()),
+                surface_heightmap_received: false,
+            },
+        )
+        .unwrap();
+    world.set([8, 2, 8], 1, |state| Ok(state == 0)).unwrap();
+    let content = Content::test_cube();
+    // Vanilla FallingBlockEntity.tick: v -= 0.04, move, v *= 0.98.
+    let (mut y, mut v) = (10f64, 0f64);
+    for tick in 1..=3 {
+        store
+            .tick_presentation(tick, false, &world, &content, 0)
+            .unwrap();
+        v -= 0.04;
+        y += v;
+        v *= 0.98;
+        let shown = store
+            .get(id)
+            .unwrap()
+            .presented_transform(tick, 1.)
+            .position[1];
+        assert!((shown - y).abs() < 1e-9, "tick {tick}: {shown} vs {y}");
+    }
+    let halfway = store.get(id).unwrap().presented_transform(3, 0.5).position[1];
+    assert!(
+        halfway > y && halfway < 10.,
+        "presented between ticks: {halfway}"
+    );
+    // A relative move (MoveEntityPos) applies to the last server position (10), not to
+    // the simulated one.
+    let mut packet = crate::protocol::Writer::default();
+    packet.var(id);
+    for delta in [0i16, -4096, 0] {
+        packet.0.extend_from_slice(&delta.to_be_bytes());
+    }
+    packet.byte(0);
+    store
+        .apply(
+            53,
+            &mut crate::protocol::Reader::new(&packet.0),
+            &content,
+            3,
+        )
+        .unwrap();
+    assert_eq!(store.get(id).unwrap().transform.position[1], 9.);
+    for tick in 4..=60 {
+        store
+            .tick_presentation(tick, false, &world, &content, 0)
+            .unwrap();
+    }
+    let rest = store.get(id).unwrap().transform.position[1];
+    assert!((rest - 3.).abs() < 1e-9, "rests on the cube: {rest}");
+}
+
+#[test]
 fn animation_server_interpolation_keeps_ground_height_and_shortest_rotation() {
     let (_, mut entity) = fixture();
     entity.previous.position = [0., 64., 0.];

@@ -387,6 +387,8 @@ pub fn append(
     // Bucket queries restrict extraction to visible-eligible neighborhood, not the whole roster.
     let mut visible = std::mem::take(&mut store.visible_ids);
     visible.clear();
+    let mut falling = std::mem::take(&mut store.falling_blocks);
+    falling.clear();
     for (_, bucket) in store
         .spatial
         .range([min[0], i32::MIN]..=[max[0], i32::MAX])
@@ -420,6 +422,13 @@ pub fn append(
             entity.type_name.as_str(),
             "minecraft:marker" | "minecraft:interaction"
         ) {
+            continue;
+        }
+        if entity.type_name == "minecraft:falling_block" {
+            // FallingBlockRenderer: AddEntity data is the block state, drawn as a block model.
+            if let Ok(state) = u32::try_from(entity.spawn_data) {
+                falling.push((state, entity.presented_transform(tick, partial).position));
+            }
             continue;
         }
         let (dimensions, scale) = match models.dimensions(entity) {
@@ -640,6 +649,7 @@ pub fn append(
     }
     visible.clear();
     store.visible_ids = visible;
+    store.falling_blocks = falling;
     stats.vertices = out.vertices.len();
     Ok(stats)
 }

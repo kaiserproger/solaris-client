@@ -746,6 +746,18 @@ impl Session {
                     now,
                     &mut self.scene.dynamic,
                 )?;
+                if let Err(reason) = block_motion::append_falling(
+                    terrain,
+                    &self.world,
+                    &self.entities.falling_blocks,
+                    self.scene.origin,
+                    &mut self.scene.dynamic,
+                ) {
+                    self.scene
+                        .entity_presentation
+                        .unrendered
+                        .insert("minecraft:falling_block".into(), reason);
+                }
             }
         }
         if !animation_only && let Some(ui) = &mut self.ui {

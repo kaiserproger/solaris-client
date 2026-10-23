@@ -2,6 +2,7 @@
 //! swing. The animated block is meshed as air (Terrain::hide_block) and drawn
 //! through the terrain mesher's moving-block path, so lighting/AO match the
 //! section mesh. Frame-time based; never touches collision, raycasts or packets.
+//! Falling block entities use the same moving-block path.
 use crate::{
     api::DynamicGeometry,
     motion,
@@ -259,6 +260,32 @@ impl BlockMotions {
         }
         Ok(())
     }
+}
+
+/// FallingBlockRenderer: the block model sits at the entity's feet (-0.5 on x/z),
+/// lit from the cell holding the box top. A copy of the block already standing
+/// in the entity's own cell is skipped, as on the landing tick.
+pub(super) fn append_falling(
+    terrain: &Terrain,
+    world: &World,
+    falling: &[(u32, [f64; 3])],
+    origin: [f64; 3],
+    out: &mut DynamicGeometry,
+) -> Result<()> {
+    for &(state, [x, y, z]) in falling {
+        let cell = [x, y, z].map(|v| v.floor() as i32);
+        if world.block(cell) == Some(state) {
+            continue;
+        }
+        let at = Vec3::new(
+            (x - 0.5 - origin[0]) as f32,
+            (y - origin[1]) as f32,
+            (z - 0.5 - origin[2]) as f32,
+        );
+        let light_cell = [cell[0], (y + 0.98).floor() as i32, cell[2]];
+        terrain.append_moving_block(world, state, light_cell, Mat4::from_translation(at), out)?;
+    }
+    Ok(())
 }
 
 fn duration(kind: Kind) -> f64 {

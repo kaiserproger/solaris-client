@@ -719,6 +719,12 @@ impl Store {
                 0
             };
             self.remove_motion_span(span);
+            if self
+                .get(*id)
+                .is_some_and(|e| e.type_name == "minecraft:falling_block")
+            {
+                self.fall_step(*id, world, content, tick);
+            }
             if effects.sky_flash || effects.lightning_sound_pitches.is_some() {
                 self.event(serde_json::json!({
                     "type": "source_lightning", "entity": id,
@@ -741,6 +747,43 @@ impl Store {
         self.physical_active = active;
         self.tick_blocks(frozen)?;
         Ok(())
+    }
+    /// FallingBlockEntity.tick on the client: gravity, a collision-clipped move and drag,
+    /// presented across the tick. The server sends a falling block's position only every
+    /// 20 ticks (vanilla updateInterval), so without this the block hangs at its start.
+    /// Only the presented transform moves: `position` stays the last server position,
+    /// the base that relative move packets apply to (vanilla VecDeltaCodec).
+    fn fall_step(&mut self, id: i32, world: &World, content: &Content, tick: u64) {
+        let Some(e) = self.get(id) else { return };
+        let mut velocity = e.velocity;
+        velocity[1] -= 0.04;
+        let p = e.transform.position;
+        let body = Bounds {
+            min: [p[0] - 0.49, p[1], p[2] - 0.49],
+            max: [p[0] + 0.49, p[1] + 0.98, p[2] + 0.49],
+        };
+        let swept = Bounds {
+            min: std::array::from_fn(|i| body.min[i] + velocity[i].min(0.)),
+            max: std::array::from_fn(|i| body.max[i] + velocity[i].max(0.)),
+        };
+        let mut colliders = Vec::new();
+        // Unloaded neighbourhood: hold still until the server position arrives.
+        if collision::gather(world, content, self, tick, swept, &mut colliders).is_err() {
+            return;
+        }
+        let moved = collision::collide(body, &colliders, velocity);
+        let e = self.get_mut(id).unwrap();
+        e.previous = e.transform;
+        for i in 0..3 {
+            e.transform.position[i] += moved[i];
+            if moved[i] != velocity[i] {
+                velocity[i] = 0.;
+            }
+        }
+        e.velocity = velocity.map(|v| v * 0.98);
+        e.physical.lerp_progress = 0;
+        e.physical.lerp_duration = 1;
+        e.physical.lerp_phase = 0.;
     }
     fn root_has_player(&self, id: i32, models: &Models, depth: usize) -> Result<bool> {
         if depth > 1024 {

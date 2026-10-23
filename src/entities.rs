@@ -225,6 +225,9 @@ pub struct Store {
     pub(crate) local_entity_id: Option<i32>,
     pub(crate) local_uuid: Option<String>,
     pub(crate) visible_ids: Vec<i32>,
+    /// Block state and presented position of each falling block the last entity
+    /// pass found in range; the session meshes them like placed blocks.
+    pub(crate) falling_blocks: Vec<(u32, [f64; 3])>,
     pub(crate) physical_active: BTreeSet<i32>,
     pub(crate) redirectable_projectiles: BTreeSet<u32>,
     pub(crate) spatial_padding: f64,
@@ -311,6 +314,7 @@ impl Store {
         self.leash_holders.clear();
         self.predicted_leash_holders.clear();
         self.visible_ids.clear();
+        self.falling_blocks.clear();
         self.passenger_vehicles.clear();
         self.fishing_hooks.clear();
         self.uuid_entities.clear();
@@ -915,7 +919,10 @@ impl Store {
                 let ground = r.bool()?;
                 r.done()?;
                 if let Some(e) = self.get(target) {
+                    // Deltas apply to the last server position (vanilla VecDeltaCodec), not
+                    // to a locally simulated one (falling blocks).
                     let mut transform = e.transform;
+                    transform.position = e.position;
                     if let Some(d) = delta {
                         for i in 0..3 {
                             transform.position[i] += d[i];
