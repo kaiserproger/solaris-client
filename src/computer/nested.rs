@@ -2,7 +2,7 @@
 //! other desktop windows, so apps are launched INTO a monitor instead: they connect
 //! to a private `solaris-monitor-<n>` socket, render into wl_shm buffers that are
 //! composited to RGBA here, and receive pointer/keyboard events directly.
-use super::{DesktopKey, DesktopSource, Frame, PointerButton};
+use super::{DesktopKey, DesktopSource, Frame, PointerButton, audio::{self, AudioSource}};
 use parking_lot::{Condvar, Mutex};
 use smithay::{
     backend::{
@@ -191,6 +191,8 @@ struct Nested {
     compositor: Option<thread::JoinHandle<()>>,
     /// Process-group leader of the launched app.
     app: Option<i32>,
+    /// The app's only audio output; dropped after the app is killed.
+    sink: Option<audio::NullSink>,
 }
 impl Nested {
     fn launch(argv: &[String], aspect: f64) -> Result<Self, String> {
@@ -218,6 +220,7 @@ impl Nested {
             shared,
             compositor: Some(compositor),
             app: None,
+            sink: audio::NullSink::create().ok(),
         };
         let socket = ready_rx
             .recv()
@@ -238,6 +241,9 @@ impl Nested {
                 command
             }
         };
+        for (key, value) in nested.sink.iter().flat_map(|sink| sink.env()) {
+            command.env(key, value);
+        }
         command
             .env("WAYLAND_DISPLAY", &socket)
             .env_remove("DISPLAY")
@@ -301,6 +307,9 @@ impl DesktopSource for Nested {
     fn control_granted(&self) -> bool {
         true
     }
+    fn audio(&mut self) -> Option<Box<dyn AudioSource>> {
+        self.sink.as_ref()?.capture().ok()
+    }
     fn send_pointer(&mut self, x: f64, y: f64) -> Result<(), String> {
         self.send(Cmd::Pointer(x, y))
     }
@@ -329,6 +338,7 @@ impl DesktopSource for Nested {
         if let Some(compositor) = self.compositor.take() {
             let _ = compositor.join();
         }
+        self.sink = None;
         self.shared.slot.lock().frame = None;
         self.shared.end("Monitor app closed".into());
     }

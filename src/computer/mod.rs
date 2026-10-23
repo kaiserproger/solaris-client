@@ -2,6 +2,7 @@
 pub(crate) mod native;
 pub(crate) mod texture;
 pub(crate) mod relay;
+pub(crate) mod audio;
 #[cfg(target_os = "linux")]
 pub(crate) mod nested;
 #[cfg(target_os = "linux")]
@@ -40,6 +41,11 @@ pub trait DesktopSource: Send {
     fn send_button(&mut self, button: PointerButton, pressed: bool) -> Result<(), String>;
     fn send_scroll(&mut self, dx: f64, dy: f64) -> Result<(), String>;
     fn send_key(&mut self, key: DesktopKey, pressed: bool) -> Result<(), String>;
+    /// Audio of what this source shows, if it has any. Linux portal windows do
+    /// not (a whole-system monitor would feed Solaris's own playback back).
+    fn audio(&mut self) -> Option<Box<dyn audio::AudioSource>> {
+        None
+    }
     fn close(&mut self);
 }
 
