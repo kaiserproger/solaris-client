@@ -675,7 +675,7 @@ impl Session {
             return Ok(());
         };
         match key {
-            "fullscreen" | "vsync" | "max_fps" | "fancy_shaders" | "ui_scale" | "desktop_computer" => {
+            "fullscreen" | "vsync" | "max_fps" | "fancy_shaders" | "ui_scale" | "desktop_computer" | "monitor_apps" => {
                 self.presentation_settings.insert(key.into(), clean.clone());
             }
             "render_distance" => {
@@ -776,7 +776,7 @@ impl Session {
                 let _ = ui.apply_setting(key, clean.clone());
             }
             match *key {
-                "fullscreen" | "vsync" | "max_fps" | "fancy_shaders" | "ui_scale" | "desktop_computer" => {
+                "fullscreen" | "vsync" | "max_fps" | "fancy_shaders" | "ui_scale" | "desktop_computer" | "monitor_apps" => {
                     self.presentation_settings.insert((*key).into(), clean.clone());
                 }
                 "render_distance" => {
@@ -1107,6 +1107,18 @@ mod client_settings_tests {
         bad.insert("fov".into(), json!("wide"));
         session.apply_persisted_settings(bad);
         assert_eq!(session.fov_deg(), UiState::DEFAULT_FOV_DEG);
+    }
+    #[test]
+    fn monitor_apps_reach_native_picker_and_persisted_snapshot() {
+        let mut session = Session::new_mode("monitor-app-settings".into(), false);
+        let apps = json!([["ptyxis", "-s"]]);
+        session.apply_persisted_settings(BTreeMap::from([("monitor_apps".into(), apps.clone())]));
+        assert_eq!(session.native_setting("monitor_apps"), Some(&apps));
+        assert_eq!(session.client_settings_snapshot()["monitor_apps"], apps);
+        session.apply_persisted_settings(BTreeMap::from([("monitor_apps".into(), json!([]))]));
+        assert_eq!(session.native_setting("monitor_apps"), Some(&json!([])));
+        session.apply_persisted_settings(BTreeMap::new());
+        assert_eq!(session.native_setting("monitor_apps"), Some(&Value::Null));
     }
     #[test]
     fn p1_sign_submit_clears_screen_admission_and_queues_update_only() {
