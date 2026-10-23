@@ -737,7 +737,7 @@ impl Session {
                 if self.voice_net.listening
                     && let Some(audio) = &self.audio
                 {
-                    audio.voice().push(speaker, position, seq, opus)?;
+                    audio.voice().push(speaker, position, None, seq, opus)?;
                 }
             }
         }

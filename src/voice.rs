@@ -105,17 +105,26 @@ pub(crate) struct Encoder(*mut opus::OpusEncoder);
 unsafe impl Send for Encoder {}
 impl Encoder {
     pub fn new() -> Result<Self> {
+        Self::with_bitrate(BITRATE, false)
+    }
+    /// `music` selects the general-audio application/signal instead of speech.
+    pub fn with_bitrate(bits_per_second: i32, music: bool) -> Result<Self> {
+        let (application, signal) = if music {
+            (opus::OPUS_APPLICATION_AUDIO, opus::OPUS_SIGNAL_MUSIC)
+        } else {
+            (opus::OPUS_APPLICATION_VOIP, opus::OPUS_SIGNAL_VOICE)
+        };
         let mut error = 0;
         // SAFETY: valid arguments; the pointer is checked and freed exactly once in Drop.
-        let state = unsafe { opus::opus_encoder_create(RATE as i32, 1, opus::OPUS_APPLICATION_VOIP, &mut error) };
+        let state = unsafe { opus::opus_encoder_create(RATE as i32, 1, application, &mut error) };
         if error != opus::OPUS_OK || state.is_null() {
             return Err(format!("opus encoder create failed: {error}"));
         }
         let encoder = Self(state);
         // SAFETY: `state` is a live encoder; each request takes one i32.
         unsafe {
-            opus::opus_encoder_ctl!(state, opus::OPUS_SET_BITRATE_REQUEST, BITRATE);
-            opus::opus_encoder_ctl!(state, opus::OPUS_SET_SIGNAL_REQUEST, opus::OPUS_SIGNAL_VOICE);
+            opus::opus_encoder_ctl!(state, opus::OPUS_SET_BITRATE_REQUEST, bits_per_second);
+            opus::opus_encoder_ctl!(state, opus::OPUS_SET_SIGNAL_REQUEST, signal);
             opus::opus_encoder_ctl!(state, opus::OPUS_SET_COMPLEXITY_REQUEST, 5);
         }
         Ok(encoder)

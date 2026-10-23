@@ -28,6 +28,9 @@ const RECORD_ENV: &str = "SOLARIS_VOICE_RECORD";
 struct Speaker {
     decoder: Decoder,
     position: [f32; 3],
+    range: Option<f32>,
+    frames: u64,
+    peak: f32,
     pcm: VecDeque<f32>,
     playing: bool,
     seq: Option<u32>,
@@ -94,11 +97,16 @@ impl VoiceMixer {
             self.state.lock().range = range;
         }
     }
+    /// `(decoded frames, peak of the last decoded frame)` for tests and facts.
+    pub fn speaker_stats(&self, speaker: [u8; 16]) -> Option<(u64, f32)> {
+        self.state.lock().speakers.get(&speaker).map(|s| (s.frames, s.peak))
+    }
     pub fn clear(&self) {
         self.state.lock().speakers.clear();
     }
     /// Decode one relayed packet into the speaker's jitter buffer.
-    pub fn push(&self, speaker: [u8; 16], position: [f32; 3], seq: u32, opus: &[u8]) -> Result<()> {
+    /// `range` overrides the server's voice range for this speaker (e.g. a monitor's speakers).
+    pub fn push(&self, speaker: [u8; 16], position: [f32; 3], range: Option<f32>, seq: u32, opus: &[u8]) -> Result<()> {
         let mut state = self.state.lock();
         let State { speakers, recorder, .. } = &mut *state;
         if !speakers.contains_key(&speaker) {
@@ -110,6 +118,9 @@ impl VoiceMixer {
                 Speaker {
                     decoder: Decoder::new()?,
                     position,
+                    range,
+                    frames: 0,
+                    peak: 0.,
                     pcm: VecDeque::with_capacity(MAX_BUFFER + FRAME),
                     playing: false,
                     seq: None,
@@ -126,6 +137,7 @@ impl VoiceMixer {
         }
         entry.last = now;
         entry.position = position;
+        entry.range = range;
         let mut lost = 0;
         if let Some(previous) = entry.seq {
             let ahead = seq.wrapping_sub(previous);
@@ -138,6 +150,10 @@ impl VoiceMixer {
             let frame = entry.decoder.decode(packet)?;
             if let Some(recorder) = recorder.as_mut() {
                 recorder.write(&frame);
+            }
+            if packet.is_some() {
+                entry.frames += 1;
+                entry.peak = frame.iter().fold(0f32, |m, s| m.max(s.abs()));
             }
             entry.pcm.extend(frame);
         }
@@ -158,7 +174,7 @@ impl VoiceMixer {
                 .map(|i| (f64::from(speaker.position[i]) - listener[i]).powi(2))
                 .sum::<f64>()
                 .sqrt();
-            let gain = (1. - distance / f64::from(range)).clamp(0., 1.) as f32;
+            let gain = (1. - distance / f64::from(speaker.range.unwrap_or(range))).clamp(0., 1.) as f32;
             for sample in out.iter_mut() {
                 match speaker.pcm.pop_front() {
                     Some(value) => *sample += value * gain,
@@ -233,17 +249,18 @@ mod tests {
         let mixer = VoiceMixer::new();
         let speaker = [1; 16];
         let wire = packets(6);
-        mixer.push(speaker, [24., 0., 0.], 0, &wire[0]).unwrap();
-        mixer.push(speaker, [24., 0., 0.], 1, &wire[1]).unwrap();
+        mixer.push(speaker, [24., 0., 0.], None, 0, &wire[0]).unwrap();
+        mixer.push(speaker, [24., 0., 0.], None, 1, &wire[1]).unwrap();
         assert_eq!(peak(&mixer), 0., "still prefilling");
-        mixer.push(speaker, [24., 0., 0.], 2, &wire[2]).unwrap();
+        mixer.push(speaker, [24., 0., 0.], None, 2, &wire[2]).unwrap();
+        assert_eq!(mixer.speaker_stats(speaker).map(|s| s.0), Some(3));
         let half = peak(&mixer);
         assert!(half > 0.1, "audible at half range: {half}");
         // Moving the speaker out of range silences it without dropping the stream.
-        mixer.push(speaker, [100., 0., 0.], 3, &wire[3]).unwrap();
+        mixer.push(speaker, [100., 0., 0.], None, 3, &wire[3]).unwrap();
         assert_eq!(peak(&mixer), 0.);
         mixer.set_listener([100., 0., 0.]);
-        mixer.push(speaker, [100., 0., 0.], 4, &wire[4]).unwrap();
+        mixer.push(speaker, [100., 0., 0.], None, 4, &wire[4]).unwrap();
         assert!(peak(&mixer) > half, "full volume at zero distance");
     }
     #[test]
@@ -252,14 +269,24 @@ mod tests {
         let speaker = [2; 16];
         let wire = packets(4);
         for (seq, packet) in wire.iter().take(3).enumerate() {
-            mixer.push(speaker, [0.; 3], seq as u32, packet).unwrap();
+            mixer.push(speaker, [0.; 3], None, seq as u32, packet).unwrap();
         }
-        mixer.push(speaker, [0.; 3], 2, &wire[2]).unwrap(); // duplicate
+        mixer.push(speaker, [0.; 3], None, 2, &wire[2]).unwrap(); // duplicate
         for _ in 0..3 {
             assert!(peak(&mixer) > 0.1);
         }
         assert_eq!(peak(&mixer), 0., "drained buffer is silent");
-        mixer.push(speaker, [0.; 3], 3, &wire[3]).unwrap();
+        mixer.push(speaker, [0.; 3], None, 3, &wire[3]).unwrap();
         assert_eq!(peak(&mixer), 0., "one frame is below the prefill threshold");
+    }
+    #[test]
+    fn per_speaker_range_overrides_the_voice_range() {
+        let mixer = VoiceMixer::new();
+        let wire = packets(3);
+        for (seq, packet) in wire.iter().enumerate() {
+            mixer.push([3; 16], [40., 0., 0.], Some(32.), seq as u32, packet).unwrap();
+        }
+        assert_eq!(peak(&mixer), 0., "40 blocks is beyond a 32-block range");
+        assert!(mixer.speaker_stats([3; 16]).unwrap().1 > 0.1);
     }
 }

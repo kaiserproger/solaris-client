@@ -82,6 +82,10 @@ windows = { version = "=0.58.0", features = [
 debug = 1
 incremental = false
 
+# The pure-Rust Opus codec is far too slow unoptimized for 20 ms real-time frames.
+[profile.dev.package.unsafe-libopus]
+opt-level = 3
+
 [workspace]
 members = [".", "launcher"]
 default-members = [".", "launcher"]
