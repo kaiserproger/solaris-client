@@ -745,6 +745,13 @@ capture visible; Shift+Escape closes capture. Focus loss or looking away
 releases input. Disabling the option, removing/unloading the block, changing
 dimension/connection, or closing the client releases capture and its GPU image.
 Portal denial/backend errors are visible in the local HUD, not fatal to play.
+Portal capture workers serialize session teardown before opening the next session;
+removing a block or reconnecting clears the old binding so another explicit click
+can start a fresh capture. View-only portal grants never enter input-control mode.
+Saved Wayland window choices use `ExplicitlyRevoked` persistence and a private
+`desktop-windows.json` in the client data root. Selecting a saved choice reuses and
+replaces its restore token; selecting **NEW window** always opens the system picker.
+The compositor can still prompt again or reject an expired/revoked token.
 
 For acceptance, use an isolated offline world and a dedicated non-sensitive
 desktop text window. Record the exact client/server builds, the explicit consent

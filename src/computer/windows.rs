@@ -691,6 +691,9 @@ impl WindowsDesktopSource {
 }
 
 impl DesktopSource for WindowsDesktopSource {
+    fn control_granted(&self) -> bool {
+        true
+    }
     fn next_frame(&mut self) -> Result<Option<Frame>, String> {
         if let Some(message) = self.shared.error.lock().take() {
             return Err(message);

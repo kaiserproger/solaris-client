@@ -1244,11 +1244,13 @@ impl UiState {
                 }
             }
         }
-        let health = self.hud.health;
+        // Vanilla Gui draws health/armor/food/air only when the game mode can hurt the player.
+        let survival = !matches!(inventory.game_mode, 1 | 3);
+        let health = self.hud.health.filter(|_| survival);
         let max_health = self.hud.max_health;
-        let food = self.hud.food;
-        let armor = self.hud.armor;
-        let air = self.hud.air;
+        let food = self.hud.food.filter(|_| survival);
+        let armor = self.hud.armor.filter(|_| survival);
+        let air = self.hud.air.filter(|_| survival);
         let max_air = self.hud.max_air;
         let riding = self.hud.riding_health;
         let riding_max = self.hud.riding_max_health;

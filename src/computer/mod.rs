@@ -31,6 +31,8 @@ pub enum PointerButton {
 
 pub trait DesktopSource: Send {
     fn next_frame(&mut self) -> Result<Option<Frame>, String>;
+    /// True only after the backend has obtained both pointer and keyboard access.
+    fn control_granted(&self) -> bool;
     fn send_pointer(&mut self, x: f64, y: f64) -> Result<(), String>;
     fn send_button(&mut self, button: PointerButton, pressed: bool) -> Result<(), String>;
     fn send_scroll(&mut self, dx: f64, dy: f64) -> Result<(), String>;

@@ -78,6 +78,8 @@ impl Computer {
         }
         self.face = None;
         self.state = None;
+        self.epochs = (0, 0);
+        self.selection = 0;
         self.size = [0; 2];
         self.picker.clear();
         self.message.clear();
@@ -175,7 +177,11 @@ impl App {
                         renderer.update_desktop(face, &frame);
                         if first {
                             eprintln!("desktop frame arrived: {}x{}", frame.width, frame.height);
-                            self.computer.message="LIVE local desktop. Right-click screen to control; Esc releases; Shift+Esc closes".into();
+                            self.computer.message = if source.control_granted() {
+                                "LIVE desktop. Right-click to control; Esc releases; Shift+Esc closes"
+                            } else {
+                                "View only — enable 'Allow remote interaction' in the share dialog to control"
+                            }.into();
                             self.publish_session();
                         }
                     }
@@ -317,6 +323,7 @@ impl App {
                 return true;
             }
             if *button == MouseButton::Right
+                && !self.shift_held
                 && self.session.screen() == "game"
                 && !self.session.dialog_screen_active()
                 && let Some(hit) = self.computer_hit()
@@ -332,6 +339,11 @@ impl App {
                     .session
                     .command(Command::Input(InputIntent::ReleaseAll));
                 if self.computer.face == Some(face) && self.computer.size != [0; 2] {
+                    if !self.computer.source.as_ref().is_some_and(|source| source.control_granted()) {
+                        self.computer.message = "View only — enable 'Allow remote interaction' in the share dialog to control".into();
+                        self.publish_session();
+                        return true;
+                    }
                     self.computer.controlling = true;
                     if let Some(window) = &self.window {
                         use winit::window::CursorGrabMode;
@@ -585,6 +597,9 @@ mod tests {
     }
     struct RecordingSource(std::sync::Arc<parking_lot::Mutex<Vec<String>>>);
     impl DesktopSource for RecordingSource {
+        fn control_granted(&self) -> bool {
+            true
+        }
         fn next_frame(&mut self) -> Result<Option<super::super::Frame>, String> {
             Ok(None)
         }
@@ -635,6 +650,32 @@ mod tests {
         computer.close();
         assert_eq!(log.lock().last().map(String::as_str), Some("close"));
         assert_eq!(log.lock().len(), 3);
+    }
+    #[test]
+    fn closing_capture_clears_binding_and_accepts_a_fresh_source() {
+        let log = std::sync::Arc::new(parking_lot::Mutex::new(Vec::new()));
+        let mut computer = Computer {
+            source: Some(Box::new(RecordingSource(log.clone()))),
+            face: Some(Face { block: [1, 2, 3], side: 2 }),
+            state: Some(10),
+            epochs: (9, 3),
+            size: [640, 480],
+            pointer: None,
+            controlling: false,
+            keys: Vec::new(),
+            buttons: Vec::new(),
+            picker: Vec::new(),
+            selection: 0,
+            message: String::new(),
+        };
+        computer.close();
+        assert!(computer.face.is_none() && computer.source.is_none());
+        assert_eq!(computer.size, [0, 0]);
+        assert_eq!(computer.epochs, (0, 0));
+        computer.source = Some(Box::new(RecordingSource(log.clone())));
+        assert!(computer.source.as_ref().unwrap().control_granted());
+        computer.close();
+        assert_eq!(&*log.lock(), &["close", "close"]);
     }
     #[test]
     fn physical_keys_preserve_shortcuts_and_modifier_sides() {
