@@ -763,6 +763,13 @@ Use argv arrays for arguments containing spaces. Commands are snapshotted when
 the picker opens and launched only after choosing their entry. Closing capture
 terminates only that launched process group and its private compositor.
 
+Nested apps use a private PipeWire null sink: their audio is captured separately
+from the desktop and played at the monitor position. Windows uses process
+loopback for the chosen window's process. The Linux portal source has no audio.
+Monitor audio is Opus-encoded and relayed only with viewer demand and a server
+`VOICE_STATE(enabled)` announcement; older servers receive no audio parts.
+The microphone remains separately opt-in and requires that same server support.
+
 The latest RGBA frame is uploaded to a separate depth-tested world texture on
 the clicked rectangle, aspect-fit without stretching. Right-click your active screen
 for **Change window**, **Stop sharing**, granted viewers' **Revoke** buttons and,
