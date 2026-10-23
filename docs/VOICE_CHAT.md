@@ -31,4 +31,4 @@ setting is enabled; no microphone is opened and no voice audio is sent.
 - `SOLARIS_VOICE_PTT_ALWAYS=1`: hold push-to-talk down.
 - `SOLARIS_VOICE_RECORD=<file.wav>`: write every decoded remote frame (pre-attenuation) to a mono 48 kHz WAV.
 
-Recorded evidence (Xvfb, private server): `/home/kaiserroman/solaris-targets/VoiceClient/e2e/received.wav`.
+Recorded evidence (Xvfb, private server, WAV mic -> other client): `/run/media/kaiserroman/games/solaris-work/evidence/voice/received-first-50s.wav`.
