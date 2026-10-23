@@ -200,7 +200,7 @@ impl App {
             self.computer.close();
         }
         if let (Some(binding), Some(face)) = (self.computer.binding, self.computer.face) {
-            if let Some(rectangle) = Face::rectangle(binding, face.side, |p| self.session.world.block(p) == self.computer.state) {
+            if let Ok(rectangle) = Face::rectangle(binding, face.side, |p| self.session.world.block(p) == self.computer.state) {
                 self.computer.face = Some(rectangle);
                 if let Some(renderer) = &mut self.renderer { renderer.set_desktop_face(rectangle); }
             } else {
@@ -304,6 +304,7 @@ impl App {
             DesktopAction::RevokeViewer(viewer) if self.computer.managing => self.revoke_screen_viewer(viewer),
             DesktopAction::Control if self.computer.managing
                 && self.computer.source.as_ref().is_some_and(|source| source.control_granted()) => {
+                let _ = self.session.input(InputIntent::ReleaseAll);
                 self.computer.managing = false;
                 self.computer.controlling = true;
                 self.computer.message = "CONTROLLING LOCAL DESKTOP — Esc releases; Shift+Esc closes".into();
@@ -474,10 +475,20 @@ impl App {
                 if !pressed {
                     return true;
                 }
-                let Some(face) = Face::rectangle(hit.position, hit.face, |p| self.session.world.block(p) == Some(hit.state)) else {
-                    self.computer.message = "Monitors must form a complete rectangle, at most 16×16 blocks".into();
-                    self.publish_session();
-                    return true;
+                let face = match Face::rectangle(hit.position, hit.face, |p| self.session.world.block(p) == Some(hit.state)) {
+                    Ok(face) => face,
+                    Err(error) => {
+                        let actual_side = match error {
+                            super::RectangleError::Missing(position) => self.session.world.block(position)
+                                .and_then(|state| self.session.content.as_ref()?.loader_block(state))
+                                .filter(|(name, _)| *name == "solaris:monitor")
+                                .map(|(_, side)| side),
+                            _ => None,
+                        };
+                        self.computer.message = error.message(hit.face, actual_side);
+                        self.publish_session();
+                        return true;
+                    }
                 };
                 if self.request_shared_screen(face) { return true; }
                 let _ = self

@@ -1054,6 +1054,24 @@ fn is_title_intent(intent: &UiIntent) -> bool {
 mod client_settings_tests {
     use super::*;
     #[test]
+    fn physical_mouse_release_clears_gameplay_latch_before_modal_dispatch() {
+        let mut session = Session::new_mode("mouse-release-test".into(), false);
+        for phase in ["play", "disconnected"] {
+            session.phase = phase.into();
+            session.keys.extend(["use", "attack", "forward"].map(str::to_owned));
+            crate::App::release_mouse_button(&mut session, winit::event::MouseButton::Right);
+            assert!(!session.keys.contains("use"));
+            assert!(session.keys.contains("attack"));
+            assert!(session.keys.contains("forward"));
+            crate::App::release_mouse_button(&mut session, winit::event::MouseButton::Left);
+            assert!(!session.keys.contains("attack"));
+            assert!(session.keys.contains("forward"));
+            session.input(InputIntent::ReleaseAll).unwrap();
+            assert!(session.keys.is_empty());
+        }
+    }
+
+    #[test]
     fn stores_fov_and_render_distance() {
         // State-only session: no audio worker, so volume applies without IO.
         let mut session = Session::new_mode("settings-apply-test".into(), false);

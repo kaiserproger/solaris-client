@@ -709,6 +709,15 @@ impl App {
         }
     }
 
+    fn release_mouse_button(session: &mut Session, button: MouseButton) {
+        let key = match button {
+            MouseButton::Left => "attack",
+            MouseButton::Right => "use",
+            _ => return,
+        };
+        let _ = session.input(InputIntent::Key { key: key.into(), pressed: false });
+    }
+
     fn sync_native_window(&mut self) {
         let Some(window) = &self.window else { return };
         let fullscreen = self.session.native_setting("fullscreen").and_then(serde_json::Value::as_bool).unwrap_or(false);
@@ -722,6 +731,9 @@ impl App {
         let game_input = self.focused && !self.occluded && self.session.phase() == "play"
             && self.session.screen() == "game" && !self.session.chat_open()
             && !self.session.dialog_screen_active() && !self.computer.has_modal();
+        if game_input == self.last_dialog_screen || (!game_input && self.cursor_locked) {
+            let _ = self.session.input(InputIntent::ReleaseAll);
+        }
         if !game_input && self.cursor_locked {
             let _ = window.set_cursor_grab(CursorGrabMode::None);
             window.set_cursor_visible(true);
@@ -803,6 +815,11 @@ impl ApplicationHandler for App {
         if self.window.as_ref().is_none_or(|w| w.id() != window_id) {
             // Events from other windows never acquire local desktop control.
             return;
+        }
+        // A press may place a monitor under the pointer. Its release must clear
+        // vanilla held-use even if the newly hit monitor or a modal consumes it.
+        if let WindowEvent::MouseInput { state: ElementState::Released, button, .. } = &event {
+            Self::release_mouse_button(&mut self.session, *button);
         }
         if self.computer_event(&event) { return; }
         match event {
@@ -1093,6 +1110,9 @@ impl ApplicationHandler for App {
                 // Options sliders drag across Move events: keep real edges there too.
                 let inventory_screen = self.session.screen() == "inventory"
                     || self.session.ui_preserves_pointer_edges();
+                if self.cursor_locked {
+                    let _ = self.session.input(InputIntent::ReleaseAll);
+                }
                 self.cursor_locked = false;
                 if let Some(window) = &self.window {
                     let _ = window.set_cursor_grab(CursorGrabMode::None);
@@ -1142,6 +1162,7 @@ impl ApplicationHandler for App {
                 if self.focused && self.session.screen() == "game" =>
             {
                 if state == ElementState::Pressed && !self.cursor_locked {
+                    let _ = self.session.input(InputIntent::ReleaseAll);
                     let window = self.window.as_ref().unwrap();
                     if window
                         .set_cursor_grab(CursorGrabMode::Locked)
@@ -1157,10 +1178,10 @@ impl ApplicationHandler for App {
                     MouseButton::Right => Some("use"),
                     _ => None,
                 };
-                if let Some(key) = key {
+                if let Some(key) = key && state == ElementState::Pressed {
                     self.manual(InputIntent::Key {
                         key: key.into(),
-                        pressed: state == ElementState::Pressed,
+                        pressed: true,
                     });
                 }
             }

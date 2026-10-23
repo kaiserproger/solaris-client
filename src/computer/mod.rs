@@ -56,6 +56,33 @@ pub fn open(_: u64) -> Result<Box<dyn DesktopSource>, String> {
     Err("Desktop capture requires Linux Wayland or Windows".into())
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum RectangleError {
+    InvalidFace,
+    WorldBoundary,
+    TooLarge { vertical: bool },
+    Missing([i32; 3]),
+}
+impl RectangleError {
+    pub fn message(self, expected_side: i32, actual_side: Option<i32>) -> String {
+        fn direction(side: i32) -> &'static str {
+            match side { 2 => "north", 3 => "south", 4 => "west", 5 => "east", _ => "unknown" }
+        }
+        match self {
+            Self::InvalidFace => "Click the front of a monitor".into(),
+            Self::WorldBoundary => "Monitor rectangle reaches the world coordinate boundary".into(),
+            Self::TooLarge { vertical } => format!("Monitor wall is at least 17 blocks {}; maximum is 16",
+                if vertical { "high" } else { "wide" }),
+            Self::Missing([x, y, z]) => match actual_side {
+                Some(actual) if actual != expected_side => format!(
+                    "Monitor at {x},{y},{z} faces {}; wall faces {}",
+                    direction(actual), direction(expected_side)),
+                _ => format!("Monitor rectangle has a missing monitor at {x},{y},{z}"),
+            },
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) struct Face {
     pub block: [i32; 3],
@@ -65,8 +92,9 @@ pub(crate) struct Face {
     pub height: u8,
 }
 impl Face {
-    pub fn rectangle(block: [i32; 3], side: i32, member: impl Fn([i32; 3]) -> bool) -> Option<Self> {
-        if !(2..=5).contains(&side) || !member(block) { return None; }
+    pub fn rectangle(block: [i32; 3], side: i32, member: impl Fn([i32; 3]) -> bool) -> Result<Self, RectangleError> {
+        if !(2..=5).contains(&side) { return Err(RectangleError::InvalidFace); }
+        if !member(block) { return Err(RectangleError::Missing(block)); }
         let axis = if side <= 3 { 0 } else { 2 };
         let mut minimum = [block[axis], block[1]];
         let mut maximum = minimum;
@@ -83,13 +111,16 @@ impl Face {
             let mut grew = false;
             for dimension in 0..2 {
                 for positive in [false, true] {
-                    let edge = if positive { maximum[dimension].checked_add(1)? } else { minimum[dimension].checked_sub(1)? };
+                    let edge = if positive { maximum[dimension].checked_add(1) } else { minimum[dimension].checked_sub(1) }
+                        .ok_or(RectangleError::WorldBoundary)?;
                     let other = 1 - dimension;
                     let connected = (minimum[other]..=maximum[other]).any(|coordinate| {
                         member(if dimension == 0 { position(edge, coordinate) } else { position(coordinate, edge) })
                     });
                     if connected {
-                        if maximum[dimension] - minimum[dimension] >= 15 { return None; }
+                        if maximum[dimension] - minimum[dimension] >= 15 {
+                            return Err(RectangleError::TooLarge { vertical: dimension == 1 });
+                        }
                         if positive { maximum[dimension] = edge; } else { minimum[dimension] = edge; }
                         grew = true;
                     }
@@ -99,10 +130,12 @@ impl Face {
         }
         for y in minimum[1]..=maximum[1] {
             for horizontal in minimum[0]..=maximum[0] {
-                if !member(position(horizontal, y)) { return None; }
+                if !member(position(horizontal, y)) {
+                    return Err(RectangleError::Missing(position(horizontal, y)));
+                }
             }
         }
-        Some(Self {
+        Ok(Self {
             block: position(minimum[0], minimum[1]), side,
             width: (maximum[0] - minimum[0] + 1) as u8,
             height: (maximum[1] - minimum[1] + 1) as u8,
@@ -162,6 +195,16 @@ pub(crate) fn fit(size: [u32; 2], width: u8, height: u8) -> [f64; 2] {
 mod tests {
     use super::*;
     #[test]
+    fn rectangle_errors_name_wrong_facing_holes_and_oversized_dimensions() {
+        let error = RectangleError::Missing([12, 80, -7]);
+        assert_eq!(error.message(4, Some(5)), "Monitor at 12,80,-7 faces east; wall faces west");
+        assert_eq!(error.message(4, None), "Monitor rectangle has a missing monitor at 12,80,-7");
+        let too_wide = Face::rectangle([0, 0, 0], 2, |[x, y, z]| (0..17).contains(&x) && y == 0 && z == 0);
+        assert_eq!(too_wide, Err(RectangleError::TooLarge { vertical: false }));
+        assert!(too_wide.unwrap_err().message(2, None).contains("17 blocks wide"));
+    }
+
+    #[test]
     fn every_face_maps_center_and_rejects_letterbox() {
         for side in 0..6 {
             let face = Face {
@@ -195,7 +238,7 @@ mod tests {
             assert!(face.pixel(right, [1920, 640]).unwrap()[0] > 960.);
             assert!(face.contains(clicked, side));
             assert_eq!(Face::rectangle(clicked, side, |p| member(p) && p[axis] < 2).unwrap().width, 2);
-            assert!(Face::rectangle(clicked, side, |_| true).is_none());
+            assert!(Face::rectangle(clicked, side, |_| true).is_err());
         }
     }
     #[test]
@@ -210,7 +253,7 @@ mod tests {
             for horizontal in 0..4 {
                 for y in 4..6 {
                     let mut clicked = anchor; clicked[axis] = horizontal; clicked[1] = y;
-                    assert_eq!(Face::rectangle(clicked, side, member), Some(face));
+                    assert_eq!(Face::rectangle(clicked, side, member), Ok(face));
                     assert!(face.contains(clicked, side));
                 }
             }
@@ -219,8 +262,8 @@ mod tests {
             assert_eq!(face.pixel(center, [1280, 640]), Some([640., 320.]));
             let upper = std::array::from_fn(|i| center[i] - down[i] * 0.5);
             assert!(face.pixel(upper, [1280, 640]).unwrap()[1] < 320.);
-            assert!(Face::rectangle(anchor, side, |p| member(p) && !(p[axis] == 1 && p[1] == 5)).is_none());
-            assert!(Face::rectangle(anchor, side, |p| p[2-axis] == 7 && p[axis] == 0 && (4..21).contains(&p[1])).is_none());
+            assert!(matches!(Face::rectangle(anchor, side, |p| member(p) && !(p[axis] == 1 && p[1] == 5)), Err(RectangleError::Missing(_))));
+            assert_eq!(Face::rectangle(anchor, side, |p| p[2-axis] == 7 && p[axis] == 0 && (4..21).contains(&p[1])), Err(RectangleError::TooLarge { vertical: true }));
         }
     }
 }

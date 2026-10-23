@@ -818,6 +818,14 @@ Sharing acceptance requires two real native clients: verify generic-only before
 Allow, denial, live changes after Allow while looking, looking-away STOP, F8 revoke,
 owner close and reconnect. Codec/packet unit tests do not prove that live path.
 
+Physical mouse releases clear the game's held attack/use keys before monitor or
+modal routing. Regression coverage checks latch clearing independently of routing;
+screen/grab transitions clear all held input, and starting desktop control
+also clears game input. Verify a single right-click places only one monitor, then
+release while pointing at its front, open/close its menu, and resume normal play.
+Rectangle failures distinguish a missing cell, an oversized width/height, and a
+monitor facing the wrong direction (including its coordinates and both facings).
+
 For acceptance, use an isolated offline world and a dedicated non-sensitive
 desktop text window. Record the exact client/server builds, the explicit consent
 step, a completed client GPU screenshot of the live window on the monitor face,
