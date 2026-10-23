@@ -340,7 +340,7 @@ fn exact_input_target<'a>(
         return Err("screen input is not enabled".into());
     }
     if !matches!(&node.action, super::state::NodeAction::Focus(id) if id == &node.id)
-        || !matches!(&node.paint, super::state::Paint::Field(id) if id == &node.id)
+        || !matches!(&node.paint, super::state::Paint::Field(id) | super::state::Paint::BareField(id) if id == &node.id)
     {
         return Err("screen input is not editable".into());
     }

@@ -1286,7 +1286,7 @@
     },
     "expected_title": {
      "type": "string",
-     "minLength": 1,
+     "minLength": 0,
      "maxLength": 256
     },
     "button_label": {
@@ -1322,7 +1322,7 @@
     },
     "expected_title": {
      "type": "string",
-     "minLength": 1,
+     "minLength": 0,
      "maxLength": 256
     },
     "input_label": {

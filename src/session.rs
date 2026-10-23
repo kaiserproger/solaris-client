@@ -323,6 +323,14 @@ impl Session {
             .as_ref()
             .is_some_and(|ui| ui.screen() == crate::ui::Screen::Chat)
     }
+    /// True while a text field owns the keyboard on a menu/inventory/editor screen.
+    pub fn text_input_active(&self) -> bool {
+        self.ui.as_ref().is_some_and(UiState::text_input_active)
+    }
+    /// True on the creative "Saved Hotbars" tab (digits load/save hotbars).
+    pub fn creative_hotbar_tab(&self) -> bool {
+        self.ui.as_ref().is_some_and(UiState::creative_hotbar_tab)
+    }
     pub fn context_epochs(&self) -> (u64, u64) {
         (self.connection_epoch, self.dimension_epoch)
     }

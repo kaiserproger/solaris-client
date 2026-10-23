@@ -174,6 +174,7 @@ struct App {
     last_dialog_screen: bool,
     debug_overlay: bool,
     shift_held: bool,
+    ctrl_held: bool,
     hotbar_wheel: hotbar_wheel::HotbarWheel,
     computer: computer::native::Computer,
     voice: voice::Client,
@@ -236,6 +237,7 @@ impl App {
             last_dialog_screen: false,
             debug_overlay: false,
             shift_held: false,
+            ctrl_held: false,
             hotbar_wheel: hotbar_wheel::HotbarWheel::default(),
             computer: computer::native::Computer::default(),
             voice: Default::default(),
@@ -891,7 +893,9 @@ impl ApplicationHandler for App {
                     self.publish_session();
                 }
             }
-            WindowEvent::KeyboardInput { event, .. } if self.focused && !event.repeat => {
+            WindowEvent::KeyboardInput { event, .. }
+                if self.focused && (!event.repeat || text_key_repeats(&self.session, &event)) =>
+            {
                 let PhysicalKey::Code(code) = event.physical_key else {
                     return;
                 };
@@ -903,6 +907,9 @@ impl ApplicationHandler for App {
                 }
                 if matches!(code, KeyCode::ShiftLeft | KeyCode::ShiftRight) {
                     self.shift_held = pressed;
+                }
+                if matches!(code, KeyCode::ControlLeft | KeyCode::ControlRight) {
+                    self.ctrl_held = pressed;
                 }
                 // Shift is a container modifier, not a movement input, while a menu is open.
                 if self.session.screen() == "inventory"
@@ -945,6 +952,7 @@ impl ApplicationHandler for App {
                 if self.session.chat_open()
                     || self.session.shell_screen_active()
                     || self.session.server_dialog_open()
+                    || self.session.text_input_active()
                 {
                     if code == KeyCode::Escape && pressed {
                         self.manual(InputIntent::Ui {
@@ -955,6 +963,31 @@ impl ApplicationHandler for App {
                             },
                         });
                         return;
+                    }
+                    if self.ctrl_held {
+                        let letter = match code {
+                            KeyCode::KeyA => Some("a"),
+                            KeyCode::KeyC => Some("c"),
+                            KeyCode::KeyV => Some("v"),
+                            KeyCode::KeyX => Some("x"),
+                            _ => None,
+                        };
+                        if let Some(letter) = letter {
+                            if pressed {
+                                self.manual(InputIntent::Ui {
+                                    intent: crate::ui::UiIntent::Key {
+                                        key: letter.into(),
+                                        pressed: true,
+                                        modifiers: crate::ui::Modifiers {
+                                            shift: self.shift_held,
+                                            control: true,
+                                            ..Default::default()
+                                        },
+                                    },
+                                });
+                            }
+                            return;
+                        }
                     }
                     let key = match code {
                         KeyCode::Enter | KeyCode::NumpadEnter => Some("Enter"),
@@ -977,6 +1010,7 @@ impl ApplicationHandler for App {
                                     pressed: true,
                                     modifiers: crate::ui::Modifiers {
                                         shift: self.shift_held,
+                                        control: self.ctrl_held,
                                         ..Default::default()
                                     },
                                 },
@@ -998,6 +1032,34 @@ impl ApplicationHandler for App {
                         }
                     }
                     return;
+                }
+                // Creative "Saved Hotbars" tab: digit loads, Ctrl+digit saves that hotbar.
+                if pressed && self.session.creative_hotbar_tab() {
+                    let digit = match code {
+                        KeyCode::Digit1 => Some("1"),
+                        KeyCode::Digit2 => Some("2"),
+                        KeyCode::Digit3 => Some("3"),
+                        KeyCode::Digit4 => Some("4"),
+                        KeyCode::Digit5 => Some("5"),
+                        KeyCode::Digit6 => Some("6"),
+                        KeyCode::Digit7 => Some("7"),
+                        KeyCode::Digit8 => Some("8"),
+                        KeyCode::Digit9 => Some("9"),
+                        _ => None,
+                    };
+                    if let Some(digit) = digit {
+                        self.manual(InputIntent::Ui {
+                            intent: crate::ui::UiIntent::Key {
+                                key: digit.into(),
+                                pressed: true,
+                                modifiers: crate::ui::Modifiers {
+                                    control: self.ctrl_held,
+                                    ..Default::default()
+                                },
+                            },
+                        });
+                        return;
+                    }
                 }
                 if code == KeyCode::Escape && pressed {
                     self.release("emergency_stop");
@@ -1323,4 +1385,18 @@ mod cpu_hotpath_advance_tests {
             "noted publish must close the gate for the next idle turn");
     }
 
+}
+
+/// Auto-repeat reaches focused text fields (characters, Backspace, arrows) but
+/// never confirm/cancel/focus-change keys or gameplay inputs.
+fn text_key_repeats(session: &Session, event: &winit::event::KeyEvent) -> bool {
+    (session.chat_open() || session.text_input_active())
+        && matches!(
+            event.physical_key,
+            PhysicalKey::Code(code)
+                if !matches!(
+                    code,
+                    KeyCode::Enter | KeyCode::NumpadEnter | KeyCode::Tab | KeyCode::Escape
+                )
+        )
 }

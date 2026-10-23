@@ -4,6 +4,7 @@ mod anim;
 mod catalogue;
 mod chat_tracking;
 mod clipping;
+mod creative;
 pub(crate) mod desktop;
 mod dialog;
 mod display;

@@ -70,51 +70,6 @@ impl UiState {
         self.invalidate();
         Ok(())
     }
-    pub(crate) fn saved_hotbar_tree(&mut self, content: &Content) -> Result<()> {
-        for index in 0..9 {
-            let y = 78. + index as f32 * 22.;
-            if let Some(stacks) = self.saved_hotbars[index].clone() {
-                for (slot, stack) in stacks.iter().enumerate() {
-                    if stack.empty() {
-                        continue;
-                    }
-                    let key = (index * 9 + slot) as u32;
-                    self.creative_stacks.insert(key, stack.clone());
-                    let name = self
-                        .text
-                        .language
-                        .plain(super::text::item_name_component(content, stack)?.as_ref())?;
-                    self.add(
-                        format!("creative/item/{key}"),
-                        "slot",
-                        name,
-                        [16. + slot as f32 * 20., y, 18., 18.],
-                        true,
-                        None,
-                        NodeAction::Creative(key),
-                        Paint::Creative(key),
-                    )?;
-                }
-            }
-            self.button(
-                &format!("creative/hotbar/{index}/save"),
-                "Save",
-                [202., y, 44., 20.],
-                NodeAction::HotbarSave(index),
-                true,
-                None,
-            )?;
-            self.button(
-                &format!("creative/hotbar/{index}/load"),
-                "Load",
-                [250., y, 44., 20.],
-                NodeAction::HotbarLoad(index),
-                true,
-                None,
-            )?;
-        }
-        Ok(())
-    }
     pub(crate) fn save_hotbar(
         &mut self,
         index: usize,

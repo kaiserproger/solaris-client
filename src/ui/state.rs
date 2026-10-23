@@ -319,6 +319,7 @@ pub(crate) enum NodeAction {
     Creative(u32),
     CreativeTab(usize),
     CreativeClear,
+    CreativeScroll,
     HotbarSave(usize),
     HotbarLoad(usize),
     ComponentClick(Arc<Value>),
@@ -357,6 +358,10 @@ pub(crate) enum Paint {
     Hotbar,
     HotbarSelection,
     Field(String),
+    /// Borderless vanilla edit box: white shadowed text, blinking caret, horizontal scroll.
+    BareField(String),
+    /// Plain label in an explicit ARGB colour (`true` = vanilla drop shadow).
+    Plain(u32, bool),
     Image(String, [f32; 4]),
     TintedImage(String, [f32; 3]),
     Slot(usize),
@@ -441,6 +446,8 @@ pub struct UiState {
     pub(crate) enabled_features: Arc<BTreeSet<String>>,
     pub(crate) creative_tab: usize,
     pub(crate) creative_stacks: BTreeMap<u32, crate::inventory::Stack>,
+    pub(crate) creative_index: Option<(usize, Arc<Vec<super::creative::IndexEntry>>)>,
+    pub(crate) creative_scroll_max: usize,
     pub(crate) saved_hotbars: [Option<Arc<Vec<crate::inventory::Stack>>>; 9],
     pub(crate) book_components: Vec<Arc<Value>>,
     pub(crate) pending_link: Option<String>,
@@ -563,6 +570,8 @@ impl UiState {
             enabled_features: Arc::new(BTreeSet::new()),
             creative_tab: 0,
             creative_stacks: BTreeMap::new(),
+            creative_index: None,
+            creative_scroll_max: 0,
             saved_hotbars: std::array::from_fn(|_| None),
             book_components: Vec::new(),
             pending_link: None,
@@ -866,6 +875,7 @@ impl UiState {
         if self.enabled_features != features {
             self.enabled_features = features;
             self.creative_stacks.clear();
+            self.creative_index = None;
             self.recipe_stacks.clear();
             self.recipe_names.clear();
             self.ghost_presentation = None;
@@ -1084,6 +1094,7 @@ impl UiState {
         );
         self.ghost_presentation = None;
         self.creative_stacks.clear();
+        self.creative_index = None;
         Ok(())
     }
     pub fn set_language(
@@ -1100,6 +1111,7 @@ impl UiState {
         self.hud_sidebar = None;
         self.hud_level = None;
         self.recipe_names.clear();
+        self.creative_index = None;
         self.invalidate();
         Ok(())
     }
@@ -1197,6 +1209,14 @@ impl UiState {
         self.invalidate();
         Ok(())
     }
+    /// True while a text field owns the keyboard on a menu/inventory/editor screen.
+    pub fn text_input_active(&self) -> bool {
+        self.screen != Screen::Game
+            && self
+                .focus
+                .as_ref()
+                .is_some_and(|id| self.fields.contains_key(id))
+    }
     pub fn ime_state(&self) -> ImeState {
         let Some(id) = &self.focus else {
             return ImeState::default();
@@ -1211,9 +1231,12 @@ impl UiState {
         else {
             return ImeState::default();
         };
-        let Ok(layout) = self.text.layout(
-            &json!({"text":field.display()}),
-            (node.bounds[2] - 8.).max(1.),
+        let Ok((layout, inset, shift)) = self.field_layout(
+            node,
+            &field.display(),
+            field
+                .display_cursor()
+                .unwrap_or(field.anchor.min(field.cursor)),
         ) else {
             return ImeState::default();
         };
@@ -1225,8 +1248,8 @@ impl UiState {
         ImeState {
             allowed: true,
             position: [
-                (node.bounds[0] + 4. + x) as f64 * self.scale,
-                (node.bounds[1] + 4. + y) as f64 * self.scale,
+                (node.bounds[0] + inset + x - shift) as f64 * self.scale,
+                (node.bounds[1] + inset + y) as f64 * self.scale,
             ],
             size: [self.scale, 9. * self.scale],
         }
@@ -1462,6 +1485,9 @@ impl UiState {
                 } else {
                     Screen::Menu
                 });
+                if self.screen == Screen::Creative {
+                    self.creative_select_tab(self.creative_tab, false)?;
+                }
             } else if matches!(self.screen, Screen::Menu | Screen::Creative | Screen::Sign) {
                 self.editor = None;
                 self.transition(Screen::Game);
@@ -2060,6 +2086,9 @@ impl UiState {
                                         ClickMode::Pickup
                                     },
                                 });
+                            } else if let NodeAction::CreativeScroll = action {
+                                self.slider_drag = Some(super::creative::SCROLLBAR.into());
+                                self.creative_scroll_to_pointer(self.pointer[1]);
                             } else if let NodeAction::Dialog(super::dialog::DialogControl::Slide(_)) = action {
                                 self.focus = Some(id.clone());
                                 self.slider_drag = Some(id.clone());
@@ -2101,7 +2130,9 @@ impl UiState {
                     }
                     PointerPhase::Move => {
                         if let Some(id) = self.slider_drag.clone() {
-                            if self.screen == Screen::ServerDialog {
+                            if id == super::creative::SCROLLBAR {
+                                self.creative_scroll_to_pointer(self.pointer[1]);
+                            } else if self.screen == Screen::ServerDialog {
                                 self.dialog_slider_pointer(&id);
                             } else if let Some((key, bounds)) = self.nodes.iter().find(|n| n.id == id).and_then(
                                 |n| match n.action {
@@ -2459,6 +2490,14 @@ impl UiState {
                 )?;
             }
             return Ok(());
+        }
+        if self.creative_hotbar_tab() && matches!(key, "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9") {
+            let index = usize::from(key.as_bytes()[0] - b'1');
+            return if m.control {
+                self.save_hotbar(index, inventory, content, e)
+            } else {
+                self.load_hotbar(index, inventory, e)
+            };
         }
         if key == "Tab" {
             let ids: Vec<_> = self
@@ -2977,11 +3016,10 @@ impl UiState {
                 if selected["id"] == "minecraft:op_blocks" && !self.operator_permission {
                     return Err("permission_denied".into());
                 }
-                inventory.set_creative_inventory_tab(selected["type"] == "INVENTORY");
-                self.creative_tab = tab;
-                self.creative_stacks.clear();
-                self.scroll = 0;
-                self.invalidate();
+                let inventory_tab = selected["type"] == "INVENTORY";
+                let entered = tab != self.creative_tab;
+                inventory.set_creative_inventory_tab(inventory_tab);
+                self.creative_select_tab(tab, entered)?;
             }
             NodeAction::CreativeClear => {
                 e.commands.push(UiCommand::CreativeClear {
@@ -2991,6 +3029,8 @@ impl UiState {
             }
             NodeAction::HotbarSave(index) => self.save_hotbar(index, inventory, content, e)?,
             NodeAction::HotbarLoad(index) => self.load_hotbar(index, inventory, e)?,
+            // The scroll bar reacts to pointer drags and the wheel only.
+            NodeAction::CreativeScroll => {}
             NodeAction::ComponentClick(event) => {
                 self.click_component(&event, inventory, content, e)?
             }
@@ -3453,13 +3493,93 @@ impl UiState {
                         }
                     }
                 }
+                Paint::BareField(id) => {
+                    let f = &self.fields[id];
+                    let cursor = f.display_cursor();
+                    let (layout, _, shift) =
+                        self.field_layout(node, &f.display(), cursor.unwrap_or(f.cursor))?;
+                    if node.focused {
+                        if let Some([start, end]) = f.display_selection().filter(|[s, e]| s != e) {
+                            for glyph in layout
+                                .glyphs
+                                .iter()
+                                .filter(|g| g.bytes[0] < end && g.bytes[1] > start)
+                            {
+                                p.solid(
+                                    [
+                                        x + glyph.position[0] - shift,
+                                        y + glyph.position[1] - 1.,
+                                        glyph.advance,
+                                        10.,
+                                    ],
+                                    [0.25, 0.45, 1.],
+                                    0.85,
+                                );
+                            }
+                        }
+                    }
+                    let origin = |dx: f32, dy: f32| {
+                        transform * Mat4::from_translation(Vec3::new(x - shift + dx, y + dy, 0.))
+                    };
+                    self.text
+                        .append_layout(content, &layout, origin(1., 1.), 0xff3f_3f3f, None, p.out)?;
+                    self.text
+                        .append_layout(content, &layout, origin(0., 0.), 0xffff_ffff, None, p.out)?;
+                    if node.focused && (self.tick / 6) % 2 == 0 {
+                        if let Some(cursor) = cursor {
+                            let [cx, cy] = layout.caret(cursor);
+                            if cursor >= f.display().len() && f.display().len() < 256 {
+                                let bar = self.text.layout(&json!({"text":"_"}), 16.)?;
+                                for (offset, color) in [(1., 0xff3f_3f3fu32), (0., 0xffff_ffff)] {
+                                    self.text.append_layout(
+                                        content,
+                                        &bar,
+                                        origin(cx + offset, cy + offset),
+                                        color,
+                                        None,
+                                        p.out,
+                                    )?;
+                                }
+                            } else {
+                                p.solid([x + cx - shift, y + cy - 1., 1., 10.], [0.82; 3], 1.);
+                            }
+                        }
+                    }
+                }
+                Paint::Plain(color, shadow) => {
+                    let layout = self.text.layout(&json!({"text":node.label}), w.max(1.))?;
+                    if *shadow {
+                        let dark = 0xff00_0000 | ((*color & 0x00fc_fcfc) >> 2);
+                        self.text.append_layout(
+                            content,
+                            &layout,
+                            transform * Mat4::from_translation(Vec3::new(x + 1., y + 1., 0.)),
+                            dark,
+                            None,
+                            p.out,
+                        )?;
+                    }
+                    self.text.append_layout(
+                        content,
+                        &layout,
+                        transform * Mat4::from_translation(Vec3::new(x, y, 0.)),
+                        *color,
+                        None,
+                        p.out,
+                    )?;
+                }
                 Paint::PlayerPreview => {
                     if let Some(preview) = &mut self.player_preview {
                         append_player_preview(preview, node.bounds, self.pointer, transform, p.out);
                     }
                 }
                 Paint::Slot(index) => {
-                    if fx.hover > 0.01 {
+                    if self.screen == Screen::Creative {
+                        // Vanilla slot highlight: 16x16 translucent white.
+                        if node.enabled && contains(node.bounds, self.pointer) {
+                            p.solid([x + 1., y + 1., w - 2., h - 2.], [1.; 3], 0.5);
+                        }
+                    } else if fx.hover > 0.01 {
                         p.solid(node.bounds, super::theme::ACCENT, 0.30 * fx.hover);
                     }
                     let slots = if node.id.starts_with("hud/") {
@@ -3499,7 +3619,15 @@ impl UiState {
                     }
                     let stack = &self.creative_stacks[id];
                     let model = self.models.icon_model(content, stack, &self.item_context);
-                    append_item(model, node.bounds, transform, p.out)?;
+                    if matches!(node.action, NodeAction::Creative(_)) {
+                        // Palette slot: vanilla highlight, 16x16 item inside the 18x18 cell.
+                        if contains(node.bounds, self.pointer) {
+                            p.solid([x + 1., y + 1., w - 2., h - 2.], [1.; 3], 0.5);
+                        }
+                        append_item(model, [x + 1., y + 1., w - 2., h - 2.], transform, p.out)?;
+                    } else {
+                        append_item(model, node.bounds, transform, p.out)?;
+                    }
                 }
                 Paint::TradeItem { offer, part } => {
                     let trade = inventory
@@ -3625,6 +3753,9 @@ impl UiState {
                 Paint::Slot(_)
                     | Paint::PlayerPreview
                     | Paint::Field(_)
+                    | Paint::BareField(_)
+                    | Paint::Plain(..)
+                    | Paint::Image(..)
                     | Paint::Creative(_)
                     | Paint::Map(_)
                     | Paint::LoaderPreview(_)
@@ -3822,10 +3953,11 @@ impl UiState {
     fn text_hit(&self, id: &str, p: [f32; 2]) -> Result<usize> {
         let node = self.target(id)?;
         let field = self.fields.get(id).ok_or("text_focus_required")?;
-        let layout = self
-            .text
-            .layout(&json!({"text":field.text}), (node.bounds[2] - 8.).max(1.))?;
-        Ok(layout.hit([p[0] - node.bounds[0] - 4., p[1] - node.bounds[1] - 4.]))
+        let (layout, inset, shift) = self.field_layout(node, &field.text, field.cursor)?;
+        Ok(layout.hit([
+            p[0] - node.bounds[0] - inset + shift,
+            p[1] - node.bounds[1] - inset,
+        ]))
     }
     /// Test seam: drive a `NodeAction` without a built semantic tree
     /// (state-only tests have no fonts, so `target()` fails closed).
