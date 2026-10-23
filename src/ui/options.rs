@@ -69,7 +69,7 @@ const VIDEO: [Row; 6] = [
         "Fancy lighting and water. Turn off for speed.",
     ),
 ];
-const CONTROLS: [Row; 2] = [
+const CONTROLS: [Row; 3] = [
     row(
         "mouse_sensitivity",
         "Sensitivity",
@@ -81,6 +81,12 @@ const CONTROLS: [Row; 2] = [
         "Damage tilt",
         Kind::Slider,
         "How strongly the camera shakes when hurt.",
+    ),
+    row(
+        "desktop_computer",
+        "Desktop computer",
+        Kind::Toggle,
+        "Local capture/control: right-click iron. OS permission required. Esc releases.",
     ),
 ];
 const AUDIO: [Row; 2] = [

@@ -722,3 +722,39 @@ Idle CPU measurements must leave no pending MCP wait action and use a bounded
 profiler interval, recording process CPU time, wall time, RSS and actual tick/
 packet progress separately. A profiler timeout is a measurement window, not a
 sleep-based gameplay readiness claim.
+
+## Client-local desktop computer
+
+Options → Controls → **Desktop computer** is off by default. The persisted
+`desktop_computer` boolean in `client-settings.json` uses the ordinary client
+settings path (`SOLARIS_CLIENT_SETTINGS` may select an isolated test file).
+Enabling it alone never starts capture. Right-click an ordinary iron block to
+select a desktop window; no server computer channel or server opt-in is used.
+On Wayland the system RemoteDesktop/ScreenCast picker supplies explicit capture
+and input consent in one combined session. `gst-launch-1.0` with the PipeWire,
+videoconvert, videoscale and fdsink plugins must be installed. The portal fd is
+inherited only by that capture child. Windows uses a local window list
+(Up/Down, Enter), Windows Graphics Capture, and window-targeted input.
+
+The latest RGBA frame is uploaded to a separate depth-tested world texture on
+the clicked face, aspect-fit without stretching. Right-click that screen again
+to explicitly enter control mode. Looking at the face maps the crosshair hit
+to window pixels; clicks, wheel and keyboard are local desktop input, never
+Minecraft packets. Escape releases all held desktop keys/buttons and leaves
+capture visible; Shift+Escape closes capture. Focus loss or looking away
+releases input. Disabling the option, removing/unloading the block, changing
+dimension/connection, or closing the client releases capture and its GPU image.
+Portal denial/backend errors are visible in the local HUD, not fatal to play.
+
+For acceptance, use an isolated offline world and a dedicated non-sensitive
+desktop text window. Record the exact client/server builds, the explicit consent
+step, a completed client GPU screenshot of the live window on the iron face,
+and an independently observed forwarded click/key in the target window.
+Do not call cross-compilation, numerical UV tests, a portal permission grant,
+or a raw captured frame proof of this end-to-end interaction.
+
+Unknown optional custom payload channels, including `solaris:loader/probe`,
+are ignored in Configuration and Play without claiming Loader activation.
+Recognized manifest/artifact/view channels still enforce their phase and
+existing validation. This permits a vanilla-compatible connection to a server
+that probes clients even when the local desktop feature needs no Loader bundle.

@@ -336,6 +336,7 @@ pub struct Renderer {
     targets: Targets,
     pipelines: Pipelines,
     outline: outline::Outline,
+    desktop: Option<crate::computer::texture::Texture>,
     post: post::Post,
     shadow: shadow::Shadow,
     fancy_shaders: bool,
@@ -701,6 +702,7 @@ impl Renderer {
         let progress =
             progress::Progress::new(device.clone(), progress_errors, gpu_failed.clone())?;
         Ok(Self {
+            desktop: None,
             surface,
             device,
             queue,
@@ -1091,6 +1093,18 @@ impl Renderer {
         self.outline
             .resize(&self.device, self.config.width, self.config.height);
     }
+
+    pub(crate) fn update_desktop(&mut self, face: crate::computer::Face, frame: &crate::computer::Frame) {
+        let size = [frame.width, frame.height];
+        if self.desktop.as_ref().is_none_or(|texture| texture.size() != size) {
+            self.desktop = Some(crate::computer::texture::Texture::new(&self.device, face, size));
+        }
+        if let Some(texture) = &mut self.desktop {
+            texture.face = face;
+            texture.upload(&self.queue, frame);
+        }
+    }
+    pub(crate) fn clear_desktop(&mut self) { self.desktop = None; }
 
     pub fn render(
         &mut self,

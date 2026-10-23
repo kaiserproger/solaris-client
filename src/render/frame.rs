@@ -884,6 +884,10 @@ impl Renderer {
                 .post(&mut encoder, &self.targets.color_view, &self.timing);
             self.stats.draw_calls += 5;
         }
+        if let Some(desktop) = &self.desktop {
+            desktop.draw(&self.queue, &mut encoder, &self.targets.color_view,
+                &self.targets.depth_view, scene.camera_position, view_projection);
+        }
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("actual retained UI overlay"),

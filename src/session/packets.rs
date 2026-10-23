@@ -164,7 +164,12 @@ impl Session {
                             "origin":"received_optional_payload"})),
                     }
                 }
-                _ => return Err(format!("unsupported Loader channel or phase: {channel}")),
+                "solaris:loader/manifest" | "solaris:loader/artifact" | "solaris:loader/view" => {
+                    return Err(format!("unsupported Loader channel or phase: {channel}"));
+                }
+                // Unnegotiated/future plugin channels are optional custom payloads,
+                // including the server's capability probe. Never infer activation.
+                _ => self.event(json!({"type":"optional_custom_payload_ignored","channel":channel})),
             }
         } else if channel != "minecraft:brand" {
             self.event(json!({"type":"optional_custom_payload_ignored","channel":channel}));
@@ -768,6 +773,34 @@ fn chunk_key(p: [i32; 3]) -> [i32; 2] {
 mod tests {
     use super::*;
     use crate::protocol::world::{Palette, Section, SurfaceHeightmap};
+
+    #[test]
+    fn optional_loader_probe_and_unknown_channels_do_not_disconnect() {
+        for (phase, label, packet) in [(Phase::Configuration, "configuration", 1), (Phase::Play, "play", 24)] {
+            for channel in ["solaris:loader/probe", "solaris:loader/future", "example:optional"] {
+                let mut session = Session::new_mode("optional-payload".into(), false);
+                session.content = Some(Content::test_cube());
+                session.phase = label.into();
+                let mut writer = Writer::default();
+                writer.string(channel);
+                writer.0.extend_from_slice(&[1, 255, 0, 17]);
+                session.apply(phase, packet, &writer.0).unwrap();
+                assert_eq!(session.phase, label);
+                assert_eq!(session.events.back().unwrap()["channel"], channel);
+                assert_eq!(session.events.back().unwrap()["type"], "optional_custom_payload_ignored");
+            }
+        }
+    }
+
+    #[test]
+    fn recognized_loader_channel_still_requires_its_protocol_phase() {
+        let mut session = Session::new_mode("wrong-loader-phase".into(), false);
+        session.content = Some(Content::test_cube());
+        session.phase = "play".into();
+        let mut writer = Writer::default();
+        writer.string("solaris:loader/manifest");
+        assert!(session.apply(Phase::Play, 24, &writer.0).unwrap_err().contains("phase"));
+    }
 
     fn session_with_received_cube(position: [i32; 3]) -> Session {
         let mut session = Session::new_mode("received-prediction-test".into(), false);

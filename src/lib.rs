@@ -1,6 +1,7 @@
 pub mod api;
 pub mod audio;
 pub mod automation;
+pub mod computer;
 mod content_paths;
 pub mod entities;
 pub mod environment;
@@ -173,6 +174,7 @@ struct App {
     debug_overlay: bool,
     shift_held: bool,
     hotbar_wheel: hotbar_wheel::HotbarWheel,
+    computer: computer::native::Computer,
     next_tick: Instant,
     next_frame: Instant,
     advance_cpu_ms: f64,
@@ -233,6 +235,7 @@ impl App {
             debug_overlay: false,
             shift_held: false,
             hotbar_wheel: hotbar_wheel::HotbarWheel::default(),
+            computer: computer::native::Computer::default(),
             next_tick: Instant::now(),
             next_frame: Instant::now(),
             advance_cpu_ms: 0.,
@@ -255,7 +258,10 @@ impl App {
         let publish_start = Instant::now();
         // Synchronize derived UI state before building the snapshot. An idle
         // publication gate cannot rely on another turn to publish these nodes.
-        if self.debug_overlay {
+        if self.computer.has_overlay() {
+            let lines = self.computer.lines();
+            if let Some(ui) = self.session.ui_mut() { ui.set_debug_lines(lines); }
+        } else if self.debug_overlay {
             let render = self.shared.observation.lock().unwrap_or_else(|e| e.into_inner())
                 .data["render"].clone();
             let lines = self.session.debug_lines(&render);
@@ -309,6 +315,7 @@ impl App {
             "renderable":self.renderer.is_some()&&size.width>0&&size.height>0&&!self.occluded})
     }
     fn release(&mut self, reason: &str) {
+        self.computer.release_input();
         let tasks = std::mem::take(&mut self.pending_tasks);
         for (request, mut task) in tasks {
             if request.automation_fence.is_some() {
@@ -681,6 +688,7 @@ impl App {
         if now >= self.next_tick {
             self.next_tick = now + Duration::from_millis(50);
         }
+        self.update_computer();
         // No task can have changed state after the publication below when
         // the queue is empty; avoid rebuilding the entire observation twice.
         if self.pending_tasks.is_empty() {
@@ -795,8 +803,10 @@ impl ApplicationHandler for App {
         event: WindowEvent,
     ) {
         if self.window.as_ref().is_none_or(|w| w.id() != window_id) {
+            // Events from other windows never acquire local desktop control.
             return;
         }
+        if self.computer_event(&event) { return; }
         match event {
             WindowEvent::CloseRequested => {
                 self.release("window_close");

@@ -633,6 +633,7 @@ impl UiState {
         "vsync",
         "max_fps",
         "fancy_shaders",
+        "desktop_computer",
     ];
     fn setting_f64(value: &Value) -> Option<f64> {
         value.as_f64().or_else(|| value.as_u64().map(|v| v as f64))
@@ -641,7 +642,7 @@ impl UiState {
     /// unknown keys or non-numeric values where numbers are required.
     pub fn sanitize_setting_value(key: &str, value: &Value) -> Option<Value> {
         match key {
-            "fullscreen" | "vsync" | "fancy_shaders" => value.as_bool().map(|v| json!(v)),
+            "fullscreen" | "vsync" | "fancy_shaders" | "desktop_computer" => value.as_bool().map(|v| json!(v)),
             "max_fps" => value
                 .as_u64()
                 .map(|v| json!(if v == 0 { 0 } else { v.clamp(30, 260) })),
@@ -704,7 +705,7 @@ impl UiState {
     /// Default value for a managed key, if any.
     pub fn default_setting_value(key: &str) -> Option<Value> {
         match key {
-            "fullscreen" => Some(json!(false)),
+            "fullscreen" | "desktop_computer" => Some(json!(false)),
             "vsync" | "fancy_shaders" => Some(json!(true)),
             "max_fps" => Some(json!(120)),
             "render_distance" => Some(json!(Self::DEFAULT_RENDER_DISTANCE)),
@@ -721,9 +722,9 @@ impl UiState {
     pub fn next_setting_value(key: &str, current: Option<&Value>) -> Option<Value> {
         let sane = |v: &Value| Self::sanitize_setting_value(key, v);
         match key {
-            "fullscreen" | "vsync" | "fancy_shaders" => Some(json!(!current
+            "fullscreen" | "vsync" | "fancy_shaders" | "desktop_computer" => Some(json!(!current
                 .and_then(Value::as_bool)
-                .unwrap_or(key != "fullscreen"))),
+                .unwrap_or(!matches!(key, "fullscreen" | "desktop_computer")))),
             "max_fps" => {
                 let current = current.and_then(Value::as_u64).unwrap_or(120);
                 Some(json!([30, 60, 90, 120, 144, 165, 240, 260, 0]
