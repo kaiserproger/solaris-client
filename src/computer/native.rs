@@ -830,7 +830,8 @@ mod tests {
     }
     #[test]
     fn streaming_status_preserves_game_debug_overlay_lines() {
-        let computer = Computer { message: "LIVE desktop".into(), ..Default::default() };
+        let mut computer = Computer::default();
+        computer.message = "LIVE desktop".into();
         let mut lines = vec!["FPS: 60".into(), "XYZ: 1 2 3".into()];
         computer.append_status(&mut lines);
         assert_eq!(lines, ["FPS: 60", "XYZ: 1 2 3", "LIVE desktop"]);

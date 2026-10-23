@@ -747,6 +747,9 @@ Wayland uses a view-only ScreenCast portal with explicit system capture consent.
 `gst-launch-1.0` with PipeWire, videoconvert, videoscale and fdsink must be installed.
 The portal fd is inherited only by that capture child. Windows uses a local
 window list, Windows Graphics Capture, and window-targeted input.
+Filesystem resource enumeration converts the platform separator to `/` before
+validating resource IDs (including Windows `block\acacia_door_bottom.png`).
+Bundle/index identifiers remain slash-only; backslashes and traversal are rejected.
 
 On Linux, **Launch app: …** entries start applications inside a private nested
 Wayland compositor, with a private D-Bus session rather than the owner's desktop.

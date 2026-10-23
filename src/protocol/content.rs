@@ -700,17 +700,25 @@ fn collect_resources(
                 .strip_prefix(base)
                 .map_err(|e| e.to_string())?
                 .to_str()
-                .ok_or("resource path encoding")?
-                .rsplit_once('.')
-                .ok_or("resource extension missing")?
-                .0;
-            out.insert(normalize_id(&format!("{ns}:{path}"))?);
+                .ok_or("resource path encoding")?;
+            out.insert(resource_file_id(ns, path, std::path::MAIN_SEPARATOR)?);
             if out.len() > max {
                 return Err("resource count bound".into());
             }
         }
     }
     Ok(())
+}
+/// Convert a filesystem-relative name, not an external resource identifier.
+/// The separator is explicit so Windows path handling is exercised on Unix too.
+fn resource_file_id(ns: &str, relative: &str, separator: char) -> Result<String> {
+    let stem = relative.rsplit_once('.').ok_or("resource extension missing")?.0;
+    let mut id = String::with_capacity(ns.len() + 1 + stem.len());
+    id.push_str(ns);
+    id.push(':');
+    id.extend(stem.chars().map(|ch| if ch == separator { '/' } else { ch }));
+    split_id(&id)?;
+    Ok(id)
 }
 fn safe_relative(path: &str) -> Result<()> {
     if path.is_empty()
@@ -2966,6 +2974,17 @@ impl Simplex2 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn filesystem_resource_ids_normalize_windows_separators_only_at_source_boundary() {
+        let expected = "minecraft:block/acacia_door_bottom";
+        assert_eq!(resource_file_id("minecraft", r"block\acacia_door_bottom.png", '\\').unwrap(), expected);
+        let native = Path::new("block").join("acacia_door_bottom.png");
+        assert_eq!(resource_file_id("minecraft", native.to_str().unwrap(), std::path::MAIN_SEPARATOR).unwrap(), expected);
+        assert!(resource_file_id("minecraft", r"block\acacia_door_bottom.png", '/').is_err());
+        assert!(resource_file_id("minecraft", r"..\escape.png", '\\').is_err());
+        assert!(resource_file_id("minecraft", r"C:\escape.png", '\\').is_err());
+        assert!(normalize_id(r"minecraft:block\acacia_door_bottom").is_err());
+    }
     #[test]
     fn received_tag_order_drives_menu_indices_without_changing_membership() {
         let mut content = Content::test_cube();

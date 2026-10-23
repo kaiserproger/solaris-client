@@ -2409,6 +2409,9 @@ impl UiState {
         content: &Content,
         e: &mut UiEffects,
     ) -> Result<()> {
+        if key == "F1" && self.screen == Screen::Game {
+            return self.activate(NodeAction::Setting("hide_hud"), m, inventory, content, e);
+        }
         if key == "Escape" {
             if self.pending_link.take().is_some() {
                 self.invalidate();

@@ -1007,7 +1007,7 @@ impl ApplicationHandler for App {
                 {
                     return;
                 }
-                // Bare T/Slash/F2/F3: gate on tracked Shift (no modifier
+                // Bare T/Slash/F1/F2/F3: gate on tracked Shift (no modifier
                 // snapshot exists on KeyEvent in winit 0.30; Ctrl/Alt/Logo
                 // combos on these keys are not bound anyway).
                 let bare = !self.shift_held;
@@ -1024,6 +1024,13 @@ impl ApplicationHandler for App {
                             let _ = self
                                 .session
                                 .execute_ui(crate::ui::UiIntent::OpenChat { command: true });
+                            self.publish_session();
+                            return;
+                        }
+                        KeyCode::F1 => {
+                            let _ = self.session.execute_ui(crate::ui::UiIntent::Key {
+                                key: "F1".into(), pressed: true, modifiers: Default::default(),
+                            });
                             self.publish_session();
                             return;
                         }

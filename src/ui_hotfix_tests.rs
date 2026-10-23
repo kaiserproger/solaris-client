@@ -23,6 +23,19 @@ fn state() -> (Content, InventoryStore, UiState) {
     (content, inventory, ui)
 }
 
+#[test]
+fn f1_toggles_existing_hide_hud_setting_without_opening_a_screen() {
+    use crate::ui::{Modifiers, UiIntent};
+    let (content, mut inventory, mut ui) = state();
+    for (pressed, hidden) in [(true, true), (false, true), (true, false)] {
+        ui.execute(UiIntent::Key {
+            key: "F1".into(), pressed, modifiers: Modifiers::default(),
+        }, &mut inventory, &content).unwrap();
+        assert_eq!(ui.setting("hide_hud").and_then(serde_json::Value::as_bool), Some(hidden));
+        assert_eq!(ui.screen(), Screen::Game);
+    }
+}
+
 fn dead(ui: &mut UiState) {
     ui.set_presentation(UiPresentation {
         hud: HudState::default(),
