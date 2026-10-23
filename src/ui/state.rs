@@ -3587,30 +3587,10 @@ impl UiState {
                     } else {
                         &inventory.menu().slots
                     };
-                    if let Some(Some(s)) = slots.get(*index) {
-                        if !s.empty() {
-                            let model = self.models.icon_model(content, s, &self.item_context);
-                            let icon = [x + 1., y + 1., w - 2., h - 2.];
-                            append_item(model, icon, transform, p.out)?;
-                            if s.count > 1 {
-                                let layout = self
-                                    .text
-                                    .layout(&json!({"text":s.count.to_string(),"shadow_color":0xff3f3f3fu32}), 24.)?;
-                                self.text.append_layout(
-                                    content,
-                                    &layout,
-                                    transform
-                                        * Mat4::from_translation(Vec3::new(
-                                            icon[0] + 17. - layout.width,
-                                            icon[1] + 9.,
-                                            0.,
-                                        )),
-                                    0xffffffff,
-                                    None,
-                                    p.out,
-                                )?;
-                            }
-                        }
+                    if let Some(Some(s)) = slots.get(*index)
+                        && !s.empty()
+                    {
+                        self.append_stack(content, s, [x + 1., y + 1., w - 2., h - 2.], transform, p.out)?;
                     }
                 }
                 Paint::Creative(id) => {
@@ -3911,6 +3891,41 @@ impl UiState {
                     v.alpha *= fx.alpha;
                 }
             }
+        }
+        // AbstractContainerScreen.renderFloatingItem: the carried stack follows
+        // the pointer above every slot. Without it a picked-up item just
+        // vanished from its slot and looked like a click that did nothing.
+        if matches!(self.screen, Screen::Menu | Screen::Creative)
+            && let Some(stack) = inventory.cursor.as_ref().filter(|stack| !stack.empty())
+        {
+            let [x, y] = self.pointer;
+            self.append_stack(content, stack, [x - 8., y - 8., 16., 16.], transform, out)?;
+        }
+        Ok(())
+    }
+    /// Item icon plus its vanilla count label inside a 16x16 GUI box.
+    fn append_stack(
+        &mut self,
+        content: &Content,
+        stack: &crate::inventory::Stack,
+        icon: [f32; 4],
+        transform: Mat4,
+        out: &mut MeshGeometry,
+    ) -> Result<()> {
+        let model = self.models.icon_model(content, stack, &self.item_context);
+        append_item(model, icon, transform, out)?;
+        if stack.count > 1 {
+            let layout = self
+                .text
+                .layout(&json!({"text":stack.count.to_string(),"shadow_color":0xff3f3f3fu32}), 24.)?;
+            self.text.append_layout(
+                content,
+                &layout,
+                transform * Mat4::from_translation(Vec3::new(icon[0] + 17. - layout.width, icon[1] + 9., 0.)),
+                0xffffffff,
+                None,
+                out,
+            )?;
         }
         Ok(())
     }
