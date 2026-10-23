@@ -337,7 +337,8 @@ impl UiState {
             // Caret and drop shadow overhang the 80x9 box by a pixel.
             self.nodes.last_mut().expect("search node").clip =
                 Some([panel[0] + 82., panel[1] + 5., 80., 11.]);
-        } else {
+        } else if kind != "INVENTORY" {
+            // Vanilla `hideTitle()` on the search and Survival Inventory tabs.
             let title = self.text.language.plain(&selected["title_component"])?;
             self.add(
                 "creative/title".into(),
