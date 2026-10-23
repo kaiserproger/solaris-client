@@ -72,6 +72,7 @@ pub struct Session {
     ui_clock: std::time::Instant,
     loader: crate::loader::Loader,
     pub(crate) screen_relay: crate::computer::relay::Relay,
+    pub(crate) voice_net: crate::voice::Net,
     environment: Environment,
     terrain: Option<Terrain>,
     scene: Scene,
@@ -176,6 +177,7 @@ impl Session {
             ui_clock: std::time::Instant::now(),
             loader: crate::loader::Loader::default(),
             screen_relay: Default::default(),
+            voice_net: Default::default(),
             environment: Environment::new(),
             terrain: None,
             scene: Scene::default(),
@@ -691,6 +693,53 @@ impl Session {
                 payload: crate::computer::relay::CHANNEL.as_bytes().to_vec(),
             })?;
             self.screen_relay.registered = true;
+        }
+        Ok(())
+    }
+    /// HUD microphone indicator; `None` hides it.
+    pub(crate) fn set_voice_mic(&mut self, mic: Option<(&'static str, [f32; 3])>) {
+        if let Some(ui) = &mut self.ui {
+            ui.set_voice_mic(mic);
+        }
+    }
+    pub(crate) fn reset_voice(&mut self) {
+        self.voice_net = Default::default();
+        if let Some(audio) = &self.audio {
+            audio.voice().clear();
+        }
+    }
+    pub(crate) fn register_voice(&mut self) -> Result<()> {
+        if !self.voice_net.registered && self.phase == "play" {
+            self.send_loader(crate::loader::Outgoing {
+                channel: "minecraft:register",
+                payload: crate::voice::CHANNEL.as_bytes().to_vec(),
+            })?;
+            self.voice_net.registered = true;
+        }
+        Ok(())
+    }
+    pub(crate) fn send_voice(&self, payload: Vec<u8>) -> Result<()> {
+        if self.phase != "play" || payload.len() > 32767 {
+            return Err("voice payload requires live Play and bounded size".into());
+        }
+        self.send_loader(crate::loader::Outgoing { channel: crate::voice::CHANNEL, payload })
+    }
+    /// Decode a relayed voice payload; state changes are applied, audio goes to the mixer.
+    pub(crate) fn receive_voice(&mut self, payload: &[u8]) -> Result<()> {
+        match crate::voice::parse(payload)? {
+            crate::voice::Incoming::State { enabled, range } => {
+                self.voice_net.enabled = enabled;
+                if let Some(audio) = &self.audio {
+                    audio.voice().set_range(f32::from(range));
+                }
+            }
+            crate::voice::Incoming::Audio { speaker, position, seq, opus } => {
+                if self.voice_net.listening
+                    && let Some(audio) = &self.audio
+                {
+                    audio.voice().push(speaker, position, seq, opus)?;
+                }
+            }
         }
         Ok(())
     }

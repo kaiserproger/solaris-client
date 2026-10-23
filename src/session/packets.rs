@@ -176,6 +176,11 @@ impl Session {
             if let Err(error) = self.screen_relay.receive(payload) {
                 self.event(json!({"type":"screen_payload_rejected","error":error}));
             }
+        } else if channel == crate::voice::CHANNEL && self.phase == "play" {
+            let payload = r.take(r.bytes.len() - r.offset)?;
+            if let Err(error) = self.receive_voice(payload) {
+                self.event(json!({"type":"voice_payload_rejected","error":error}));
+            }
         } else if channel != "minecraft:brand" {
             self.event(json!({"type":"optional_custom_payload_ignored","channel":channel}));
         }
@@ -499,6 +504,7 @@ impl Session {
                 self.phase = "configuration".into();
                 self.loader.reset();
                 self.screen_relay = Default::default();
+                self.reset_voice();
                 self.clear_loader_content()?;
                 self.keys.clear();
                 self.player.reset_dimension(false);

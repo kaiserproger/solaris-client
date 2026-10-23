@@ -479,6 +479,8 @@ pub struct UiState {
     pub(crate) singleplayer_active: bool,
     pub(crate) disconnect_title: Option<String>,
     pub(crate) options_tab: usize,
+    /// Voice-chat microphone HUD indicator: `(label, rgb)`; `None` hides it.
+    pub(crate) voice_mic: Option<(&'static str, [f32; 3])>,
     pub(crate) options_footer: [f32; 4],
     pub(crate) slider_drag: Option<String>,
     pub(crate) dialogs: super::dialog::DialogHost,
@@ -598,6 +600,7 @@ impl UiState {
             singleplayer_active: false,
             disconnect_title: None,
             options_tab: 0,
+            voice_mic: None,
             options_footer: [0.; 4],
             slider_drag: None,
             dialogs: Default::default(),
@@ -643,6 +646,7 @@ impl UiState {
         "fancy_shaders",
         "desktop_computer",
         "monitor_apps",
+        "voice_chat",
     ];
     fn setting_f64(value: &Value) -> Option<f64> {
         value.as_f64().or_else(|| value.as_u64().map(|v| v as f64))
@@ -651,7 +655,7 @@ impl UiState {
     /// unknown keys or non-numeric values where numbers are required.
     pub fn sanitize_setting_value(key: &str, value: &Value) -> Option<Value> {
         match key {
-            "fullscreen" | "vsync" | "fancy_shaders" | "desktop_computer" => value.as_bool().map(|v| json!(v)),
+            "fullscreen" | "vsync" | "fancy_shaders" | "desktop_computer" | "voice_chat" => value.as_bool().map(|v| json!(v)),
             "monitor_apps" => {
                 if value.is_null() { return Some(Value::Null); }
                 let valid = value.as_array()?.iter().all(|entry| match entry {
@@ -725,7 +729,7 @@ impl UiState {
     /// Default value for a managed key, if any.
     pub fn default_setting_value(key: &str) -> Option<Value> {
         match key {
-            "fullscreen" | "desktop_computer" => Some(json!(false)),
+            "fullscreen" | "desktop_computer" | "voice_chat" => Some(json!(false)),
             "monitor_apps" => Some(Value::Null),
             "vsync" | "fancy_shaders" => Some(json!(true)),
             "max_fps" => Some(json!(120)),
@@ -744,9 +748,9 @@ impl UiState {
     pub fn next_setting_value(key: &str, current: Option<&Value>) -> Option<Value> {
         let sane = |v: &Value| Self::sanitize_setting_value(key, v);
         match key {
-            "fullscreen" | "vsync" | "fancy_shaders" | "desktop_computer" => Some(json!(!current
+            "fullscreen" | "vsync" | "fancy_shaders" | "desktop_computer" | "voice_chat" => Some(json!(!current
                 .and_then(Value::as_bool)
-                .unwrap_or(!matches!(key, "fullscreen" | "desktop_computer")))),
+                .unwrap_or(!matches!(key, "fullscreen" | "desktop_computer" | "voice_chat")))),
             "max_fps" => {
                 let current = current.and_then(Value::as_u64).unwrap_or(120);
                 Some(json!([30, 60, 90, 120, 144, 165, 240, 260, 0]
@@ -827,6 +831,12 @@ impl UiState {
         }
         self.invalidate();
         Ok(())
+    }
+    pub fn set_voice_mic(&mut self, mic: Option<(&'static str, [f32; 3])>) {
+        if self.voice_mic != mic {
+            self.voice_mic = mic;
+            self.invalidate();
+        }
     }
     pub fn setting(&self, key: &str) -> Option<&Value> {
         self.settings.get(key)

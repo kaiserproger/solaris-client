@@ -1,0 +1,65 @@
+//! Native application side of voice chat: setting gate, push-to-talk key, packet pump.
+use super::{Capture, MicState, audio_packet, listen_packet};
+use crate::App;
+use winit::keyboard::KeyCode;
+
+/// Push-to-talk key (configurable key binding is not part of the first cut).
+pub(crate) const PTT_KEY: KeyCode = KeyCode::KeyV;
+
+#[derive(Default)]
+pub(crate) struct Client {
+    capture: Option<Capture>,
+    key_down: bool,
+}
+
+impl App {
+    pub(crate) fn voice_key(&mut self, code: KeyCode, pressed: bool) {
+        if code == PTT_KEY {
+            self.voice.key_down = pressed;
+        }
+    }
+    pub(crate) fn voice_focus_lost(&mut self) {
+        self.voice.key_down = false;
+    }
+    /// Once per frame: start/stop the microphone with the Options toggle and pump packets.
+    pub(crate) fn update_voice(&mut self) {
+        let enabled = self
+            .session
+            .native_setting("voice_chat")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false)
+            && self.session.phase == "play";
+        if enabled {
+            if let Err(error) = self.session.register_voice() {
+                eprintln!("voice register failed: {error}");
+            }
+            if self.voice.capture.is_none() {
+                self.voice.capture = Some(Capture::start());
+            }
+        } else if self.voice.capture.take().is_some() {
+            self.session.set_voice_mic(None);
+        }
+        let server = self.session.voice_net.enabled;
+        let listen = enabled && server;
+        if listen != self.session.voice_net.listening {
+            if self.session.send_voice(listen_packet(listen)).is_ok() {
+                self.session.voice_net.listening = listen;
+            }
+        }
+        let Some(capture) = &self.voice.capture else { return };
+        let game_input = self.focused && self.session.screen() == "game" && !self.session.chat_open();
+        capture.set_ptt(self.voice.key_down && game_input);
+        while let Ok((seq, packet)) = capture.packets.try_recv() {
+            if listen && let Err(error) = self.session.send_voice(audio_packet(seq, &packet)) {
+                eprintln!("voice send failed: {error}");
+            }
+        }
+        let state = if server { capture.state() } else { MicState::Off };
+        self.session.set_voice_mic(match state {
+            MicState::Off => None,
+            MicState::Idle => Some(("MIC", [0.15, 0.15, 0.15])),
+            MicState::Talking => Some(("TALK", [0.1, 0.55, 0.15])),
+            MicState::Unavailable => Some(("NO MIC", [0.6, 0.1, 0.1])),
+        });
+    }
+}

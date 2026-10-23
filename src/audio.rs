@@ -3,12 +3,14 @@ mod catalog;
 mod materials;
 mod playback;
 mod resources;
+mod voicemix;
 use crate::protocol::Result;
 use catalog::identifier;
 pub use materials::{BlockSoundAction, BlockSounds};
 use parking_lot::Mutex;
 use playback::{Gains, Positioned, StreamControl, spatial_gains};
 use resources::Resources;
+pub use voicemix::VoiceMixer;
 use rodio::{
     OutputStream, OutputStreamBuilder, Sink,
     cpal::{
@@ -486,6 +488,7 @@ struct Shared {
 pub struct Audio {
     sender: SyncSender<Command>,
     shared: Arc<Shared>,
+    voice: Arc<VoiceMixer>,
 }
 impl Audio {
     pub fn new() -> Self {
@@ -504,11 +507,13 @@ impl Audio {
             underruns: Arc::new(AtomicU64::new(0)),
         });
         let worker_shared = shared.clone();
+        let voice = VoiceMixer::new();
+        let worker_voice = voice.clone();
         let wake = sender.clone();
         if let Err(error) = thread::Builder::new()
             .name("native-audio".into())
             .spawn(move || {
-                if let Err(error) = worker(receiver, wake, &worker_shared) {
+                if let Err(error) = worker(receiver, wake, &worker_shared, worker_voice) {
                     let mut state = worker_shared.state.lock();
                     state["status"] = Value::from("unavailable");
                     state["last_error"] = Value::from(error);
@@ -518,7 +523,11 @@ impl Audio {
             shared.state.lock()["last_error"] = Value::from(error.to_string());
             shared.state.lock()["status"] = Value::from("unavailable");
         }
-        Self { sender, shared }
+        Self { sender, shared, voice }
+    }
+    /// Remote proximity voices (`solaris:voice`), mixed into the same output device.
+    pub fn voice(&self) -> &Arc<VoiceMixer> {
+        &self.voice
     }
     fn epoch(&self) -> u64 {
         self.shared.epoch.load(Ordering::Acquire)
@@ -592,6 +601,7 @@ impl Audio {
         {
             return Err("invalid audio listener transform".into());
         }
+        self.voice.set_listener(position);
         self.send(Command::Listener(
             self.epoch(),
             Listener {
@@ -793,6 +803,11 @@ fn open_device(
     stream.log_on_drop(false);
     Ok((stream, name))
 }
+fn attach_voice(output: &OutputStream, voice: &Arc<VoiceMixer>) -> Sink {
+    let sink = Sink::connect_new(output.mixer());
+    sink.append(voicemix::VoiceSource::new(voice.clone()));
+    sink
+}
 fn device_observation(shared: &Shared, stream: &OutputStream, name: &str) {
     let mut state = shared.state.lock();
     state["status"] = Value::from("device_open");
@@ -804,6 +819,7 @@ fn worker(
     receiver: Receiver<Command>,
     sender: SyncSender<Command>,
     shared: &Arc<Shared>,
+    voice: Arc<VoiceMixer>,
 ) -> Result<()> {
     let mut resources = Resources::load(&shared.decoded)?;
     let mut stream = match open_device(None, &sender, shared) {
@@ -818,6 +834,7 @@ fn worker(
             None
         }
     };
+    let mut voice_sink = stream.as_ref().map(|output| attach_voice(output, &voice));
     {
         let mut state = shared.state.lock();
         state["catalog_sha1"] = Value::from(resources.catalog_hash.clone());
@@ -854,6 +871,7 @@ fn worker(
         if shared.device_failed.swap(false, Ordering::AcqRel) {
             voices.clear();
             stream = None;
+            voice_sink = None;
             shared.state.lock()["status"] = Value::from("device_lost");
         }
         voices.retain(|v| !v.sink.empty());
@@ -914,6 +932,9 @@ fn worker(
             }
             Command::Volume(category, volume) => {
                 volumes[category as usize] = volume;
+                if let Some(sink) = &voice_sink {
+                    sink.set_volume(volumes[0] * volumes[SoundCategory::Voice as usize]);
+                }
                 shared.state.lock()["category_volumes"] = json!(volumes);
                 Ok(())
             }
@@ -942,6 +963,9 @@ fn worker(
                 Ok((opened, name)) => {
                     voices.clear();
                     device_observation(shared, &opened, &name);
+                    let sink = attach_voice(&opened, &voice);
+                    sink.set_volume(volumes[0] * volumes[SoundCategory::Voice as usize]);
+                    voice_sink = Some(sink);
                     stream = Some(opened);
                     Ok(())
                 }

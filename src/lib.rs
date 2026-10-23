@@ -21,6 +21,7 @@ pub mod session;
 mod singleplayer;
 pub mod terrain;
 pub mod ui;
+mod voice;
 #[cfg(test)]
 mod ui_hotfix_tests;
 
@@ -175,6 +176,7 @@ struct App {
     shift_held: bool,
     hotbar_wheel: hotbar_wheel::HotbarWheel,
     computer: computer::native::Computer,
+    voice: voice::Client,
     next_tick: Instant,
     next_frame: Instant,
     advance_cpu_ms: f64,
@@ -236,6 +238,7 @@ impl App {
             shift_held: false,
             hotbar_wheel: hotbar_wheel::HotbarWheel::default(),
             computer: computer::native::Computer::default(),
+            voice: Default::default(),
             next_tick: Instant::now(),
             next_frame: Instant::now(),
             advance_cpu_ms: 0.,
@@ -687,6 +690,7 @@ impl App {
             self.next_tick = now + Duration::from_millis(50);
         }
         self.update_computer();
+        self.update_voice();
         // No task can have changed state after the publication below when
         // the queue is empty; avoid rebuilding the entire observation twice.
         if self.pending_tasks.is_empty() {
@@ -831,6 +835,7 @@ impl ApplicationHandler for App {
             WindowEvent::Focused(focused) => {
                 self.focused = focused;
                 if !focused {
+                    self.voice_focus_lost();
                     self.release("focus_lost");
                     self.hotbar_wheel.reset();
                 } else {
@@ -888,6 +893,7 @@ impl ApplicationHandler for App {
                     return;
                 };
                 let pressed = event.state == ElementState::Pressed;
+                self.voice_key(code, pressed);
                 if code == KeyCode::F5 && pressed && self.session.screen() == "game" {
                     self.session.cycle_camera();
                     return;

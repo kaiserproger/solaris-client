@@ -95,7 +95,7 @@ const CONTROLS: [Row; 3] = [
         "Show a desktop window on monitor blocks",
     ),
 ];
-const AUDIO: [Row; 2] = [
+const AUDIO: [Row; 3] = [
     row(
         "volume",
         "Master volume",
@@ -107,6 +107,12 @@ const AUDIO: [Row; 2] = [
         "Subtitles",
         Kind::Toggle,
         "Show captions for sounds that play nearby.",
+    ),
+    row(
+        "voice_chat",
+        "Voice chat",
+        Kind::Toggle,
+        "Proximity voice: asks for the microphone. Hold V to talk.",
     ),
 ];
 const INTERFACE: [Row; 8] = [

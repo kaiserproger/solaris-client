@@ -1157,6 +1157,19 @@ impl UiState {
             return Ok(());
         }
         let cx = self.width / 2.;
+        if let Some((label, color)) = self.voice_mic {
+            self.add(
+                "hud/voice_mic".into(),
+                "presentation",
+                String::new(),
+                [self.width - 58., 6., 52., 14.],
+                true,
+                None,
+                NodeAction::None,
+                Paint::Solid(color, 0.75),
+            )?;
+            self.label("hud/voice_mic/label", label.into(), [self.width - 56., 8., 48., 10.])?;
+        }
         self.hud_accessibility_tree(inventory, content)?;
         self.sidebar_tree()?;
         // Vanilla hotbar strip: 182x22 logical px; the window scale factor
