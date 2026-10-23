@@ -119,7 +119,7 @@ fn capture(
         let operation = ActivateAudioInterfaceAsync(
             VIRTUAL_AUDIO_DEVICE_PROCESS_LOOPBACK,
             &IAudioClient::IID,
-            Some(&variant),
+            Some(&*variant),
             &handler,
         )
         .map_err(win("ActivateAudioInterfaceAsync"));
