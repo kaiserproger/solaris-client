@@ -642,6 +642,7 @@ impl UiState {
         "max_fps",
         "fancy_shaders",
         "desktop_computer",
+        "monitor_apps",
     ];
     fn setting_f64(value: &Value) -> Option<f64> {
         value.as_f64().or_else(|| value.as_u64().map(|v| v as f64))
@@ -651,6 +652,17 @@ impl UiState {
     pub fn sanitize_setting_value(key: &str, value: &Value) -> Option<Value> {
         match key {
             "fullscreen" | "vsync" | "fancy_shaders" | "desktop_computer" => value.as_bool().map(|v| json!(v)),
+            "monitor_apps" => {
+                if value.is_null() { return Some(Value::Null); }
+                let valid = value.as_array()?.iter().all(|entry| match entry {
+                    Value::String(command) => !command.trim().is_empty(),
+                    Value::Array(argv) => !argv.is_empty()
+                        && argv.first().and_then(Value::as_str).is_some_and(|s| !s.is_empty())
+                        && argv.iter().all(Value::is_string),
+                    _ => false,
+                });
+                valid.then(|| value.clone())
+            }
             "max_fps" => value
                 .as_u64()
                 .map(|v| json!(if v == 0 { 0 } else { v.clamp(30, 260) })),
@@ -714,6 +726,7 @@ impl UiState {
     pub fn default_setting_value(key: &str) -> Option<Value> {
         match key {
             "fullscreen" | "desktop_computer" => Some(json!(false)),
+            "monitor_apps" => Some(Value::Null),
             "vsync" | "fancy_shaders" => Some(json!(true)),
             "max_fps" => Some(json!(120)),
             "render_distance" => Some(json!(Self::DEFAULT_RENDER_DISTANCE)),
@@ -4074,6 +4087,17 @@ mod client_settings_tests {
             None
         );
         assert_eq!(UiState::next_setting_value("hide_hud", None), None);
+    }
+    #[test]
+    fn monitor_apps_preserves_argv_and_supports_defaults_or_no_apps() {
+        for value in [Value::Null, json!([]), json!([["ptyxis", "-s"], "foot"])] {
+            assert_eq!(UiState::sanitize_setting_value("monitor_apps", &value), Some(value));
+        }
+        for value in [json!(false), json!([[]]), json!([["", "-s"]]), json!([["foot", 2]]), json!([" "])] {
+            assert!(UiState::sanitize_setting_value("monitor_apps", &value).is_none());
+        }
+        assert_eq!(UiState::default_setting_value("monitor_apps"), Some(Value::Null));
+        assert!(UiState::MANAGED_SETTING_KEYS.contains(&"monitor_apps"));
     }
     #[test]
     fn sanitize_clamps_ranges() {

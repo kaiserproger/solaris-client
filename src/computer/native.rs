@@ -25,6 +25,8 @@ pub(crate) struct Computer {
     keys: Vec<(PhysicalKey, DesktopKey)>,
     buttons: Vec<PointerButton>,
     picker: Vec<WindowInfo>,
+    #[cfg(target_os = "linux")]
+    apps: Vec<Vec<String>>,
     selection: usize,
     message: String,
     sharing: sharing::Sharing,
@@ -112,20 +114,46 @@ impl Computer {
         self.selection = 0;
         self.size = [0; 2];
         self.picker.clear();
+        #[cfg(target_os = "linux")]
+        self.apps.clear();
         self.message.clear();
     }
     fn start(&mut self, id: u64) {
         self.picker.clear();
-        match super::open(id) {
+        let source = self.open_choice(id);
+        #[cfg(target_os = "linux")]
+        self.apps.clear();
+        match source {
             Ok(source) => {
                 self.release_input();
                 if let Some(mut previous) = self.source.take() { previous.close(); }
                 self.managing = false;
                 self.waiting = true;
                 self.source = Some(source);
-                self.message="Approve the system window picker. Shift+Esc while looking closes capture.".into();
+                self.message="Opening selected source. Shift+Esc while looking closes capture.".into();
             }
             Err(error) => self.fail(error),
+        }
+    }
+    fn open_choice(&self, id: u64) -> Result<Box<dyn DesktopSource>, String> {
+        #[cfg(target_os = "linux")]
+        if id & (1 << 63) != 0 {
+            let argv = self.apps.get((id & !(1 << 63)) as usize)
+                .ok_or("Monitor app selection expired")?;
+            let face = self.face.ok_or("No monitor selected")?;
+            let aspect = (f64::from(face.width) - 0.125)
+                / (f64::from(face.height) - 0.125);
+            return super::nested::launch(argv, aspect);
+        }
+        super::open(id)
+    }
+    #[cfg(target_os = "linux")]
+    fn append_apps(&mut self, setting: Option<&serde_json::Value>) {
+        self.apps.clear();
+        for (name, argv) in super::nested::apps(setting) {
+            let id = (1 << 63) | self.apps.len() as u64;
+            self.apps.push(argv);
+            self.picker.push(WindowInfo { id, title: format!("Launch app: {name}") });
         }
     }
     fn fail(&mut self, error: String) {
@@ -253,10 +281,14 @@ impl App {
     fn pick_computer_window(&mut self) {
         self.computer.managing = false;
         self.computer.selection = 0;
-        match super::list_windows() {
-            Ok(windows) if !windows.is_empty() => self.computer.picker = windows,
-            Ok(_) => self.computer.fail("No capturable desktop windows".into()),
-            Err(error) => self.computer.fail(error),
+        let error = match super::list_windows() {
+            Ok(windows) => { self.computer.picker = windows; None }
+            Err(error) => { self.computer.picker.clear(); Some(error) }
+        };
+        #[cfg(target_os = "linux")]
+        self.computer.append_apps(self.session.native_setting("monitor_apps"));
+        if self.computer.picker.is_empty() {
+            self.computer.fail(error.unwrap_or_else(|| "No capturable windows or monitor apps".into()));
         }
     }
     fn apply_computer_dialog_action(&mut self, action: crate::ui::desktop::DesktopAction) {
@@ -730,6 +762,8 @@ mod tests {
             managing: false,
             waiting: false,
             picker: Vec::new(),
+            #[cfg(target_os = "linux")]
+            apps: Vec::new(),
             selection: 0,
             message: String::new(),
             sharing: Default::default(),
@@ -761,6 +795,8 @@ mod tests {
             keys: Vec::new(),
             buttons: Vec::new(),
             picker: Vec::new(),
+            #[cfg(target_os = "linux")]
+            apps: Vec::new(),
             selection: 0,
             message: String::new(),
             sharing: Default::default(),
@@ -773,6 +809,25 @@ mod tests {
         assert!(computer.source.as_ref().unwrap().control_granted());
         computer.close();
         assert_eq!(&*log.lock(), &["close", "close"]);
+    }
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn app_picker_snapshots_arguments_and_keeps_capture_choices() {
+        let mut computer = Computer::default();
+        computer.picker.push(WindowInfo { id: 0, title: "Desktop window".into() });
+        let mut setting = serde_json::json!([["ptyxis", "-s"]]);
+        computer.append_apps(Some(&setting));
+        setting[0][0] = serde_json::json!("changed");
+        assert_eq!(computer.picker.len(), 2);
+        assert_eq!(computer.picker[1].title, "Launch app: ptyxis");
+        assert_eq!(computer.picker[1].id, 1 << 63);
+        assert_eq!(computer.apps[0], ["ptyxis", "-s"]);
+        assert!(computer.open_choice((1 << 63) | 1).is_err());
+        computer.close();
+        assert!(computer.apps.is_empty());
+        computer.append_apps(Some(&serde_json::json!([["ptyxis", "-s"]])));
+        assert_eq!(computer.picker.len(), 1);
+        assert!(computer.has_modal());
     }
     #[test]
     fn single_window_picker_displays_bound_row_before_capture() {

@@ -748,6 +748,18 @@ Wayland uses a view-only ScreenCast portal with explicit system capture consent.
 The portal fd is inherited only by that capture child. Windows uses a local
 window list, Windows Graphics Capture, and window-targeted input.
 
+On Linux, **Launch app: …** entries start applications inside a private nested
+Wayland compositor, with a private D-Bus session rather than the owner's desktop.
+They remain available without a working capture portal. These sources support
+local mouse/keyboard control; a small high-contrast pointer is included in frames.
+The persisted `monitor_apps` option defaults to `null` (installed terminal/editor
+candidates). Set it to `[["ptyxis", "-s"], ["gnome-text-editor", "-s"]]` to select
+explicit commands, or `[]` to disable app entries. Each entry is an argv array or
+a whitespace-separated command string; no shell interpretation is performed.
+Use argv arrays for arguments containing spaces. Commands are snapshotted when
+the picker opens and launched only after choosing their entry. Closing capture
+terminates only that launched process group and its private compositor.
+
 The latest RGBA frame is uploaded to a separate depth-tested world texture on
 the clicked rectangle, aspect-fit without stretching. Right-click your active screen
 for **Change window**, **Stop sharing**, granted viewers' **Revoke** buttons and,
@@ -761,7 +773,7 @@ away releases input. Disabling the option, removing/unloading the block, changin
 dimension/connection, or closing the client releases capture and its GPU image.
 Portal denial/backend errors are visible in the local HUD, not fatal to play.
 Removing a block or reconnecting clears the binding so another explicit click
-can start fresh capture. Wayland capture is always view-only: it does not request
+can start fresh capture. Portal capture is always view-only: it does not request
 RemoteDesktop permission or inject any input into the desktop seat.
 Wayland always requests fresh system consent (no stored restore tokens). Each
 capture owns a fresh D-Bus connection on its own worker runtime and awaits

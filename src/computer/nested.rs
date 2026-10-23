@@ -416,6 +416,7 @@ struct State {
     size: Size<i32, Logical>,
     start: Instant,
     dirty: bool,
+    cursor_position: Option<Point<i32, Logical>>,
 }
 impl State {
     fn new(
@@ -469,6 +470,7 @@ impl State {
             size,
             start: Instant::now(),
             dirty: false,
+            cursor_position: None,
         })
     }
     fn time(&self) -> u32 {
@@ -553,6 +555,11 @@ impl State {
         match command {
             Cmd::Pointer(x, y) => {
                 let location = Point::from((x, y));
+                let cursor = Point::from((x.floor() as i32, y.floor() as i32));
+                if self.cursor_position != Some(cursor) {
+                    self.cursor_position = Some(cursor);
+                    self.dirty = true;
+                }
                 let under = self
                     .surface_under(location)
                     .map(|(_, surface, at)| (surface, at));
@@ -701,6 +708,9 @@ impl State {
                 canvas.draw_tree(popup.wl_surface(), at);
             }
         }
+        if let Some(at) = self.cursor_position {
+            canvas.draw_pointer(at);
+        }
         Some(Frame {
             width: size.w as u32,
             height: size.h as u32,
@@ -732,6 +742,19 @@ struct Canvas {
     rgba: Vec<u8>,
 }
 impl Canvas {
+    /// Small high-contrast pointer marker, independent of the host cursor theme.
+    fn draw_pointer(&mut self, at: Point<i32, Logical>) {
+        for y in 0..18 {
+            for x in 0..=y / 2 {
+                let (px, py) = (at.x + x, at.y + y);
+                if px < 0 || py < 0 || px >= self.width || py >= self.height { continue; }
+                let edge = x == 0 || x == y / 2 || y == 17;
+                let shade = if edge { 0 } else { 255 };
+                let offset = 4 * (py * self.width + px) as usize;
+                self.rgba[offset..offset + 4].copy_from_slice(&[shade, shade, shade, 255]);
+            }
+        }
+    }
     fn draw_tree(&mut self, surface: &WlSurface, at: Point<i32, Logical>) {
         with_surface_tree_upward(
             surface,
@@ -985,6 +1008,17 @@ mod tests {
     use super::*;
     use std::time::Duration;
 
+    #[test]
+    fn pointer_marker_is_visible_and_clipped_to_frame() {
+        let mut canvas = Canvas { width: 24, height: 24, rgba: vec![100; 24 * 24 * 4] };
+        canvas.draw_pointer((2, 2).into());
+        assert_eq!(&canvas.rgba[4 * (2 * 24 + 2)..][..4], &[0, 0, 0, 255]);
+        assert_eq!(&canvas.rgba[4 * (8 * 24 + 3)..][..4], &[255, 255, 255, 255]);
+        for at in [(23, 23), (-8, -17), (24, 24), (-100, -100)] {
+            canvas.draw_pointer(at.into());
+        }
+        assert_eq!(canvas.rgba.len(), 24 * 24 * 4);
+    }
     #[test]
     fn monitor_apps_setting_accepts_strings_and_argv_arrays() {
         let setting = serde_json::json!([
