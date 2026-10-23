@@ -27,7 +27,7 @@ use windows::{
             WAVEFORMATEX,
         },
         System::{
-            Com::{BLOB, COINIT_MULTITHREADED, CoInitializeEx, CoUninitialize},
+            Com::{COINIT_MULTITHREADED, CoInitializeEx, CoUninitialize},
             Threading::{CreateEventW, SetEvent, WaitForSingleObject},
             Variant::VT_BLOB,
         },
@@ -102,15 +102,18 @@ fn capture(
                 },
             },
         };
-        let mut variant = PROPVARIANT::default();
+        let mut raw = *PROPVARIANT::new().as_raw();
         {
-            let inner = &mut variant.Anonymous.Anonymous;
-            inner.vt = VT_BLOB;
-            inner.Anonymous.blob = BLOB {
-                cbSize: std::mem::size_of::<AUDIOCLIENT_ACTIVATION_PARAMS>() as u32,
-                pBlobData: (&mut params as *mut AUDIOCLIENT_ACTIVATION_PARAMS).cast(),
-            };
+            let inner = &mut raw.Anonymous.Anonymous;
+            inner.vt = VT_BLOB.0;
+            inner.Anonymous.blob.cbSize =
+                std::mem::size_of::<AUDIOCLIENT_ACTIVATION_PARAMS>() as u32;
+            inner.Anonymous.blob.pBlobData =
+                (&mut params as *mut AUDIOCLIENT_ACTIVATION_PARAMS).cast();
         }
+        // The blob borrows `params` through activation completion. Do not let
+        // PropVariantClear free this stack allocation as an owned COM blob.
+        let variant = std::mem::ManuallyDrop::new(PROPVARIANT::from_raw(raw));
         let done = CreateEventW(None, false, false, None).map_err(win("CreateEvent"))?;
         let handler: IActivateAudioInterfaceCompletionHandler = Completed(done.0 as isize).into();
         let operation = ActivateAudioInterfaceAsync(
