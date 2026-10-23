@@ -4,10 +4,13 @@ Server contract: `docs/decisions/0019-voice-chat.md` in the Solaris server repo 
 
 ## Player controls
 
-Options > Audio: **Voice chat** (off by default; turning it on starts the microphone), **Mute microphone**,
-**Deafen**, **Voice volume**, **Microphone volume**. Hold **V** to talk (push-to-talk; only while the game screen
-is focused and chat is closed). The HUD shows `MIC` (idle), `TALK`, `MUTED`, `DEAF` or `NO MIC` in the top-right
-corner once the server reports voice enabled.
+Options > Audio: **Voice chat** (off by default; microphone opens only after the server announces voice support),
+**Mute microphone**, **Deafen**, **Voice volume**, **Microphone volume**. Hold **V** to talk
+(push-to-talk; only while the game screen is focused, without chat or another modal).
+Entering desktop control or changing input ownership releases push-to-talk.
+The HUD shows `MIC` (idle), `TALK`, `MUTED`, `DEAF` or `NO MIC` once the server reports voice enabled.
+Servers without voice support receive only optional channel registration when the
+setting is enabled; no microphone is opened and no voice audio is sent.
 
 ## Pipeline
 

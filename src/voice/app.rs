@@ -64,7 +64,9 @@ impl App {
             }
         }
         let Some(capture) = &self.voice.capture else { return };
-        let game_input = self.focused && self.session.screen() == "game" && !self.session.chat_open();
+        let game_input = self.focused && self.session.screen() == "game"
+            && !self.session.chat_open() && !self.session.dialog_screen_active()
+            && !self.computer.has_modal();
         capture.set_gain(mic_volume);
         capture.set_ptt(self.voice.key_down && game_input && !muted);
         while let Ok((seq, packet)) = capture.packets.try_recv() {
