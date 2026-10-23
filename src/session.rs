@@ -542,7 +542,7 @@ impl Session {
         self.loader.reset();
         self.screen_relay = Default::default();
         self.screen_audio.clear();
-        self.content = None;
+        let content = self.content.take();
         if let Some(audio) = &self.audio {
             audio.stop();
         }
@@ -574,11 +574,13 @@ impl Session {
         self.scene.overlay = Default::default();
         self.scene.revision += 1;
         if self.title_allowed {
-            // Title mode owns a real Content::load() UI (same cost connect pays
-            // once at startup). Synchronous reload here keeps the cutover small;
-            // explicit---server harness paths never set the flag, so this never
-            // runs under automation.
-            match self.install_title_ui(last.as_ref(), viewport) {
+            // Title mode reuses the session's loaded Content: a fresh
+            // Content::load() here ran on the window thread (~2 s on Linux,
+            // longer on Windows) on every disconnect and Connection Lost, so
+            // Windows marked the client "Not responding". The next connect
+            // reloads content on its bootstrap worker anyway. Explicit
+            // --server harness paths never set the flag.
+            match self.install_title_ui(last.as_ref(), viewport, content) {
                 Ok(_) => {
                     if let Some(reason) = reason
                         && let Some(ui) = &mut self.ui
@@ -624,18 +626,19 @@ impl Session {
         }
         self.changed_state();
     }
-    /// Title-mode UI install: real `Content::load()` + `UiState`, no network.
-    /// Reuses the connect bootstrap's content path; entity models stay
+    /// Title-mode UI install: `UiState` over `content` (startup passes `None`
+    /// and pays one `Content::load()`), no network; entity models stay
     /// deferred until `connect()` reloads everything on success.
     fn install_title_ui(
         &mut self,
         last: Option<&(String, String)>,
         viewport: Option<(u32, u32, f64)>,
+        content: Option<Content>,
     ) -> Result<Value> {
-        let content = if self.presentation {
-            Content::load()?
-        } else {
-            Content::load_state()?
+        let content = match content {
+            Some(content) => content,
+            None if self.presentation => Content::load()?,
+            None => Content::load_state()?,
         };
         let mut ui = if self.presentation {
             UiState::new(&content)?
@@ -675,7 +678,7 @@ impl Session {
             (Some(server), Some(username)) => Some((server.clone(), username.clone())),
             _ => self.ui.as_ref().map(|ui| ui.title_defaults()),
         };
-        let out = self.install_title_ui(last.as_ref(), viewport)?;
+        let out = self.install_title_ui(last.as_ref(), viewport, None)?;
         // Explicit prefill wins over last-used for this showing only.
         if let Some(ui) = &mut self.ui
             && (server.is_some() || username.is_some())
@@ -1364,6 +1367,24 @@ mod title_connection_tests {
             session.connection_defaults(),
             Some(("localhost:31415".into(), "RejoinPlayer".into()))
         );
+    }
+
+    #[test]
+    fn title_disconnect_reuses_loaded_content_without_reloading() {
+        // Regression: every disconnect/Connection Lost re-ran Content::load()
+        // on the window thread (~2 s) and Windows ghosted the client.
+        let mut session = Session::new_mode("title-reuse".into(), false);
+        session.enable_native_shell();
+        let mut content = Content::test_cube();
+        content.creative_tabs_report = Arc::from(br#"{"tabs":[]}"#.as_slice());
+        let atlas = Arc::clone(&content.rgba);
+        session.ui = Some(UiState::new_state(&content).unwrap());
+        session.content = Some(content);
+        session.phase = "play".into();
+        session.disconnect();
+        assert_eq!(session.phase(), "disconnected");
+        assert_eq!(session.screen(), "title");
+        assert!(Arc::ptr_eq(&session.content.as_ref().unwrap().rgba, &atlas));
     }
 }
 
