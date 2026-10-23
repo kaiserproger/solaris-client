@@ -1223,7 +1223,7 @@ mod tests {
         // 12 edges, each a screen-expanded quad of 4 vertices / 6 indices.
         assert_eq!(out.vertices.len(), 48);
         assert_eq!(out.indices[EntityMaterial::Lines as usize].len(), 72);
-        assert!(out.vertices.iter().all(|v| v.color == [0.; 3] && v.alpha == 0.4));
+        assert!(out.vertices.iter().all(|v| v.color == [0.; 3] && v.alpha == 0.4 && v.texture_layer == 0));
         let (min, max) = out.vertices.iter().fold(([f32::MAX; 3], [f32::MIN; 3]), |(lo, hi), v| {
             (std::array::from_fn(|i| lo[i].min(v.position[i])), std::array::from_fn(|i| hi[i].max(v.position[i])))
         });

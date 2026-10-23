@@ -352,7 +352,9 @@ pub(super) fn wire(
                         uv: [2.5, 0.],
                         overlay_uv: [side, 0.],
                         overlay_tint: [1.; 3],
-                        texture_layer: u32::MAX,
+                        // Lines (shader kind 17) sample no texture, but mesh
+                        // validation requires an existing layer.
+                        texture_layer: 0,
                         light: [-1.; 2],
                         normal,
                     });
