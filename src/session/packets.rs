@@ -82,12 +82,25 @@ impl Session {
                 0 | 6 => {}
                 1 => self.custom_payload(&mut r)?,
                 8 | 10 | 15 | 16 | 17 => { *self.ignored_presentation.entry(id).or_default() += 1; }
-                9 => return Err("server resource-pack activation unsupported; refusing ambiguous mandatory content".into()),
+                9 => self.decline_resource_pack(&mut r, 6)?,
                 11 => return Err("server transfer unsupported".into()),
                 18 | 19 => return Err("configuration dialog/code-of-conduct requires unsupported human UI".into()),
                 _ => return Err(format!("unknown mandatory Configuration packet {id}")),
             },
             Phase::Play => self.play(id, &mut r)?,
+        }
+        Ok(())
+    }
+    /// ClientboundResourcePackPush. Server packs are never downloaded, so this is vanilla's
+    /// declined pack prompt: ServerboundResourcePack DECLINED, then a required pack disconnects.
+    fn decline_resource_pack(&mut self, r: &mut Reader<'_>, response_id: i32) -> Result<()> {
+        let (response, required) = resource_pack_declined(r)?;
+        self.send(response_id, response)?;
+        if required {
+            return Err(
+                "Server requires a custom resource pack (server resource packs are not supported)"
+                    .into(),
+            );
         }
         Ok(())
     }
@@ -534,7 +547,7 @@ impl Session {
                     audio.stop();
                 }
             }
-            81 => return Err("Play resource-pack activation unsupported".into()),
+            81 => self.decline_resource_pack(r, 49)?,
             129 => return Err("server transfer unsupported".into()),
             21 => {
                 let key = r.string(32767)?;
@@ -784,11 +797,75 @@ impl Session {
 fn chunk_key(p: [i32; 3]) -> [i32; 2] {
     [p[0].div_euclid(16), p[2].div_euclid(16)]
 }
+/// Reads ClientboundResourcePackPush (UUID, url, hash, required, Optional<Component> prompt)
+/// and builds ServerboundResourcePack(id, DECLINED); also returns whether it was required.
+fn resource_pack_declined(r: &mut Reader<'_>) -> Result<(Writer, bool)> {
+    let id = r.take(16)?;
+    r.string(32767)?;
+    r.string(40)?;
+    let required = r.bool()?;
+    if r.bool()? {
+        r.nbt()?;
+    }
+    r.done()?;
+    let mut response = Writer::default();
+    response.0.extend_from_slice(id);
+    response.var(1); // Action.DECLINED ordinal
+    Ok((response, required))
+}
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::protocol::world::{Palette, Section, SurfaceHeightmap};
+
+    #[test]
+    fn optional_resource_pack_is_declined_and_required_pack_disconnects() {
+        let push = |required: bool| {
+            let mut w = Writer::default();
+            w.0.extend_from_slice(&[7; 16]);
+            w.string("https://example.invalid/pack.zip");
+            w.string("");
+            w.byte(u8::from(required));
+            w.byte(1);
+            // Prompt component as network NBT: a root string tag.
+            w.byte(8);
+            w.0.extend_from_slice(&2u16.to_be_bytes());
+            w.0.extend_from_slice(b"hi");
+            w.0
+        };
+        let (response, required) = resource_pack_declined(&mut Reader::new(&push(false))).unwrap();
+        assert!(!required);
+        let mut expected = vec![7u8; 16];
+        expected.push(1);
+        assert_eq!(response.0, expected);
+        for (phase, label, packet) in [
+            (Phase::Configuration, "configuration", 9),
+            (Phase::Play, "play", 81),
+        ] {
+            let mut session = Session::new_mode("resource-pack".into(), false);
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            let address = listener.local_addr().unwrap().to_string();
+            session.network = Some(
+                crate::protocol::network::Network::connect(
+                    address,
+                    "Packs".into(),
+                    8,
+                    Arc::new(|| {}),
+                )
+                .unwrap(),
+            );
+            session.content = Some(Content::test_cube());
+            session.phase = label.into();
+            session.apply(phase, packet, &push(false)).unwrap();
+            assert_eq!(
+                session.phase, label,
+                "an optional pack must not end the connection"
+            );
+            let error = session.apply(phase, packet, &push(true)).unwrap_err();
+            assert!(error.contains("requires a custom resource pack"), "{error}");
+        }
+    }
 
     #[test]
     fn optional_loader_probe_and_unknown_channels_do_not_disconnect() {
