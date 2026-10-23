@@ -830,6 +830,16 @@ impl Session {
         }
         self.changed_state();
     }
+    /// Next copy/paste request a focused text field queued (Ctrl+C/X/V).
+    pub(crate) fn take_clipboard_request(&mut self) -> Option<crate::ui::ClipboardRequest> {
+        self.ui.as_mut()?.take_clipboard_request()
+    }
+    /// Deliver OS clipboard text for the pending Ctrl+V into its field.
+    pub(crate) fn clipboard_insert(&mut self, text: &str) -> Result<()> {
+        self.ui.as_mut().ok_or("ui unavailable")?.clipboard_insert(text)?;
+        self.changed_state();
+        Ok(())
+    }
 
     pub(crate) fn request_loader_view(&mut self, key: &str) -> Result<Value> {
         let live = self.phase == "play" && self.network.is_some() && self.player.pose_known;

@@ -175,6 +175,9 @@ struct App {
     debug_overlay: bool,
     shift_held: bool,
     ctrl_held: bool,
+    /// OS clipboard, opened on the first copy/paste and kept so copied text
+    /// stays owned on X11.
+    clipboard: Option<arboard::Clipboard>,
     hotbar_wheel: hotbar_wheel::HotbarWheel,
     computer: computer::native::Computer,
     voice: voice::Client,
@@ -238,6 +241,7 @@ impl App {
             debug_overlay: false,
             shift_held: false,
             ctrl_held: false,
+            clipboard: None,
             hotbar_wheel: hotbar_wheel::HotbarWheel::default(),
             computer: computer::native::Computer::default(),
             voice: Default::default(),
@@ -378,10 +382,39 @@ impl App {
             }
             eprintln!("input: {e}");
         }
+        self.serve_clipboard();
         if old_screen != self.session.screen() {
             self.release("screen_transition");
         } else {
             self.publish_session();
+        }
+    }
+    /// Text fields queue Ctrl+C/X/V as requests; serve them from the OS
+    /// clipboard (nothing consumed them, so paste never worked).
+    fn serve_clipboard(&mut self) {
+        while let Some(request) = self.session.take_clipboard_request() {
+            let clipboard = match &mut self.clipboard {
+                Some(clipboard) => clipboard,
+                None => match arboard::Clipboard::new() {
+                    Ok(clipboard) => self.clipboard.insert(clipboard),
+                    Err(error) => {
+                        eprintln!("clipboard: {error}");
+                        return;
+                    }
+                },
+            };
+            let result = match request {
+                crate::ui::ClipboardRequest::Set(text) => {
+                    clipboard.set_text(text).map_err(|error| error.to_string())
+                }
+                crate::ui::ClipboardRequest::Get => clipboard
+                    .get_text()
+                    .map_err(|error| error.to_string())
+                    .and_then(|text| self.session.clipboard_insert(&text)),
+            };
+            if let Err(error) = result {
+                eprintln!("clipboard: {error}");
+            }
         }
     }
     fn fail(&mut self, event_loop: &ActiveEventLoop, error: String) {
