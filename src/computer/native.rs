@@ -32,9 +32,6 @@ pub(crate) struct Computer {
     sharing: sharing::Sharing,
 }
 impl Computer {
-    pub fn has_overlay(&self) -> bool {
-        self.has_modal() || !self.message.is_empty()
-    }
     pub fn has_modal(&self) -> bool {
         self.sharing.pending.is_some() || self.managing || !self.picker.is_empty()
     }
@@ -69,8 +66,10 @@ impl Computer {
             selected: self.selection,
         })
     }
-    pub fn lines(&self) -> Vec<String> {
-        if self.has_modal() || self.message.is_empty() { Vec::new() } else { vec![self.message.clone()] }
+    pub fn append_status(&self, lines: &mut Vec<String>) {
+        if !self.has_modal() && !self.message.is_empty() {
+            lines.push(self.message.clone());
+        }
     }
     pub fn release_input(&mut self) {
         let mut failed = false;
@@ -830,11 +829,21 @@ mod tests {
         assert!(computer.has_modal());
     }
     #[test]
+    fn streaming_status_preserves_game_debug_overlay_lines() {
+        let computer = Computer { message: "LIVE desktop".into(), ..Default::default() };
+        let mut lines = vec!["FPS: 60".into(), "XYZ: 1 2 3".into()];
+        computer.append_status(&mut lines);
+        assert_eq!(lines, ["FPS: 60", "XYZ: 1 2 3", "LIVE desktop"]);
+        let mut lines = Vec::new();
+        computer.append_status(&mut lines);
+        assert_eq!(lines, ["LIVE desktop"]);
+    }
+    #[test]
     fn single_window_picker_displays_bound_row_before_capture() {
         let mut computer = Computer::default();
         computer.face = Some(Face { block: [1, 2, 3], side: 2, width: 3, height: 1 });
         computer.picker.push(WindowInfo { id: 0, title: "NEW window".into() });
-        assert!(computer.has_overlay());
+        assert!(computer.has_modal());
         let dialog = computer.dialog().unwrap();
         assert!(dialog.title.contains("3 monitor block(s)"));
         assert_eq!(dialog.entries[0].0, "NEW window");

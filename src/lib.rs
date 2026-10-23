@@ -260,19 +260,15 @@ impl App {
         // publication gate cannot rely on another turn to publish these nodes.
         let desktop_dialog = self.computer.dialog();
         if let Some(ui) = self.session.ui_mut() { ui.set_desktop_dialog(desktop_dialog); }
-        if self.computer.has_overlay() {
-            let lines = self.computer.lines();
-            if let Some(ui) = self.session.ui_mut() { ui.set_debug_lines(lines); }
-        } else if self.debug_overlay {
+        let mut lines = if self.debug_overlay {
             let render = self.shared.observation.lock().unwrap_or_else(|e| e.into_inner())
                 .data["render"].clone();
-            let lines = self.session.debug_lines(&render);
-            if let Some(ui) = self.session.ui_mut() {
-                ui.set_debug_lines(lines);
-            }
-        } else if let Some(ui) = self.session.ui_mut() {
-            ui.set_debug_lines(Vec::new());
-        }
+            self.session.debug_lines(&render)
+        } else {
+            Vec::new()
+        };
+        self.computer.append_status(&mut lines);
+        if let Some(ui) = self.session.ui_mut() { ui.set_debug_lines(lines); }
         self.session.sync_ui_nodes();
         self.session.note_published();
         let mut observation = self.session.execution_observation();

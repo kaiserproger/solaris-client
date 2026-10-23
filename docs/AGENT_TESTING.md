@@ -767,8 +767,10 @@ only for controllable backends, **Control**. Changing windows preserves the boun
 surface and explicitly closes the previous source. Looking at the face maps the crosshair hit
 to window pixels; clicks, wheel and keyboard are local desktop input, never
 Minecraft packets. Escape is consumed only to leave active control; while merely
-streaming it opens vanilla pause. Shift+Escape closes only while looking at the
-bound screen; the monitor menu also provides Stop sharing. Focus loss or looking
+streaming it opens vanilla pause and ordinary game bindings remain active.
+F3 debug lines and desktop status coexist rather than replacing each other.
+Shift+Escape closes only while looking at the bound screen; the monitor menu
+also provides Stop sharing. Focus loss or looking
 away releases input. Disabling the option, removing/unloading the block, changing
 dimension/connection, or closing the client releases capture and its GPU image.
 Portal denial/backend errors are visible in the local HUD, not fatal to play.
