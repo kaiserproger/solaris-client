@@ -72,6 +72,7 @@ impl Recorder {
 struct State {
     listener: [f64; 3],
     range: f32,
+    volume: f32,
     speakers: HashMap<[u8; 16], Speaker>,
     recorder: Option<Recorder>,
 }
@@ -84,6 +85,7 @@ impl VoiceMixer {
             state: Mutex::new(State {
                 listener: [0.; 3],
                 range: DEFAULT_RANGE,
+                volume: 1.,
                 speakers: HashMap::new(),
                 recorder: std::env::var_os(RECORD_ENV).and_then(|path| Recorder::create(&path)),
             }),
@@ -91,6 +93,12 @@ impl VoiceMixer {
     }
     pub fn set_listener(&self, position: [f64; 3]) {
         self.state.lock().listener = position;
+    }
+    /// Options "Voice volume" (0..=1).
+    pub fn set_volume(&self, volume: f32) {
+        if volume.is_finite() {
+            self.state.lock().volume = volume.clamp(0., 1.);
+        }
     }
     pub fn set_range(&self, range: f32) {
         if range.is_finite() && range > 0. {
@@ -166,7 +174,7 @@ impl VoiceMixer {
     fn mix(&self, out: &mut [f32; FRAME]) {
         out.fill(0.);
         let mut state = self.state.lock();
-        let (listener, range) = (state.listener, state.range);
+        let (listener, range, volume) = (state.listener, state.range, state.volume);
         let now = Instant::now();
         state.speakers.retain(|_, s| s.playing || now.duration_since(s.last) < Duration::from_secs(2));
         for speaker in state.speakers.values_mut().filter(|s| s.playing) {
@@ -177,7 +185,7 @@ impl VoiceMixer {
             let gain = (1. - distance / f64::from(speaker.range.unwrap_or(range))).clamp(0., 1.) as f32;
             for sample in out.iter_mut() {
                 match speaker.pcm.pop_front() {
-                    Some(value) => *sample += value * gain,
+                    Some(value) => *sample += value * gain * volume,
                     None => {
                         speaker.playing = false; // underrun: rebuffer before resuming
                         break;

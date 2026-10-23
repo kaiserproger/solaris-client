@@ -39,8 +39,15 @@ impl App {
         } else if self.voice.capture.take().is_some() {
             self.session.set_voice_mic(None);
         }
+        let flag = |app: &Self, key: &str| app.session.native_setting(key).and_then(serde_json::Value::as_bool).unwrap_or(false);
+        let level = |app: &Self, key: &str| app.session.native_setting(key).and_then(serde_json::Value::as_f64).unwrap_or(1.) as f32;
+        let (muted, deaf) = (flag(self, "voice_mute"), flag(self, "voice_deafen"));
+        if let Some(audio) = self.session.audio() {
+            audio.voice().set_volume(level(self, "voice_volume"));
+        }
+        let mic_volume = level(self, "voice_mic_volume");
         let server = self.session.voice_net.enabled;
-        let listen = enabled && server;
+        let listen = enabled && server && !deaf;
         if listen != self.session.voice_net.listening {
             if self.session.send_voice(listen_packet(listen)).is_ok() {
                 self.session.voice_net.listening = listen;
@@ -48,7 +55,8 @@ impl App {
         }
         let Some(capture) = &self.voice.capture else { return };
         let game_input = self.focused && self.session.screen() == "game" && !self.session.chat_open();
-        capture.set_ptt(self.voice.key_down && game_input);
+        capture.set_gain(mic_volume);
+        capture.set_ptt(self.voice.key_down && game_input && !muted);
         while let Ok((seq, packet)) = capture.packets.try_recv() {
             if listen && let Err(error) = self.session.send_voice(audio_packet(seq, &packet)) {
                 eprintln!("voice send failed: {error}");
@@ -57,6 +65,8 @@ impl App {
         let state = if server { capture.state() } else { MicState::Off };
         self.session.set_voice_mic(match state {
             MicState::Off => None,
+            _ if deaf => Some(("DEAF", [0.6, 0.35, 0.05])),
+            _ if muted => Some(("MUTED", [0.6, 0.35, 0.05])),
             MicState::Idle => Some(("MIC", [0.15, 0.15, 0.15])),
             MicState::Talking => Some(("TALK", [0.1, 0.55, 0.15])),
             MicState::Unavailable => Some(("NO MIC", [0.6, 0.1, 0.1])),

@@ -13,7 +13,7 @@ use std::{
     path::PathBuf,
     sync::{
         Arc,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU32, Ordering},
         mpsc::{self, Receiver, Sender},
     },
     thread,
@@ -235,6 +235,7 @@ pub(crate) struct Capture {
     pub packets: Receiver<(u32, Vec<u8>)>,
     ptt: Arc<AtomicBool>,
     failed: Arc<AtomicBool>,
+    gain: Arc<AtomicU32>,
 }
 impl Capture {
     pub fn start() -> Self {
@@ -242,10 +243,11 @@ impl Capture {
         let (output, packets) = mpsc::channel();
         let ptt = Arc::new(AtomicBool::new(std::env::var_os(PTT_ALWAYS_ENV).is_some()));
         let failed = Arc::new(AtomicBool::new(false));
-        let state = (sender.clone(), ptt.clone(), failed.clone());
+        let gain = Arc::new(AtomicU32::new(1f32.to_bits()));
+        let state = (sender.clone(), ptt.clone(), failed.clone(), gain.clone());
         if let Err(e) = thread::Builder::new().name("voice-capture".into()).spawn(move || {
-            let (sender, ptt, failed) = state;
-            if let Err(e) = run(sender, input, output, ptt) {
+            let (sender, ptt, failed, gain) = state;
+            if let Err(e) = run(sender, input, output, ptt, gain) {
                 eprintln!("voice capture stopped: {e}");
                 failed.store(true, Ordering::Release);
             }
@@ -253,12 +255,16 @@ impl Capture {
             eprintln!("voice capture thread: {e}");
             failed.store(true, Ordering::Release);
         }
-        Self { sender, packets, ptt, failed }
+        Self { sender, packets, ptt, failed, gain }
     }
     pub fn set_ptt(&self, down: bool) {
         if std::env::var_os(PTT_ALWAYS_ENV).is_none() {
             self.ptt.store(down, Ordering::Release);
         }
+    }
+    /// Options "Microphone volume" (0..=1).
+    pub fn set_gain(&self, gain: f32) {
+        self.gain.store(gain.clamp(0., 1.).to_bits(), Ordering::Release);
     }
     pub fn state(&self) -> MicState {
         if self.failed.load(Ordering::Acquire) {
@@ -276,7 +282,7 @@ impl Drop for Capture {
     }
 }
 
-fn run(sender: Sender<Message>, input: Receiver<Message>, output: Sender<(u32, Vec<u8>)>, ptt: Arc<AtomicBool>) -> Result<()> {
+fn run(sender: Sender<Message>, input: Receiver<Message>, output: Sender<(u32, Vec<u8>)>, ptt: Arc<AtomicBool>, gain: Arc<AtomicU32>) -> Result<()> {
     let mut encoder = Encoder::new()?;
     let mut seq = 0u32;
     let mut was_talking = false;
@@ -291,7 +297,9 @@ fn run(sender: Sender<Message>, input: Receiver<Message>, output: Sender<(u32, V
         if !talking {
             return;
         }
-        match encoder.encode(frame) {
+        let gain = f32::from_bits(gain.load(Ordering::Acquire));
+        let scaled: [f32; FRAME] = std::array::from_fn(|i| frame[i] * gain);
+        match encoder.encode(&scaled) {
             Ok(packet) => {
                 let _ = output.send((seq, packet));
                 seq = seq.wrapping_add(1);

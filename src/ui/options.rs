@@ -95,7 +95,7 @@ const CONTROLS: [Row; 3] = [
         "Show a desktop window on monitor blocks",
     ),
 ];
-const AUDIO: [Row; 3] = [
+const AUDIO: [Row; 7] = [
     row(
         "volume",
         "Master volume",
@@ -112,7 +112,31 @@ const AUDIO: [Row; 3] = [
         "voice_chat",
         "Voice chat",
         Kind::Toggle,
-        "Proximity voice: asks for the microphone. Hold V to talk.",
+        "Proximity voice. Hold V to talk.",
+    ),
+    row(
+        "voice_mute",
+        "Mute microphone",
+        Kind::Toggle,
+        "Others cannot hear you, even while holding V.",
+    ),
+    row(
+        "voice_deafen",
+        "Deafen",
+        Kind::Toggle,
+        "Stops receiving other players' voices.",
+    ),
+    row(
+        "voice_volume",
+        "Voice volume",
+        Kind::Slider,
+        "Loudness of other players' voices.",
+    ),
+    row(
+        "voice_mic_volume",
+        "Microphone volume",
+        Kind::Slider,
+        "Gain applied to your microphone before sending.",
     ),
 ];
 const INTERFACE: [Row; 8] = [
@@ -189,7 +213,7 @@ fn spec(key: &str) -> Option<Spec> {
         // 30..=260 in tens, then one extra stop for Unlimited (value 0).
         "max_fps" => (30., 10., 25),
         "ui_scale" => (0., 1., 5),
-        "volume" | "damage_tilt_strength" | "text_background_opacity" | "gamma" => (0., 0.05, 21),
+        "volume" | "damage_tilt_strength" | "text_background_opacity" | "gamma" | "voice_volume" | "voice_mic_volume" => (0., 0.05, 21),
         _ => return None,
     };
     Some(Spec {
@@ -270,7 +294,7 @@ pub(super) fn value_text(key: &str, value: Option<&Value>) -> String {
             v if v >= 0.995 => "Bright".into(),
             v => pct(v),
         },
-        "volume" => pct(num.unwrap_or(1.)),
+        "volume" | "voice_volume" | "voice_mic_volume" => pct(num.unwrap_or(1.)),
         "text_background_opacity" => pct(num.unwrap_or(0.5)),
         "narrator" => ["Off", "All", "Chat", "System"]
             [value.and_then(Value::as_u64).unwrap_or(0) as usize % 4]

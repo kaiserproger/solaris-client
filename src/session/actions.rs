@@ -675,7 +675,7 @@ impl Session {
             return Ok(());
         };
         match key {
-            "fullscreen" | "vsync" | "max_fps" | "fancy_shaders" | "ui_scale" | "desktop_computer" | "monitor_apps" | "voice_chat" => {
+            "fullscreen" | "vsync" | "max_fps" | "fancy_shaders" | "ui_scale" | "desktop_computer" | "monitor_apps" | "voice_chat" | "voice_mute" | "voice_deafen" | "voice_volume" | "voice_mic_volume" => {
                 self.presentation_settings.insert(key.into(), clean.clone());
             }
             "render_distance" => {
@@ -776,7 +776,7 @@ impl Session {
                 let _ = ui.apply_setting(key, clean.clone());
             }
             match *key {
-                "fullscreen" | "vsync" | "max_fps" | "fancy_shaders" | "ui_scale" | "desktop_computer" | "monitor_apps" | "voice_chat" => {
+                "fullscreen" | "vsync" | "max_fps" | "fancy_shaders" | "ui_scale" | "desktop_computer" | "monitor_apps" | "voice_chat" | "voice_mute" | "voice_deafen" | "voice_volume" | "voice_mic_volume" => {
                     self.presentation_settings.insert((*key).into(), clean.clone());
                 }
                 "render_distance" => {

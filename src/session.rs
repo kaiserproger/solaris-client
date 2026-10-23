@@ -708,6 +708,9 @@ impl Session {
             audio.voice().clear();
         }
     }
+    pub(crate) fn audio(&self) -> Option<&Audio> {
+        self.audio.as_ref()
+    }
     pub(crate) fn register_voice(&mut self) -> Result<()> {
         if !self.voice_net.registered && self.phase == "play" {
             self.send_loader(crate::loader::Outgoing {

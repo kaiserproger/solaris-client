@@ -647,6 +647,10 @@ impl UiState {
         "desktop_computer",
         "monitor_apps",
         "voice_chat",
+        "voice_mute",
+        "voice_deafen",
+        "voice_volume",
+        "voice_mic_volume",
     ];
     fn setting_f64(value: &Value) -> Option<f64> {
         value.as_f64().or_else(|| value.as_u64().map(|v| v as f64))
@@ -655,7 +659,7 @@ impl UiState {
     /// unknown keys or non-numeric values where numbers are required.
     pub fn sanitize_setting_value(key: &str, value: &Value) -> Option<Value> {
         match key {
-            "fullscreen" | "vsync" | "fancy_shaders" | "desktop_computer" | "voice_chat" => value.as_bool().map(|v| json!(v)),
+            "fullscreen" | "vsync" | "fancy_shaders" | "desktop_computer" | "voice_chat" | "voice_mute" | "voice_deafen" => value.as_bool().map(|v| json!(v)),
             "monitor_apps" => {
                 if value.is_null() { return Some(Value::Null); }
                 let valid = value.as_array()?.iter().all(|entry| match entry {
@@ -708,7 +712,7 @@ impl UiState {
                     Self::MAX_MOUSE_SENSITIVITY as f64
                 )))
             }
-            "volume" | "damage_tilt_strength" | "gamma" => {
+            "volume" | "damage_tilt_strength" | "gamma" | "voice_volume" | "voice_mic_volume" => {
                 let f = Self::setting_f64(value)?;
                 if !f.is_finite() {
                     return None;
@@ -729,8 +733,9 @@ impl UiState {
     /// Default value for a managed key, if any.
     pub fn default_setting_value(key: &str) -> Option<Value> {
         match key {
-            "fullscreen" | "desktop_computer" | "voice_chat" => Some(json!(false)),
+            "fullscreen" | "desktop_computer" | "voice_chat" | "voice_mute" | "voice_deafen" => Some(json!(false)),
             "monitor_apps" => Some(Value::Null),
+            "voice_volume" | "voice_mic_volume" => Some(json!(Self::DEFAULT_VOLUME)),
             "vsync" | "fancy_shaders" => Some(json!(true)),
             "max_fps" => Some(json!(120)),
             "render_distance" => Some(json!(Self::DEFAULT_RENDER_DISTANCE)),
@@ -748,9 +753,9 @@ impl UiState {
     pub fn next_setting_value(key: &str, current: Option<&Value>) -> Option<Value> {
         let sane = |v: &Value| Self::sanitize_setting_value(key, v);
         match key {
-            "fullscreen" | "vsync" | "fancy_shaders" | "desktop_computer" | "voice_chat" => Some(json!(!current
+            "fullscreen" | "vsync" | "fancy_shaders" | "desktop_computer" | "voice_chat" | "voice_mute" | "voice_deafen" => Some(json!(!current
                 .and_then(Value::as_bool)
-                .unwrap_or(!matches!(key, "fullscreen" | "desktop_computer" | "voice_chat")))),
+                .unwrap_or(!matches!(key, "fullscreen" | "desktop_computer" | "voice_chat" | "voice_mute" | "voice_deafen")))),
             "max_fps" => {
                 let current = current.and_then(Value::as_u64).unwrap_or(120);
                 Some(json!([30, 60, 90, 120, 144, 165, 240, 260, 0]
@@ -804,7 +809,7 @@ impl UiState {
                     stepped.min(1.)
                 }))
             }
-            "volume" | "damage_tilt_strength" => {
+            "volume" | "damage_tilt_strength" | "voice_volume" | "voice_mic_volume" => {
                 let Some(cur) = current.and_then(sane).and_then(|v| Self::setting_f64(&v)) else {
                     return Some(json!(Self::DEFAULT_VOLUME));
                 };
