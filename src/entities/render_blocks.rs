@@ -450,6 +450,24 @@ fn relative_position(e: &BlockEntity, origin: [f64; 3]) -> Mat4 {
         (f64::from(e.position[i]) - origin[i]) as f32
     })))
 }
+/// LevelRenderer.renderHitOutline: thin 40% black edges of the targeted
+/// block's selection shape (`offset` is the state's random model offset).
+pub(crate) fn append_hit_outline(
+    position: [i32; 3],
+    offset: [f64; 3],
+    shapes: &[[f64; 6]],
+    origin: [f64; 3],
+    out: &mut DynamicGeometry,
+) -> Result<()> {
+    let root = Mat4::from_translation(Vec3::from_array(std::array::from_fn(|i| {
+        (f64::from(position[i]) + offset[i] - origin[i]) as f32
+    })));
+    for shape in shapes {
+        let [low, high] = [[shape[0], shape[1], shape[2]], [shape[3], shape[4], shape[5]]];
+        surfaces::wire(root, low.map(|v| v as f32), high.map(|v| v as f32), [0.; 3], 0.4, out)?;
+    }
+    Ok(())
+}
 fn around(point: Vec3, rotation: Mat4) -> Mat4 {
     Mat4::from_translation(point) * rotation * Mat4::from_translation(-point)
 }
@@ -1196,6 +1214,21 @@ mod tests {
     use super::super::resources::{Bone, BoneRole};
     use super::*;
     use std::{collections::BTreeMap, sync::Arc};
+
+    #[test]
+    fn hit_outline_draws_translucent_black_edges_relative_to_scene_origin() {
+        let mut out = DynamicGeometry::default();
+        append_hit_outline([10, 64, -3], [0.; 3], &[[0., 0., 0., 1., 0.5, 1.]], [0., 64., 0.], &mut out)
+            .unwrap();
+        // 12 edges, each a screen-expanded quad of 4 vertices / 6 indices.
+        assert_eq!(out.vertices.len(), 48);
+        assert_eq!(out.indices[EntityMaterial::Lines as usize].len(), 72);
+        assert!(out.vertices.iter().all(|v| v.color == [0.; 3] && v.alpha == 0.4));
+        let (min, max) = out.vertices.iter().fold(([f32::MAX; 3], [f32::MIN; 3]), |(lo, hi), v| {
+            (std::array::from_fn(|i| lo[i].min(v.position[i])), std::array::from_fn(|i| hi[i].max(v.position[i])))
+        });
+        assert_eq!((min, max), ([10., 0., -3.], [11., 0.5, -2.]));
+    }
 
     #[test]
     fn p1_review_native_sign_pass_renders_received_text_and_keeps_entity_geometry() {

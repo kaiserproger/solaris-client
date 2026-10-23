@@ -312,11 +312,12 @@ fn cube(
     }
     Ok(())
 }
-fn wire(
+pub(super) fn wire(
     root: Mat4,
     low: [f32; 3],
     high: [f32; 3],
     color: [f32; 3],
+    alpha: f32,
     out: &mut DynamicGeometry,
 ) -> Result<()> {
     let color = color.map(|v| f32::from((v * 255.) as u8) / 255.);
@@ -347,7 +348,7 @@ fn wire(
                     out.vertices.push(Vertex {
                         position: root.transform_point3(Vec3::from_array(v)).to_array(),
                         color,
-                        alpha: 1.,
+                        alpha,
                         uv: [2.5, 0.],
                         overlay_uv: [side, 0.],
                         overlay_tint: [1.; 3],
@@ -552,6 +553,7 @@ pub(super) fn append(
                 pos.map(|v| v as f32),
                 std::array::from_fn(|i| (pos[i] + size[i]) as f32),
                 [0.9; 3],
+                1.,
                 out,
             )?;
             if mode == "SAVE" && flag(&e.data_value()["showair"]) {
@@ -577,6 +579,7 @@ pub(super) fn append(
                                 local.map(|v| v as f32 + 0.45 - pad),
                                 local.map(|v| v as f32 + 0.55 + pad),
                                 color,
+                                1.,
                                 out,
                             )?;
                         }
@@ -654,6 +657,7 @@ fn test(
                 pos.map(|v| v as f32),
                 std::array::from_fn(|i| (pos[i] + size[i]) as f32),
                 [0.9; 3],
+                1.,
                 out,
             )?;
         }

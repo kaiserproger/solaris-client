@@ -658,15 +658,29 @@ impl Session {
                     .unrendered
                     .extend(blocks.unrendered);
                 if let Some(ui) = &self.ui {
-                    let crosshair = match self.player.raycast(
+                    let (crosshair, outlined) = match self.player.raycast(
                         world,
                         content,
                         &self.entities,
                         self.client_tick,
                     )? {
-                        Some(Hit::Entity { handle, .. }) => Some(handle),
-                        _ => None,
+                        Some(Hit::Entity { handle, .. }) => (Some(handle), None),
+                        Some(Hit::Block(hit)) => (None, Some(hit)),
+                        None => (None, None),
                     };
+                    let hud_visible = !ui
+                        .setting("hide_hud")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false);
+                    if let Some(hit) = outlined.filter(|_| hud_visible && self.player.game_mode != 3) {
+                        crate::entities::append_hit_outline(
+                            hit.position,
+                            content.block_offset(hit.state, hit.position),
+                            content.selection_boxes(hit.state).ok_or("unknown_selection_shape")?,
+                            self.scene.origin,
+                            &mut self.scene.dynamic,
+                        )?;
+                    }
                     let nameplates = self.entities.append_nameplate_geometry(
                         content,
                         self.scene.origin,
@@ -681,10 +695,7 @@ impl Session {
                             camera_entity: Some(self.player.entity_id),
                             viewer_name: self.username.as_deref(),
                             viewer_spectator: self.player.game_mode == 3,
-                            render_names: !ui
-                                .setting("hide_hud")
-                                .and_then(Value::as_bool)
-                                .unwrap_or(false),
+                            render_names: hud_visible,
                             scoreboard: ui.scoreboard(),
                             background_opacity: ui.text_background_opacity(0.25),
                         },

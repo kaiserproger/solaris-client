@@ -41,7 +41,7 @@ pub use profiles::{
     RemoteChatKey,
 };
 pub(crate) use render_blocks::{
-    BlockPresentation, BlockRenderStatus, EntityPainter, MovingBlockPainter,
+    append_hit_outline, BlockPresentation, BlockRenderStatus, EntityPainter, MovingBlockPainter,
 };
 pub use resources::Models;
 use serde::Serialize;
