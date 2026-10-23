@@ -20,6 +20,8 @@ setting is enabled; no microphone is opened and no voice audio is sent.
   session once per frame (`src/voice/app.rs`).
 - Handshake: the client registers `solaris:voice`, sends `LISTEN(1)` after `VOICE_STATE(enabled)` and while voice
   is on and not deafened, `LISTEN(0)` otherwise. It sends audio only while the server reports voice enabled.
+  This state belongs to one connection: disconnecting forgets it, so the next server is registered with afresh
+  and the microphone stays closed until that server announces voice.
 - Playback (`src/audio/voicemix.rs`): per-speaker Opus decode with packet-loss concealment (up to 3 frames), a
   60 ms jitter buffer (prefill 3 frames, cap 160 ms, re-prefill after underrun), linear distance attenuation to the
   server range (no panning), mixed into the ordinary output device via one mono 48 kHz source scaled by master

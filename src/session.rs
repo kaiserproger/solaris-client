@@ -542,6 +542,8 @@ impl Session {
         self.loader.reset();
         self.screen_relay = Default::default();
         self.screen_audio.clear();
+        // Voice capability, registration and LISTEN belong to one connection.
+        self.reset_voice();
         let content = self.content.take();
         if let Some(audio) = &self.audio {
             audio.stop();
@@ -1355,6 +1357,20 @@ mod title_connection_tests {
         session.disconnect();
         assert_eq!(session.player.health, None);
         assert_eq!(session.player.death_message, None);
+    }
+
+    #[test]
+    fn disconnect_forgets_the_previous_server_voice_negotiation() {
+        let mut session = Session::new_mode("disconnect-voice".into(), false);
+        session.voice_net.registered = true;
+        session.voice_net.enabled = true;
+        session.voice_net.listening = true;
+        session.disconnect();
+        // The next server must be registered with and reach LISTEN(1) again,
+        // and the microphone stays closed until it announces VOICE_STATE.
+        assert!(!session.voice_net.registered);
+        assert!(!session.voice_net.enabled);
+        assert!(!session.voice_net.listening);
     }
 
     #[test]
