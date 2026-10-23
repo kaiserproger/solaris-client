@@ -1105,6 +1105,9 @@ impl Renderer {
         }
     }
     pub(crate) fn clear_desktop(&mut self) { self.desktop = None; }
+    pub(crate) fn set_desktop_face(&mut self, face: crate::computer::Face) {
+        if let Some(texture) = &mut self.desktop { texture.face = face; }
+    }
 
     pub fn render(
         &mut self,

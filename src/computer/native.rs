@@ -14,6 +14,7 @@ pub(crate) struct Computer {
     source: Option<Box<dyn DesktopSource>>,
     pub face: Option<Face>,
     state: Option<u32>,
+    binding: Option<[i32; 3]>,
     epochs: (u64, u64),
     size: [u32; 2],
     pointer: Option<[f64; 2]>,
@@ -79,6 +80,8 @@ impl Computer {
         }
         self.face = None;
         self.state = None;
+        self.binding = None;
+        self.pointer_outside_game = false;
         self.epochs = (0, 0);
         self.selection = 0;
         self.size = [0; 2];
@@ -132,18 +135,26 @@ impl App {
             .unwrap_or(false);
         if !enabled
             || self.session.phase != "play"
-            || self.computer.face.is_some_and(|face| {
-                self.session.world.block(face.block) != self.computer.state
+            || self.computer.binding.is_some_and(|binding| {
+                self.session.world.block(binding) != self.computer.state
                     || self.session.context_epochs() != self.computer.epochs
             })
         {
             self.computer.close();
         }
+        if let (Some(binding), Some(face)) = (self.computer.binding, self.computer.face) {
+            if let Some(row) = Face::row(binding, face.side, |p| self.session.world.block(p) == self.computer.state) {
+                self.computer.face = Some(row);
+                if let Some(renderer) = &mut self.renderer { renderer.set_desktop_face(row); }
+            } else {
+                self.computer.close();
+            }
+        }
         if self.computer.controlling {
             let pixel = self.computer_hit().and_then(|hit| {
                 self.computer
                     .face
-                    .filter(|face| face.block == hit.position && face.side == hit.face)
+                    .filter(|face| face.contains(hit.position, hit.face))
                     .and_then(|face| face.pixel(hit.point, self.computer.size))
             });
             if let Some([x, y]) = pixel {
@@ -346,9 +357,10 @@ impl App {
                 if !pressed {
                     return true;
                 }
-                let face = Face {
-                    block: hit.position,
-                    side: hit.face,
+                let Some(face) = Face::row(hit.position, hit.face, |p| self.session.world.block(p) == Some(hit.state)) else {
+                    self.computer.message = "Monitor rows support at most 16 blocks".into();
+                    self.publish_session();
+                    return true;
                 };
                 let _ = self
                     .session
@@ -396,6 +408,7 @@ impl App {
                     self.computer.close();
                     self.computer.face = Some(face);
                     self.computer.state = Some(hit.state);
+                    self.computer.binding = Some(hit.position);
                     self.computer.epochs = self.session.context_epochs();
                     match super::list_windows() {
                         Ok(windows) if cfg!(target_os = "linux") && windows.len() == 1 => {
@@ -671,6 +684,7 @@ mod tests {
             buttons: vec![PointerButton::Left],
             face: None,
             state: None,
+            binding: None,
             epochs: (0, 0),
             size: [0; 2],
             pointer: None,
@@ -694,7 +708,8 @@ mod tests {
         let log = std::sync::Arc::new(parking_lot::Mutex::new(Vec::new()));
         let mut computer = Computer {
             source: Some(Box::new(RecordingSource(log.clone()))),
-            face: Some(Face { block: [1, 2, 3], side: 2 }),
+            face: Some(Face { block: [1, 2, 3], side: 2, width: 1 }),
+            binding: Some([1, 2, 3]),
             state: Some(10),
             epochs: (9, 3),
             size: [640, 480],

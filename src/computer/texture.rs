@@ -170,12 +170,12 @@ impl Texture {
         matrix: glam::Mat4,
     ) {
         let (origin, right, down) = self.face.basis();
-        let extent = fit(self.size);
+        let extent = fit(self.size, self.face.width);
         let uv = [[0., 0.], [0., 1.], [1., 1.], [0., 0.], [1., 1.], [1., 0.]];
         let vertices = uv.map(|uv| {
             let point: [f32; 3] = std::array::from_fn(|i| {
                 (origin[i] - camera[i]
-                    + right[i] * ((1. - extent[0]) * 0.5 + uv[0] * extent[0])
+                    + right[i] * ((f64::from(self.face.width) - extent[0]) * 0.5 + uv[0] * extent[0])
                     + down[i] * ((1. - extent[1]) * 0.5 + uv[1] * extent[1])) as f32
             });
             Vertex {

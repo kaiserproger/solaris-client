@@ -736,6 +736,10 @@ Default local grants admit `register_items,register_blocks,load_assets`; an expl
 The monitor bundle maps the four `minecraft:black_glazed_terracotta` facing states
 to its north-authored model, rotated per facing; clearing the connection restores
 the vanilla models. Sneak+right-click bypasses capture for ordinary placement.
+Adjacent same-facing monitors on one horizontal row (up to 16 blocks) share one
+aspect-fit image and continuous pointer coordinates. The original clicked block
+owns the capture; extending/shrinking its row updates the geometry immediately.
+Removing that block closes capture. Taller/mixed-facing arrangements do not merge.
 On Wayland the system RemoteDesktop/ScreenCast picker supplies explicit capture
 and input consent in one combined session. `gst-launch-1.0` with the PipeWire,
 videoconvert, videoscale and fdsink plugins must be installed. The portal fd is
