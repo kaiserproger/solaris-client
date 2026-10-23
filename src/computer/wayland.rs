@@ -7,7 +7,7 @@ use ashpd::desktop::{
 use parking_lot::Mutex;
 use std::{
     io::Read,
-    os::{fd::AsRawFd, unix::{fs::OpenOptionsExt, process::CommandExt}},
+    os::{fd::AsRawFd, unix::process::CommandExt},
     process::{Command, Stdio},
     sync::{Arc, atomic::{AtomicBool, Ordering}},
     thread,
@@ -40,22 +40,14 @@ pub fn list_windows() -> Result<Vec<WindowInfo>, String> {
     if std::env::var_os("WAYLAND_DISPLAY").is_none() {
         return Err("Desktop capture requires a Wayland session".into());
     }
-    let mut windows = choices()?.into_iter().map(|choice| WindowInfo {
-        id: choice.id,
-        title: choice.title,
-    }).collect::<Vec<_>>();
-    windows.push(WindowInfo {
+    Ok(vec![WindowInfo {
         id: 0,
         title: "Choose a NEW window in the system permission dialog".into(),
-    });
-    Ok(windows)
+    }])
 }
 pub fn open(id: u64) -> Result<Box<dyn DesktopSource>, String> {
     list_windows()?;
-    let restore_token = if id == 0 { None } else {
-        Some(choices()?.into_iter().find(|choice| choice.id == id)
-            .ok_or("Saved desktop window no longer exists")?.token)
-    };
+    if id != 0 { return Err("Select NEW window for fresh system consent".into()); }
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(1)
         .enable_all()
@@ -73,17 +65,21 @@ pub fn open(id: u64) -> Result<Box<dyn DesktopSource>, String> {
             return;
         }
         let result = runtime.block_on(async {
-            let remote = RemoteDesktop::new().await.map_err(|e|e.to_string())?;
-            let cast = Screencast::new().await.map_err(|e|e.to_string())?;
-            let session = remote.create_session(Default::default()).await.map_err(|e|e.to_string())?;
+            // ashpd::new() caches a process-global connection whose executor
+            // belonged to the first capture's now-dropped Tokio runtime.
+            let connection = portal_connection().await?;
+            let result = async {
+            let remote = RemoteDesktop::with_connection(connection.clone()).await.map_err(|e|format!("RemoteDesktop proxy: {e}"))?;
+            let cast = Screencast::with_connection(connection.clone()).await.map_err(|e|format!("ScreenCast proxy: {e}"))?;
+            let session = remote.create_session(Default::default()).await.map_err(|e|format!("CreateSession: {e}"))?;
             let run = async {
                 remote.select_devices(&session, SelectDevicesOptions::default().set_devices(DeviceType::Keyboard | DeviceType::Pointer)
-                    .set_persist_mode(PersistMode::ExplicitlyRevoked).set_restore_token(restore_token.as_deref()))
-                    .await.map_err(|e|e.to_string())?.response().map_err(|e|e.to_string())?;
+                    .set_persist_mode(PersistMode::DoNot))
+                    .await.map_err(|e|format!("SelectDevices: {e}"))?.response().map_err(|e|format!("SelectDevices: {e}"))?;
                 cast.select_sources(&session, SelectSourcesOptions::default().set_sources(Some(SourceType::Window.into()))
                     .set_multiple(false).set_cursor_mode(CursorMode::Embedded))
-                    .await.map_err(|e|e.to_string())?.response().map_err(|e|e.to_string())?;
-                let selected = remote.start(&session, None, Default::default()).await.map_err(|e|e.to_string())?.response().map_err(|e|e.to_string())?;
+                    .await.map_err(|e|format!("SelectSources: {e}"))?.response().map_err(|e|format!("SelectSources: {e}"))?;
+                let selected = remote.start(&session, None, Default::default()).await.map_err(|e|format!("Start consent dialog: {e}"))?.response().map_err(|e|format!("Start consent dialog: {e}"))?;
                 // GNOME grants input only when "Allow remote interaction" is on; still show the window.
                 let control = selected.devices().contains(DeviceType::Pointer) && selected.devices().contains(DeviceType::Keyboard);
                 granted.store(control, Ordering::Release);
@@ -92,10 +88,6 @@ pub fn open(id: u64) -> Result<Box<dyn DesktopSource>, String> {
                 let node = stream.pipe_wire_node_id();
                 let (width,height) = stream.size().ok_or("Portal did not supply capture dimensions")?;
                 if !(1..=8192).contains(&width) || !(1..=8192).contains(&height) { return Err("Desktop window dimensions exceed 8192".into()); }
-                if let Some(token) = selected.restore_token()
-                    && let Err(error) = save_choice(id, token, width, height) {
-                    eprintln!("Desktop consent could not be saved: {error}");
-                }
                 let fd = cast.open_pipe_wire_remote(&session, Default::default()).await.map_err(|e|e.to_string())?;
                 let raw_fd = fd.as_raw_fd();
                 let mut command = Command::new("gst-launch-1.0");
@@ -145,8 +137,11 @@ pub fn open(id: u64) -> Result<Box<dyn DesktopSource>, String> {
             };
             // Cancellation while the OS consent dialog is open must close that session too.
             let result = tokio::select! { result = run => result, _ = cancelled => Ok(()) };
-            let _ = session.close().await;
-            result
+            let closed = session.close().await.map_err(|e|format!("Close desktop session: {e}"));
+            result.and(closed)
+            }.await;
+            let disconnected = connection.close().await.map_err(|e|format!("Close desktop connection: {e}"));
+            result.and(disconnected)
         });
         if let Err(error) = result { *output.lock() = Err(error); }
     }).map_err(|e|e.to_string())?;
@@ -201,59 +196,29 @@ impl Drop for WaylandSource {
     }
 }
 
-#[derive(serde::Serialize, serde::Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Choice {
-    id: u64,
-    title: String,
-    token: String,
+
+async fn portal_connection() -> Result<ashpd::zbus::Connection, String> {
+    ashpd::zbus::Connection::session().await.map_err(|e|format!("Connect desktop portal: {e}"))
 }
 
-fn choices_path() -> Result<std::path::PathBuf, String> {
-    let root = std::env::var_os("SOLARIS_CLIENT_ROOT").map(std::path::PathBuf::from)
-        .map(Ok).unwrap_or_else(crate::content_paths::default_root)?;
-    Ok(root.join("desktop-windows.json"))
-}
-
-fn choices() -> Result<Vec<Choice>, String> {
-    let path = choices_path()?;
-    let file = match std::fs::File::open(path) {
-        Ok(file) => file,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(e) => return Err(format!("Cannot read saved desktop choices: {e}")),
-    };
-    let mut bytes = Vec::new();
-    file.take(65537).read_to_end(&mut bytes).map_err(|e| e.to_string())?;
-    if bytes.len() > 65536 { return Err("Saved desktop choices exceed byte limit".into()); }
-    let entries: Vec<Choice> = serde_json::from_slice(&bytes).map_err(|e| e.to_string())?;
-    if entries.len() > 32 || entries.iter().any(|c| c.id == 0 || c.token.len() > 4096) {
-        return Err("Invalid saved desktop choices".into());
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    #[ignore = "run under dbus-run-session for an isolated real bus"]
+    fn reopening_capture_uses_a_live_connection_after_runtime_drop() {
+        let connect = || {
+            let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+            runtime.block_on(async {
+                let connection = portal_connection().await.unwrap();
+                let name = connection.unique_name().unwrap().to_string();
+                let bus = ashpd::zbus::fdo::DBusProxy::new(&connection).await.unwrap();
+                bus.get_id().await.unwrap();
+                drop(bus);
+                connection.close().await.unwrap();
+                name
+            })
+        };
+        assert_ne!(connect(), connect());
     }
-    Ok(entries)
-}
-
-fn save_choice(id: u64, token: &str, width: i32, height: i32) -> Result<(), String> {
-    use std::io::Write;
-    if token.len() > 4096 { return Err("Portal restore token exceeds byte limit".into()); }
-    let mut entries = choices()?;
-    if let Some(choice) = entries.iter_mut().find(|choice| choice.id == id) {
-        // Portal tokens are single-use: replace the consumed token after every start.
-        choice.token = token.into();
-    } else {
-        let id = entries.iter().map(|choice| choice.id).max().unwrap_or(0)
-            .checked_add(1).ok_or("Saved desktop choice id overflow")?;
-        if entries.len() == 32 { entries.remove(0); }
-        entries.push(Choice { id, title: format!("Saved window {id} ({width}×{height})"), token: token.into() });
-    }
-    let bytes = serde_json::to_vec(&entries).map_err(|e| e.to_string())?;
-    if bytes.len() > 65536 { return Err("Saved desktop choices exceed byte limit".into()); }
-    let path = choices_path()?;
-    std::fs::create_dir_all(path.parent().ok_or("Missing desktop data directory")?).map_err(|e| e.to_string())?;
-    let temporary = path.with_extension(format!("{}.tmp", std::process::id()));
-    let mut file = std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600)
-        .open(&temporary).map_err(|e| e.to_string())?;
-    let result = file.write_all(&bytes).and_then(|_| file.sync_all())
-        .and_then(|_| std::fs::rename(&temporary, &path)).map_err(|e| e.to_string());
-    if result.is_err() { let _ = std::fs::remove_file(temporary); }
-    result
 }

@@ -759,10 +759,13 @@ Portal denial/backend errors are visible in the local HUD, not fatal to play.
 Portal capture workers serialize session teardown before opening the next session;
 removing a block or reconnecting clears the old binding so another explicit click
 can start a fresh capture. View-only portal grants never enter input-control mode.
-Saved Wayland window choices use `ExplicitlyRevoked` persistence and a private
-`desktop-windows.json` in the client data root. Selecting a saved choice reuses and
-replaces its restore token; selecting **NEW window** always opens the system picker.
-The compositor can still prompt again or reject an expired/revoked token.
+Wayland always requests fresh system consent (no stored restore tokens). Each
+capture owns its own D-Bus connection on its worker runtime; both portal proxies
+share that connection, then await Session.Close and connection close before the
+next capture. Never use ashpd's global connection on per-capture runtimes.
+The real-bus reopen regression runs via `dbus-run-session -- cargo test
+reopening_capture_uses_a_live_connection_after_runtime_drop -- --ignored`.
+Portal errors carry their failing stage into the desktop HUD.
 Wayland RemoteDesktop input is seat-global, not captured-window-targeted. Control
 requires windowed mode and an uncovered target; the client releases cursor grab,
 blocks clicks/scroll over its own window, and never reinjects keyboard presses
