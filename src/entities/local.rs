@@ -215,8 +215,9 @@ impl Store {
             .find(|bone| bone.name == name)
             .ok_or("local player rig has no arm bone")?;
         // Keep source-baked slim/wide geometry, skin UVs and normals. The caller
-        // supplies a shoulder transform with the fist visible above the sleeve.
-        let matrix = root * resources::transform(glam::Vec3::ZERO, bone.rotation, bone.scale);
+        // supplies the source's first-person arm frame; the arm part keeps its
+        // own pivot like `PlayerRenderer.renderHand` (only the swing x-rotation is dropped).
+        let matrix = root * resources::transform(bone.pivot, bone.rotation, bone.scale);
         let normal_matrix = matrix.inverse().transpose();
         for (quad, normal) in bone.quads.iter().zip(&bone.normals) {
             let first = out.vertices.len();

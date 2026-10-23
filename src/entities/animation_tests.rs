@@ -485,7 +485,8 @@ fn first_person_arm_uses_baked_geometry_skin_uvs_and_normals() {
         geometry.indices[crate::api::EntityMaterial::EntityCutout as usize].len(),
         6
     );
-    let tip = root.transform_point3(Vec3::new(0., 0.625, 0.));
+    let tip = (root * Mat4::from_translation(Vec3::new(-0.3, 0.125, 0.)))
+        .transform_point3(Vec3::new(0., 0.625, 0.));
     assert!((Vec3::from_array(geometry.vertices[0].position) - tip).length() < 1e-6);
     assert!(
         tip.y > -0.4,

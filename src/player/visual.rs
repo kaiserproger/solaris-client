@@ -394,10 +394,16 @@ impl Player {
             let Some((display, model)) = item else {
                 // Empty hand (or an item without geometry): the bare arm, as the
                 // source's renderPlayerArm; a model failure is still reported.
-                let shoulder = hand_root(Vec3::new(0.38, -0.32, -0.65), 0.55)
-                    * Mat4::from_translation(Vec3::new(side * 0.14, -0.58, 0.))
-                    * Mat4::from_rotation_z(side * 0.25)
-                    * Mat4::from_rotation_x(-0.15);
+                let swing = if self.visual.swing_hand.get() == hand {
+                    view.swing
+                } else {
+                    0.
+                };
+                let [hx, hy, hz] = view.hand.offset;
+                let shoulder = camera_to_world
+                    * Mat4::from_translation(Vec3::new(hx, view.bob[1] + hy, hz))
+                    * Mat4::from_rotation_z(view.hand.roll_deg.to_radians())
+                    * empty_arm_root(side, swing, 1. - equip);
                 entities.append_local_arm(content, right, shoulder, light, &mut scene.dynamic)?;
                 match failure {
                     Some(reason) => return Err(reason),
@@ -433,6 +439,32 @@ impl Player {
         }
         Ok(())
     }
+}
+
+/// The camera-space frame of the bare first-person arm model (raw model space,
+/// +Y down the arm), exactly the source's `ItemInHandRenderer.renderPlayerArm`:
+/// the arm rises from the bottom-right corner, mostly off-screen. `swing` is the
+/// linear 0..1 attack progress and `lowered` the 0..1 equip drop.
+fn empty_arm_root(side: f32, swing: f32, lowered: f32) -> Mat4 {
+    use std::f32::consts::PI;
+    let root = swing.sqrt();
+    let slide = -0.3 * (root * PI).sin();
+    let lift = 0.4 * (root * 2. * PI).sin();
+    let push = -0.4 * (swing * PI).sin();
+    let twist = (root * PI).sin();
+    let roll = (swing * swing * PI).sin();
+    Mat4::from_translation(Vec3::new(
+        side * (slide + 0.640_000_05),
+        lift - 0.6 - lowered * 0.6,
+        push - 0.719_999_97,
+    )) * Mat4::from_rotation_y((side * 45.).to_radians())
+        * Mat4::from_rotation_y((side * twist * 70.).to_radians())
+        * Mat4::from_rotation_z((side * roll * -20.).to_radians())
+        * Mat4::from_translation(Vec3::new(side * -1., 3.6, 3.5))
+        * Mat4::from_rotation_z((side * 120.).to_radians())
+        * Mat4::from_rotation_x(200_f32.to_radians())
+        * Mat4::from_rotation_y((side * -135.).to_radians())
+        * Mat4::from_translation(Vec3::new(side * 5.6, 0., 0.))
 }
 
 /// Pull the four-block third-person boom in against real received collision
@@ -653,5 +685,26 @@ mod tests {
         let before = player.visual.motion.roll.x;
         player.visual_animate(5.);
         assert_eq!(player.visual.motion.roll.x, before);
+    }
+
+    #[test]
+    fn empty_arm_comes_from_the_bottom_corner_like_render_player_arm() {
+        // Wide-arm cube (x -3..1, y -2..10 around pivot -5,2) in model space.
+        let tip = |side: f32, swing: f32| {
+            let pivot = Vec3::new(-side * 5. / 16., 2. / 16., 0.);
+            empty_arm_root(side, swing, 0.).transform_point3(pivot + Vec3::new(-side, 8., 0.) / 16.)
+        };
+        let rest = tip(1., 0.);
+        // Right hand: right of and below the crosshair, forward of the camera.
+        assert!(rest.x > 0.5 && rest.x < 1., "{rest}");
+        assert!(rest.y < -0.3 && rest.y > -0.8, "{rest}");
+        assert!(rest.z < -0.9, "{rest}");
+        let left = tip(-1., 0.);
+        assert!((left.x + rest.x).abs() < 1e-3, "{left} vs {rest}");
+        assert!((left.y - rest.y).abs() < 1e-3 && (left.z - rest.z).abs() < 1e-3);
+        // Equip drop lowers the arm; the swing moves it.
+        let lowered = empty_arm_root(1., 0., 1.).transform_point3(Vec3::ZERO);
+        assert!(lowered.y < empty_arm_root(1., 0., 0.).transform_point3(Vec3::ZERO).y - 0.5);
+        assert!((tip(1., 0.5) - rest).length() > 0.3);
     }
 }
