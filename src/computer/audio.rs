@@ -6,16 +6,13 @@
 //! process tree. Linux portal windows have no audio source at all (a
 //! whole-system monitor would feed Solaris's own playback back into the stream).
 use parking_lot::Mutex;
-use std::{
-    collections::VecDeque,
-    sync::Arc,
-    thread::JoinHandle,
-};
+use std::{collections::VecDeque, sync::Arc};
 #[cfg(target_os = "linux")]
 use std::{
     io::{BufRead, BufReader, Read, Write},
     process::{Child, ChildStdin, Command, Stdio},
     sync::atomic::{AtomicU32, Ordering},
+    thread::JoinHandle,
     time::Duration,
 };
 
@@ -97,7 +94,6 @@ pub(crate) struct WavSource {
     at: usize,
     start: std::time::Instant,
     delivered: u64,
-    local: bool,
 }
 impl WavSource {
     pub fn open(path: &std::path::Path) -> Result<Self, String> {
@@ -144,12 +140,20 @@ impl WavSource {
         if samples.is_empty() {
             return Err("WAV has no samples".into());
         }
-        Ok(Self { samples, at: 0, start: std::time::Instant::now(), delivered: 0, local: false })
+        Ok(Self { samples, at: 0, start: std::time::Instant::now(), delivered: 0 })
     }
-    /// Pretend this is a private-sink source (the owner then hears it positioned).
+    /// Test tone of `seconds` at `hz`, half scale.
     #[cfg(test)]
-    pub fn local(mut self) -> Self {
-        self.local = true;
+    pub fn tone(hz: f32, seconds: f32) -> Self {
+        let samples = (0..(RATE as f32 * seconds) as usize)
+            .map(|i| 0.5 * (i as f32 * hz * std::f32::consts::TAU / RATE as f32).sin())
+            .collect();
+        Self { samples, at: 0, start: std::time::Instant::now(), delivered: 0 }
+    }
+    /// Test clock: pretend `by` of real time has passed since the source started.
+    #[cfg(test)]
+    pub fn advanced(mut self, by: std::time::Duration) -> Self {
+        self.start -= by;
         self
     }
 }
@@ -165,7 +169,7 @@ impl AudioSource for WavSource {
         Ok(())
     }
     fn replaces_app_output(&self) -> bool {
-        self.local
+        false
     }
     fn close(&mut self) {}
 }
@@ -331,12 +335,12 @@ mod tests {
     #[test]
     fn wav_source_parses_downmixes_loops_and_rejects_other_formats() {
         let mut source = WavSource::parse(&wav(RATE, 2, &[16384, -16384, 16384, 16384])).unwrap();
-        assert_eq!(source.samples, [0., 0.25]);
+        assert_eq!(source.samples, [0., 0.5]);
         source.start -= std::time::Duration::from_millis(10);
         let mut out = Vec::new();
         source.drain(&mut out).unwrap();
         assert!((470..=490).contains(&out.len()), "10 ms of audio, got {}", out.len());
-        assert_eq!(&out[..4], [0., 0.25, 0., 0.25], "the clip loops");
+        assert_eq!(&out[..4], [0., 0.5, 0., 0.5], "the clip loops");
         assert!(WavSource::parse(&wav(44_100, 1, &[1])).is_err());
         assert!(WavSource::parse(b"nope").is_err());
     }
@@ -350,6 +354,9 @@ mod tests {
         let sink = NullSink::create().unwrap();
         let mut capture = sink.capture().unwrap();
         assert!(capture.replaces_app_output());
+        // A second sink stands in for the owner's speakers: the routed app must not reach it.
+        let speakers = NullSink::create().unwrap();
+        let mut leak = speakers.capture().unwrap();
         let tone: Vec<i16> = (0..48_000 * 2 * 2)
             .map(|i| ((i / 2) as f32 * 440. * std::f32::consts::TAU / RATE as f32).sin().mul_add(12_000., 0.) as i16)
             .collect();
@@ -367,8 +374,13 @@ mod tests {
         capture.drain(&mut heard).unwrap();
         let loud = heard.iter().filter(|s| s.abs() > 0.05).count();
         assert!(loud > RATE as usize / 2, "monitor heard {loud} loud samples of {}", heard.len());
+        let mut leaked = Vec::new();
+        leak.drain(&mut leaked).unwrap();
+        let leaked_peak = leaked.iter().fold(0f32, |m, s| m.max(s.abs()));
+        assert!(leaked_peak < 0.001, "the app leaked onto another sink: {leaked_peak}");
         capture.close();
-        drop(sink);
+        leak.close();
+        drop((sink, speakers));
     }
     #[test]
     fn pipe_bytes_become_bounded_finite_samples_across_split_floats() {

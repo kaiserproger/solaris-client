@@ -20,4 +20,4 @@ exec dbus-run-session -- sh -c '
   status=$?
   kill $(jobs -p) 2>/dev/null
   exit $status
-'
+' sh "$@"

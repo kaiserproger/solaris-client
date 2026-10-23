@@ -30,6 +30,33 @@ struct AudioCapture {
 const AUDIO_GRACE: Duration = Duration::from_secs(3);
 /// Never queue more than this much owner audio (240 ms) behind a stalled frame.
 const MAX_PENDING_FRAMES: usize = 12;
+/// App audio is music-like, not speech: 64 kbit/s (about 160 bytes per 20 ms packet).
+const APP_BITRATE: i32 = 64_000;
+impl AudioCapture {
+    /// Encode every whole 20 ms frame captured so far (oldest audio beyond 240 ms is
+    /// dropped). Returns the packets made before any failure, and the failure.
+    fn step(&mut self) -> (Vec<(u32, Vec<u8>)>, Option<String>) {
+        let mut packets = Vec::new();
+        if let Err(error) = self.source.drain(&mut self.pcm) {
+            return (packets, Some(error));
+        }
+        let excess = self.pcm.len().saturating_sub(MAX_PENDING_FRAMES * FRAME);
+        self.pcm.drain(..excess - excess % FRAME);
+        while self.pcm.len() >= FRAME {
+            let frame: [f32; FRAME] = self.pcm[..FRAME].try_into().expect("one frame");
+            self.pcm.drain(..FRAME);
+            match self.encoder.encode(&frame) {
+                Ok(opus) => {
+                    self.seq = self.seq.wrapping_add(1);
+                    self.sent += 1;
+                    packets.push((self.seq, opus));
+                }
+                Err(error) => return (packets, Some(error)),
+            }
+        }
+        (packets, None)
+    }
+}
 impl Sharing {
     pub fn dialog(&self, selected: usize) -> Option<crate::ui::desktop::DesktopDialog> {
         use crate::ui::desktop::{DesktopAction, DesktopDialog};
@@ -80,6 +107,11 @@ impl App {
         }
         let live = enabled && self.session.phase == "play";
         if live && let Err(error) = self.session.register_screens() {
+            self.computer.message = error;
+        }
+        // Screen audio uses the voice codec and is enabled by the server's VOICE_STATE;
+        // a server without it (older, or [voice] off) never receives AUDIO_PART.
+        if live && let Err(error) = self.session.register_voice() {
             self.computer.message = error;
         }
         let current = if live && self.computer.source.is_some() && self.computer.size != [0; 2] {
@@ -165,14 +197,16 @@ impl App {
     /// private-sink app (nested monitor) is also played at its own monitor.
     pub(super) fn pump_screen_audio(&mut self) {
         let announced = self.computer.sharing.announced;
-        let demanded = announced.is_some_and(|id| {
-            !self.computer.sharing.viewers.is_empty() && self.session.screen_relay.demand.contains_key(&id)
-        });
+        let demanded = self.session.voice_net.enabled
+            && announced.is_some_and(|id| {
+                !self.computer.sharing.viewers.is_empty() && self.session.screen_relay.demand.contains_key(&id)
+            });
         let private = self.computer.source.as_ref().is_some_and(|source| source.private_audio());
         let now = Instant::now();
         let sharing = &mut self.computer.sharing;
         if announced.is_none() || self.computer.source.is_none() {
             sharing.audio = None;
+            self.session.screen_audio_owner.capturing = false;
             return;
         }
         if demanded || private {
@@ -184,7 +218,7 @@ impl App {
         }
         if sharing.audio.is_none() && (demanded || private) && !sharing.audio_unavailable {
             let native = self.computer.source.as_mut().and_then(|source| source.audio());
-            match (crate::computer::audio::resolve(native), voice::Encoder::new()) {
+            match (crate::computer::audio::resolve(native), voice::Encoder::with_bitrate(APP_BITRATE, true)) {
                 (Some(source), Ok(encoder)) => {
                     sharing.audio = Some(AudioCapture { source, encoder, pcm: Vec::new(), seq: 0, sent: 0, idle_since: None });
                 }
@@ -194,23 +228,12 @@ impl App {
                 }
             }
         }
+        let owner = &mut self.session.screen_audio_owner;
+        owner.capturing = sharing.audio.is_some();
+        owner.unavailable = sharing.audio_unavailable;
         let (Some(id), Some(capture)) = (announced, &mut sharing.audio) else { return };
-        let mut failure = capture.source.drain(&mut capture.pcm).err();
-        let excess = capture.pcm.len().saturating_sub(MAX_PENDING_FRAMES * FRAME);
-        capture.pcm.drain(..excess - excess % FRAME);
-        let mut packets = Vec::new();
-        while failure.is_none() && capture.pcm.len() >= FRAME {
-            let frame: [f32; FRAME] = capture.pcm[..FRAME].try_into().expect("one frame");
-            capture.pcm.drain(..FRAME);
-            match capture.encoder.encode(&frame) {
-                Ok(opus) => {
-                    capture.seq = capture.seq.wrapping_add(1);
-                    packets.push((capture.seq, opus));
-                }
-                Err(error) => failure = Some(error),
-            }
-        }
-        capture.sent += packets.len() as u64;
+        let (packets, failure) = capture.step();
+        owner.packets_sent = capture.sent;
         let local = private;
         if let Some(error) = failure {
             eprintln!("screen audio: {error}");
@@ -231,19 +254,6 @@ impl App {
                 }
             }
         }
-    }
-    /// Observation of monitor audio: what this client captured and what it heard.
-    pub(crate) fn screen_audio_facts(&self) -> serde_json::Value {
-        let capture = self.computer.sharing.audio.as_ref();
-        let heard: Vec<_> = self.session.screen_audio.iter().map(|(id, stats)| {
-            serde_json::json!({"block": id.face.block, "side": id.face.side, "packets": stats.packets})
-        }).collect();
-        serde_json::json!({
-            "capturing": capture.is_some(),
-            "packets_sent": capture.map_or(0, |c| c.sent),
-            "unavailable": self.computer.sharing.audio_unavailable,
-            "heard": heard,
-        })
     }
     pub(super) fn request_shared_screen(&mut self, face: Face) -> bool {
         let Some(dimension) = self.session.screen_dimension() else { return false; };
@@ -294,6 +304,43 @@ impl App {
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn capture(source: crate::computer::audio::WavSource) -> AudioCapture {
+        AudioCapture {
+            source: Box::new(source),
+            encoder: voice::Encoder::with_bitrate(APP_BITRATE, true).unwrap(),
+            pcm: Vec::new(),
+            seq: 0,
+            sent: 0,
+            idle_since: None,
+        }
+    }
+    #[test]
+    fn captured_audio_becomes_sequenced_decodable_20ms_opus_packets() {
+        use crate::computer::audio::WavSource;
+        let mut capture = capture(WavSource::tone(440., 1.).advanced(Duration::from_millis(100)));
+        let (packets, failure) = capture.step();
+        owner.packets_sent = capture.sent;
+        assert!(failure.is_none());
+        assert!((4..=6).contains(&packets.len()), "100 ms is five 20 ms packets, got {}", packets.len());
+        assert_eq!(packets.iter().map(|p| p.0).collect::<Vec<_>>(), (1..=packets.len() as u32).collect::<Vec<_>>());
+        assert!(packets.iter().all(|(_, opus)| (1..=relay::MAX_OPUS).contains(&opus.len())));
+        let mut decoder = voice::Decoder::new().unwrap();
+        let peak = packets.iter().skip(1).map(|(_, opus)| {
+            decoder.decode(Some(opus)).unwrap().iter().fold(0f32, |m, s| m.max(s.abs()))
+        }).fold(0f32, f32::max);
+        assert!(peak > 0.2, "decoded tone is audible: {peak}");
+        assert_eq!(capture.sent, packets.len() as u64);
+        // Nothing new has been captured yet: no packets, no failure.
+        assert!(capture.step().0.is_empty());
+    }
+    #[test]
+    fn a_stalled_owner_never_queues_more_than_240_ms_of_audio() {
+        use crate::computer::audio::WavSource;
+        let mut capture = capture(WavSource::tone(220., 3.).advanced(Duration::from_secs(2)));
+        let (packets, _) = capture.step();
+        assert_eq!(packets.len(), MAX_PENDING_FRAMES);
+        assert!(capture.pcm.len() < FRAME);
+    }
     #[test]
     fn permission_prompt_defaults_to_deny_and_discloses_scope() {
         let sharing = Sharing {

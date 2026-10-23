@@ -57,7 +57,9 @@ smithay = { version = "=0.7.0", default-features = false, features = ["wayland_f
 # Pinned to the `windows` 0.58.0 already locked for wgpu-hal; all features are
 # in-crate, so no extra system libraries are needed on MSVC or GNU targets.
 [target.'cfg(windows)'.dependencies]
+windows-core = "=0.58.0"
 windows = { version = "=0.58.0", features = [
+    "implement",
     "Foundation",
     "Graphics_Capture",
     "Graphics_DirectX",

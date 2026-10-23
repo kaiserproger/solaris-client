@@ -54,6 +54,16 @@ pub(crate) const TICK_DETAIL_NAMES: [&str; 11] = [
 #[derive(Default)]
 pub(crate) struct ScreenAudioStats {
     pub packets: u64,
+    /// Opus frames the mixer decoded for this screen, and the loudest sample seen.
+    pub decoded_frames: u64,
+    pub peak: f32,
+}
+/// Owner-side counters of the shared source's audio capture.
+#[derive(Default)]
+pub(crate) struct ScreenAudioOwner {
+    pub capturing: bool,
+    pub packets_sent: u64,
+    pub unavailable: bool,
 }
 
 pub struct Session {
@@ -78,6 +88,7 @@ pub struct Session {
     loader: crate::loader::Loader,
     pub(crate) screen_relay: crate::computer::relay::Relay,
     /// Per-screen audio counters for observation (viewer side, owner's own monitor).
+    pub(crate) screen_audio_owner: ScreenAudioOwner,
     pub(crate) screen_audio: std::collections::BTreeMap<crate::computer::relay::Id, ScreenAudioStats>,
     pub(crate) voice_net: crate::voice::Net,
     environment: Environment,
@@ -185,6 +196,7 @@ impl Session {
             loader: crate::loader::Loader::default(),
             screen_relay: Default::default(),
             screen_audio: Default::default(),
+            screen_audio_owner: Default::default(),
             voice_net: Default::default(),
             environment: Environment::new(),
             terrain: None,
@@ -760,8 +772,22 @@ impl Session {
         let Some(audio) = &self.audio else { return Ok(()) };
         let centre = screen.face.centre().map(|v| v as f32);
         audio.voice().push(screen.speaker(), centre, Some(crate::computer::relay::AUDIO_RANGE), seq, opus)?;
-        self.screen_audio.entry(screen).or_default().packets += 1;
+        let stats = self.screen_audio.entry(screen).or_default();
+        stats.packets += 1;
+        if let Some((frames, peak)) = audio.voice().speaker_stats(screen.speaker()) {
+            stats.decoded_frames = frames;
+            stats.peak = stats.peak.max(peak);
+        }
         Ok(())
+    }
+    /// Observation of monitor audio: what this client captured and what it heard.
+    pub(crate) fn screen_audio_observation(&self) -> Value {
+        let heard: Vec<_> = self.screen_audio.iter().map(|(id, stats)| {
+            json!({"block": id.face.block, "side": id.face.side, "packets": stats.packets,
+                "decoded_frames": stats.decoded_frames, "peak": stats.peak})
+        }).collect();
+        json!({"capturing": self.screen_audio_owner.capturing, "packets_sent": self.screen_audio_owner.packets_sent,
+            "unavailable": self.screen_audio_owner.unavailable, "heard": heard})
     }
     /// Deliver relayed screen audio queued by the relay to the mixer.
     pub(crate) fn pump_screen_audio(&mut self) {

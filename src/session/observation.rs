@@ -50,6 +50,7 @@ impl Session {
         let mut value = json!({"in_play":in_play,"screen":screen,"overlay":{"open":false,"class":"none"},"recent_chat":recent_chat,
             "debug_overlay":self.debug_overlay_pending,"state_version":self.state_version,"client_tick":self.client_tick,"origin":"received_state_and_explicit_local_player_prediction"});
         value["loader"] = self.loader.observation();
+        value["screen_audio"] = self.screen_audio_observation();
         if let Some(error) = &self.error {
             value["disconnect_reason"] = json!(error);
         }
