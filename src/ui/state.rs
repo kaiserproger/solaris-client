@@ -2689,6 +2689,11 @@ impl UiState {
                     "q" | "Q" => (u8::from(m.control), ClickMode::Throw),
                     _ => return Ok(()),
                 };
+                // checkHotbarKeyPressed swaps only with an empty cursor.
+                if mode == ClickMode::Swap && inventory.cursor.as_ref().is_some_and(|s| !s.empty())
+                {
+                    return Ok(());
+                }
                 self.target(&id)?;
                 match action {
                     NodeAction::Slot(slot) => {

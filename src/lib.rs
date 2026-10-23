@@ -753,6 +753,7 @@ impl App {
         let key = match button {
             MouseButton::Left => "attack",
             MouseButton::Right => "use",
+            MouseButton::Middle => "pick",
             _ => return,
         };
         let _ = session.input(InputIntent::Key { key: key.into(), pressed: false });
@@ -1066,9 +1067,12 @@ impl ApplicationHandler for App {
                     }
                     return;
                 }
-                // Creative "Saved Hotbars" tab: digit loads, Ctrl+digit saves that hotbar.
-                if pressed && self.session.creative_hotbar_tab() {
-                    let digit = match code {
+                // Container screens (AbstractContainerScreen.keyPressed): digits swap the
+                // hovered slot with that hotbar slot (load/save on creative Saved Hotbars),
+                // F swaps it with the offhand, Q/Ctrl+Q throws one/the stack. These keys
+                // never reach the gameplay hotbar or world while a container is open.
+                if self.session.screen() == "inventory" {
+                    let key = match code {
                         KeyCode::Digit1 => Some("1"),
                         KeyCode::Digit2 => Some("2"),
                         KeyCode::Digit3 => Some("3"),
@@ -1078,19 +1082,23 @@ impl ApplicationHandler for App {
                         KeyCode::Digit7 => Some("7"),
                         KeyCode::Digit8 => Some("8"),
                         KeyCode::Digit9 => Some("9"),
+                        KeyCode::KeyF => Some("f"),
+                        KeyCode::KeyQ => Some("q"),
                         _ => None,
                     };
-                    if let Some(digit) = digit {
-                        self.manual(InputIntent::Ui {
-                            intent: crate::ui::UiIntent::Key {
-                                key: digit.into(),
-                                pressed: true,
-                                modifiers: crate::ui::Modifiers {
-                                    control: self.ctrl_held,
-                                    ..Default::default()
+                    if let Some(key) = key {
+                        if pressed {
+                            self.manual(InputIntent::Ui {
+                                intent: crate::ui::UiIntent::Key {
+                                    key: key.into(),
+                                    pressed: true,
+                                    modifiers: crate::ui::Modifiers {
+                                        control: self.ctrl_held,
+                                        ..Default::default()
+                                    },
                                 },
-                            },
-                        });
+                            });
+                        }
                         return;
                     }
                 }
@@ -1112,7 +1120,7 @@ impl ApplicationHandler for App {
                     }
                     return;
                 }
-                // Gameplay motion/drop inputs are inert while an inventory/container owns the UI.
+                // Gameplay motion inputs are inert while an inventory/container owns the UI.
                 if self.session.screen() == "inventory"
                     && matches!(
                         code,
@@ -1123,7 +1131,6 @@ impl ApplicationHandler for App {
                             | KeyCode::Space
                             | KeyCode::ControlLeft
                             | KeyCode::ControlRight
-                            | KeyCode::KeyQ
                     )
                 {
                     return;
@@ -1178,6 +1185,7 @@ impl ApplicationHandler for App {
                     KeyCode::ControlLeft | KeyCode::ControlRight => "sprint",
                     KeyCode::KeyE => "inventory",
                     KeyCode::KeyQ => "drop",
+                    KeyCode::KeyF => "swap_offhand",
                     _ => "",
                 };
                 if !key.is_empty() {
@@ -1280,6 +1288,7 @@ impl ApplicationHandler for App {
                 let key = match button {
                     MouseButton::Left => Some("attack"),
                     MouseButton::Right => Some("use"),
+                    MouseButton::Middle => Some("pick"),
                     _ => None,
                 };
                 if let Some(key) = key && state == ElementState::Pressed {

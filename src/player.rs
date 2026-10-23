@@ -109,10 +109,7 @@ pub struct HeldInput {
     pub flags: u8,
     pub attack: bool,
     pub use_item: bool,
-    pub pick: bool,
     pub offhand: bool,
-    pub drop: bool,
-    pub swap_hands: bool,
 }
 impl HeldInput {
     pub fn from_keys(keys: &BTreeSet<String>, blocked: bool) -> Self {
@@ -134,10 +131,7 @@ impl HeldInput {
             flags,
             attack: keys.contains("attack"),
             use_item: keys.contains("use"),
-            pick: keys.contains("pick"),
             offhand: keys.contains("offhand"),
-            drop: keys.contains("drop"),
-            swap_hands: keys.contains("swap_hands"),
         }
     }
     pub fn has(self, bit: u8) -> bool {

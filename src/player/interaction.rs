@@ -351,45 +351,6 @@ impl Player {
         if inventory.screen_open || !self.pose_known || self.health.is_some_and(|h| h <= 0.) {
             return Ok(());
         }
-        if input.swap_hands && !self.last_input.swap_hands {
-            self.perform(
-                InteractionIntent::SwapHands,
-                None,
-                world,
-                content,
-                inventory,
-                entities,
-                tick,
-                out,
-            )?;
-        }
-        if input.drop && !self.last_input.drop {
-            self.perform(
-                InteractionIntent::Drop { whole_stack: false },
-                None,
-                world,
-                content,
-                inventory,
-                entities,
-                tick,
-                out,
-            )?;
-        }
-        if input.pick && !self.last_input.pick {
-            let target = self.raycast(world, content, entities, tick)?;
-            self.perform(
-                InteractionIntent::Pick {
-                    include_data: false,
-                },
-                target,
-                world,
-                content,
-                inventory,
-                entities,
-                tick,
-                out,
-            )?;
-        }
         if input.attack && self.miss_delay == 0 {
             let target = self.raycast(world, content, entities, tick)?;
             if !self.last_input.attack {

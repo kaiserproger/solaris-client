@@ -617,6 +617,93 @@ fn inventory_slot_hit_at_physical_pixels_under_150_percent_scaling() {
     );
 }
 
+/// Container hotkeys act on the hovered slot (AbstractContainerScreen.keyPressed):
+/// digit = SWAP with that hotbar slot, F = SWAP with offhand (button 40),
+/// Q/Ctrl+Q = THROW one/stack. Swaps need an empty cursor.
+#[test]
+fn container_hotkeys_click_the_hovered_slot() {
+    use crate::ui::{ClickMode, Modifiers, PointerPhase, UiCommand, UiIntent};
+    let (content, mut inventory, mut ui) = state();
+    inventory
+        .open_inventory()
+        .expect("player inventory must open");
+    inventory
+        .player
+        .slots
+        .fill(Some(crate::inventory::Stack::default()));
+    ui.resize(1280, 720, 1.5);
+    ui.synchronize(&inventory, &content)
+        .expect("menu follows inventory");
+    ui.rebuild_for_test(&inventory, &content)
+        .expect("menu tree must build");
+    let bounds: Vec<f64> = ui
+        .observed_nodes()
+        .iter()
+        .find(|node| node["id"] == "slot/9")
+        .expect("first main inventory slot")["bounds"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_f64().unwrap())
+        .collect();
+    ui.execute(
+        UiIntent::Pointer {
+            phase: PointerPhase::Move,
+            x: bounds[0] + bounds[2] / 2.,
+            y: bounds[1] + bounds[3] / 2.,
+            button: None,
+            modifiers: Default::default(),
+        },
+        &mut inventory,
+        &content,
+    )
+    .expect("hover");
+    let mut key = |key: &str, control: bool, inventory: &mut crate::inventory::InventoryStore| {
+        ui.execute(
+            UiIntent::Key {
+                key: key.into(),
+                pressed: true,
+                modifiers: Modifiers {
+                    control,
+                    ..Default::default()
+                },
+            },
+            inventory,
+            &content,
+        )
+        .expect("container key")
+        .commands
+        .into_iter()
+        .find_map(|command| match command {
+            UiCommand::Inventory(UiIntent::ClickSlot {
+                slot, button, mode, ..
+            }) => Some((slot, button, mode)),
+            _ => None,
+        })
+    };
+    assert_eq!(
+        key("3", false, &mut inventory),
+        Some((9, 2, ClickMode::Swap))
+    );
+    assert_eq!(
+        key("f", false, &mut inventory),
+        Some((9, 40, ClickMode::Swap))
+    );
+    assert_eq!(
+        key("q", false, &mut inventory),
+        Some((9, 0, ClickMode::Throw))
+    );
+    assert_eq!(
+        key("q", true, &mut inventory),
+        Some((9, 1, ClickMode::Throw))
+    );
+    let mut carried = crate::inventory::Stack::default();
+    carried.id = 1;
+    carried.count = 1;
+    inventory.cursor = Some(carried);
+    assert_eq!(key("1", false, &mut inventory), None);
+}
+
 /// Dialog trees fit the 427x240 Auto viewport (1280x720 window, scale 3):
 /// every visible button rect stays inside the viewport. Title, death,
 /// pause, and settings all route through this.

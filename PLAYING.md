@@ -111,13 +111,15 @@ three `export` lines in section 2), else `alsa-sys` fails to configure.
 | WASD / Space / Shift / Ctrl | move / jump / sneak / sprint |
 | Mouse | look (sensitivity in Options) |
 | 1–9 / wheel (game) | hotbar select |
+| 1–9 (inventory/container) | swap the hovered slot with that hotbar slot |
+| Middle click (game) | pick block (Ctrl in creative: with block data) |
 | Wheel (GUI list) | scroll the hovered list |
 | E | inventory open/close |
 | Shift + click (inventory/container) | quick-move a stack |
 | Hold + drag (inventory/container) | distribute a carried stack across slots |
 | T | chat open · `/` opens command chat · Esc closes · Enter sends |
-| Q | drop one item |
-| F | swap offhand |
+| Q / Ctrl+Q | drop one item / the whole stack (in an inventory/container: from the hovered slot) |
+| F | swap main hand and offhand (in an inventory/container: the hovered slot) |
 | Esc (game) | pause menu (Back to game / Advancements / Statistics / Options / Accessibility / Disconnect) |
 | Esc (pause/options/chat/inventory) | back |
 | F2 | screenshot to artifact dir |

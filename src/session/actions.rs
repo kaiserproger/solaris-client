@@ -120,16 +120,18 @@ impl Session {
                             };
                             self.execute_ui(intent)?;
                         }
+                        // Vanilla drop(hasControlDown) / pick includeData: Ctrl is held as "sprint".
                         "drop" if self.phase == "play" => {
-                            self.interact(InteractionIntent::Drop { whole_stack: false })?;
+                            let whole_stack = self.keys.contains("sprint");
+                            self.interact(InteractionIntent::Drop { whole_stack })?;
                         }
                         "swap_offhand" if self.phase == "play" => {
                             self.interact(InteractionIntent::SwapHands)?;
                         }
                         "pick" if self.phase == "play" => {
-                            self.interact(InteractionIntent::Pick {
-                                include_data: false,
-                            })?;
+                            let include_data =
+                                self.player.game_mode == 1 && self.keys.contains("sprint");
+                            self.interact(InteractionIntent::Pick { include_data })?;
                         }
                         "perspective" if self.phase == "play" && self.screen() == "game" => {
                             self.cycle_camera();
