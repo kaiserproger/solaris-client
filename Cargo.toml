@@ -48,6 +48,8 @@ libc = "=0.2.189"
 [target.'cfg(target_os = "linux")'.dependencies]
 ashpd = { version = "=0.13.13", default-features = false, features = ["tokio", "remote_desktop", "screencast"] }
 tokio = { version = "1", features = ["rt-multi-thread", "sync", "macros"] }
+# Nested Wayland compositor that hosts apps launched into a monitor (src/computer/nested.rs).
+smithay = { version = "=0.7.0", default-features = false, features = ["wayland_frontend", "desktop"] }
 
 # Windows desktop capture for the in-world computer (src/computer/windows.rs).
 # Pinned to the `windows` 0.58.0 already locked for wgpu-hal; all features are

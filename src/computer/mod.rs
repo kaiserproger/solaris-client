@@ -3,6 +3,8 @@ pub(crate) mod native;
 pub(crate) mod texture;
 pub(crate) mod relay;
 #[cfg(target_os = "linux")]
+pub(crate) mod nested;
+#[cfg(target_os = "linux")]
 mod wayland;
 #[cfg(windows)]
 mod windows;
