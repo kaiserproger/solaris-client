@@ -22,6 +22,7 @@ bytemuck = { version = "=1.25.0", features = ["derive"] }
 glam = "=0.30.10"
 libm = "=0.2.16"
 png = "=0.18.1"
+image = { version = "=0.25.10", default-features = false, features = ["jpeg"] }
 flate2 = "=1.1.9"
 uuid = { version = "=1.21.0", features = ["v4", "serde"] }
 sha2 = { version = "=0.10.9", features = ["oid"] }

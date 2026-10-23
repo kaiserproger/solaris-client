@@ -71,6 +71,7 @@ pub struct Session {
     /// Monotonic epoch of the UI animation clock (frame time, never sleeps).
     ui_clock: std::time::Instant,
     loader: crate::loader::Loader,
+    pub(crate) screen_relay: crate::computer::relay::Relay,
     environment: Environment,
     terrain: Option<Terrain>,
     scene: Scene,
@@ -172,6 +173,7 @@ impl Session {
             ui_viewport: None,
             ui_clock: std::time::Instant::now(),
             loader: crate::loader::Loader::default(),
+            screen_relay: Default::default(),
             environment: Environment::new(),
             terrain: None,
             scene: Scene::default(),
@@ -505,6 +507,7 @@ impl Session {
         self.network = None;
         self.loading = None;
         self.loader.reset();
+        self.screen_relay = Default::default();
         self.content = None;
         if let Some(audio) = &self.audio {
             audio.stop();
@@ -669,6 +672,30 @@ impl Session {
         payload.string(outgoing.channel);
         payload.0.extend(outgoing.payload);
         self.send(id, payload)
+    }
+    pub(crate) fn screen_dimension(&self) -> Option<u8> {
+        match self.dimension.as_deref()? {
+            "minecraft:overworld" => Some(0),
+            "minecraft:the_nether" => Some(1),
+            "minecraft:the_end" => Some(2),
+            _ => None,
+        }
+    }
+    pub(crate) fn register_screens(&mut self) -> Result<()> {
+        if !self.screen_relay.registered && self.phase == "play" {
+            self.send_loader(crate::loader::Outgoing {
+                channel: "minecraft:register",
+                payload: crate::computer::relay::CHANNEL.as_bytes().to_vec(),
+            })?;
+            self.screen_relay.registered = true;
+        }
+        Ok(())
+    }
+    pub(crate) fn send_screen(&self, payload: Vec<u8>) -> Result<()> {
+        if self.phase != "play" || payload.len() > 32767 {
+            return Err("screen payload requires live Play and bounded size".into());
+        }
+        self.send_loader(crate::loader::Outgoing { channel: crate::computer::relay::CHANNEL, payload })
     }
     pub(crate) fn resize_ui(&mut self, width: u32, height: u32, scale: f64) {
         if width == 0 || height == 0 || !scale.is_finite() || scale <= 0. {

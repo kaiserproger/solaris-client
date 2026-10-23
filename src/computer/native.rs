@@ -1,3 +1,4 @@
+mod sharing;
 use super::{DesktopKey, DesktopSource, Face, PointerButton, WindowInfo};
 use crate::{
     App,
@@ -25,12 +26,14 @@ pub(crate) struct Computer {
     picker: Vec<WindowInfo>,
     selection: usize,
     message: String,
+    sharing: sharing::Sharing,
 }
 impl Computer {
     pub fn has_overlay(&self) -> bool {
-        !self.picker.is_empty() || !self.message.is_empty()
+        self.sharing.pending.is_some() || !self.picker.is_empty() || !self.message.is_empty()
     }
     pub fn lines(&self) -> Vec<String> {
+        if let Some(lines) = self.sharing.lines() { return lines; }
         if !self.picker.is_empty() {
             let mut lines =
                 vec!["LOCAL desktop window: Up/Down, Enter selects, Esc cancels".into()];
@@ -150,6 +153,7 @@ impl App {
                 self.computer.close();
             }
         }
+        self.sync_screen_sharing(enabled);
         if self.computer.controlling {
             let pixel = self.computer_hit().and_then(|hit| {
                 self.computer
@@ -196,6 +200,7 @@ impl App {
                             }.into();
                             self.publish_session();
                         }
+                        self.publish_screen_frame(&frame);
                     }
                 }
                 Ok(None) => {}
@@ -231,6 +236,7 @@ impl App {
         {
             return false;
         }
+        if self.sharing_event(event) { return true; }
         if let WindowEvent::KeyboardInput { event, .. } = event {
             let pressed = event.state == ElementState::Pressed;
             if event.physical_key == PhysicalKey::Code(KeyCode::Escape)
@@ -362,6 +368,7 @@ impl App {
                     self.publish_session();
                     return true;
                 };
+                if self.request_shared_screen(face) { return true; }
                 let _ = self
                     .session
                     .command(Command::Input(InputIntent::ReleaseAll));
@@ -692,6 +699,7 @@ mod tests {
             picker: Vec::new(),
             selection: 0,
             message: String::new(),
+            sharing: Default::default(),
         };
         computer.release_input();
         computer.release_input();
@@ -721,6 +729,7 @@ mod tests {
             picker: Vec::new(),
             selection: 0,
             message: String::new(),
+            sharing: Default::default(),
         };
         computer.close();
         assert!(computer.face.is_none() && computer.source.is_none());

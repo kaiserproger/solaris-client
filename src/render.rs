@@ -337,6 +337,7 @@ pub struct Renderer {
     pipelines: Pipelines,
     outline: outline::Outline,
     desktop: Option<crate::computer::texture::Texture>,
+    shared_screens: std::collections::BTreeMap<crate::computer::relay::Id, crate::computer::texture::Texture>,
     post: post::Post,
     shadow: shadow::Shadow,
     fancy_shaders: bool,
@@ -703,6 +704,7 @@ impl Renderer {
             progress::Progress::new(device.clone(), progress_errors, gpu_failed.clone())?;
         Ok(Self {
             desktop: None,
+            shared_screens: Default::default(),
             surface,
             device,
             queue,
@@ -1097,7 +1099,8 @@ impl Renderer {
     pub(crate) fn update_desktop(&mut self, face: crate::computer::Face, frame: &crate::computer::Frame) {
         let size = [frame.width, frame.height];
         if self.desktop.as_ref().is_none_or(|texture| texture.size() != size) {
-            self.desktop = Some(crate::computer::texture::Texture::new(&self.device, face, size));
+            let shared = self.desktop.as_ref().or_else(|| self.shared_screens.values().next());
+            self.desktop = Some(crate::computer::texture::Texture::new(&self.device, face, size, shared));
         }
         if let Some(texture) = &mut self.desktop {
             texture.face = face;
@@ -1107,6 +1110,21 @@ impl Renderer {
     pub(crate) fn clear_desktop(&mut self) { self.desktop = None; }
     pub(crate) fn set_desktop_face(&mut self, face: crate::computer::Face) {
         if let Some(texture) = &mut self.desktop { texture.face = face; }
+    }
+    pub(crate) fn has_shared_screen(&self, id: crate::computer::relay::Id) -> bool {
+        self.shared_screens.contains_key(&id)
+    }
+    pub(crate) fn update_shared_screen(&mut self, id: crate::computer::relay::Id, frame: &crate::computer::Frame) {
+        let size = [frame.width, frame.height];
+        if self.shared_screens.get(&id).is_none_or(|texture| texture.size() != size) {
+            let shared = self.desktop.as_ref().or_else(|| self.shared_screens.values().next());
+            let texture = crate::computer::texture::Texture::new(&self.device, id.face, size, shared);
+            self.shared_screens.insert(id, texture);
+        }
+        if let Some(texture) = self.shared_screens.get(&id) { texture.upload(&self.queue, frame); }
+    }
+    pub(crate) fn retain_shared_screens(&mut self, mut keep: impl FnMut(crate::computer::relay::Id) -> bool) {
+        self.shared_screens.retain(|id, _| keep(*id));
     }
 
     pub fn render(

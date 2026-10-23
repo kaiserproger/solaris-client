@@ -1,6 +1,7 @@
-//! Explicitly consented, client-local desktop capture. No network transport.
+//! Explicitly consented local capture/input, with separately permission-gated pictures.
 pub(crate) mod native;
 pub(crate) mod texture;
+pub(crate) mod relay;
 #[cfg(target_os = "linux")]
 mod wayland;
 #[cfg(windows)]

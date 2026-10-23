@@ -768,6 +768,30 @@ blocks clicks/scroll over its own window, and never reinjects keyboard presses
 while the game is focused. Background-window keyboard control is therefore not
 supported by this portal path. Windows uses window-targeted messages instead.
 
+### Optional permission-gated pictures
+
+The native `solaris:screen` protocol shows other players a generic lit panel,
+not desktop bytes, by default. Right-clicking another player's active monitor
+requests viewing permission rather than opening local capture. The owner receives
+a modal **Deny / Allow** prompt, defaulting to Deny; Up/Down selects and Enter
+confirms (Esc denies). It explicitly grants pictures from all the owner's open
+screens, only while the viewer looks. Viewers cannot forward any input.
+
+F8 revokes all locally approved viewers and leaves all requested viewing sessions.
+Closing the last capture, disconnecting, or leaving also ends permission server-side.
+Only after local Allow **and** server DEMAND are present does the owner encode
+JPEG thumbnails, at most 640×640, 128 KiB and five frames/second. Full-resolution
+capture remains local; multipart payloads are at most 30,000 image bytes each.
+There are no timer polling loops or encoding while nobody is authorized and looking.
+Remote JPEG dimensions and allocation limits are checked before decoding; STOP
+replaces the last image with the generic panel rather than retaining private pixels.
+The local full-resolution texture and remote textures have separate geometry
+buffers but share GPU material handles.
+
+Sharing acceptance requires two real native clients: verify generic-only before
+Allow, denial, live changes after Allow while looking, looking-away STOP, F8 revoke,
+owner close and reconnect. Codec/packet unit tests do not prove that live path.
+
 For acceptance, use an isolated offline world and a dedicated non-sensitive
 desktop text window. Record the exact client/server builds, the explicit consent
 step, a completed client GPU screenshot of the live window on the monitor face,
@@ -778,5 +802,5 @@ or a raw captured frame proof of this end-to-end interaction.
 Unknown optional custom payload channels, including `solaris:loader/probe`,
 are ignored in Configuration and Play without claiming Loader activation.
 Recognized manifest/artifact/view channels still enforce their phase and
-existing validation. This permits a vanilla-compatible connection to a server
-that probes clients even when the local desktop feature needs no Loader bundle.
+existing validation. Optional probing never substitutes for the verified Loader
+bundle required to identify and present a `solaris:monitor`.

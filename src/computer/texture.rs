@@ -5,6 +5,8 @@ pub(crate) struct Texture {
     texture: wgpu::Texture,
     bind: wgpu::BindGroup,
     pipeline: wgpu::RenderPipeline,
+    layout: wgpu::BindGroupLayout,
+    sampler: wgpu::Sampler,
     vertices: wgpu::Buffer,
     size: [u32; 2],
     pub face: Face,
@@ -16,7 +18,7 @@ struct Vertex {
     uv: [f32; 2],
 }
 impl Texture {
-    pub fn new(device: &wgpu::Device, face: Face, size: [u32; 2]) -> Self {
+    pub fn new(device: &wgpu::Device, face: Face, size: [u32; 2], shared: Option<&Self>) -> Self {
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("client-local desktop"),
             size: wgpu::Extent3d {
@@ -31,6 +33,9 @@ impl Texture {
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
             view_formats: &[],
         });
+        let (layout, sampler, pipeline) = if let Some(shared) = shared {
+            (shared.layout.clone(), shared.sampler.clone(), shared.pipeline.clone())
+        } else {
         let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("desktop texture"),
             entries: &[
@@ -56,22 +61,6 @@ impl Texture {
             mag_filter: wgpu::FilterMode::Linear,
             min_filter: wgpu::FilterMode::Linear,
             ..Default::default()
-        });
-        let bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("desktop frame"),
-            layout: &layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(
-                        &texture.create_view(&Default::default()),
-                    ),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&sampler),
-                },
-            ],
         });
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("desktop face"),
@@ -117,6 +106,24 @@ impl Texture {
             multiview: None,
             cache: None,
         });
+            (layout, sampler, pipeline)
+        };
+        let bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("desktop frame"),
+            layout: &layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(
+                        &texture.create_view(&Default::default()),
+                    ),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&sampler),
+                },
+            ],
+        });
         let vertices = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("desktop face vertices"),
             contents: bytemuck::cast_slice(
@@ -132,6 +139,8 @@ impl Texture {
             bind,
             pipeline,
             vertices,
+            layout,
+            sampler,
             size,
             face,
         }
