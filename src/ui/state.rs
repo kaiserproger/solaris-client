@@ -298,6 +298,7 @@ pub(crate) enum NodeAction {
     AddServer,
     SaveServer,
     JoinServer(usize),
+    EditServer(usize),
     ServerPage(i32),
     World(usize),
     PlayWorld,
@@ -476,6 +477,8 @@ pub struct UiState {
     pub(crate) settings_parent: Screen,
     pub(crate) servers: Vec<super::menus::SavedServer>,
     pub(crate) adding_server: bool,
+    /// Saved entry the Add Server form replaces on Done (`None` appends).
+    pub(crate) editing_server: Option<usize>,
     pub(crate) worlds: Vec<crate::singleplayer::World>,
     pub(crate) selected_world: Option<usize>,
     pub(crate) worlds_error: Option<String>,
@@ -600,6 +603,7 @@ impl UiState {
             settings_parent: Screen::Pause,
             servers: Vec::new(),
             adding_server: false,
+            editing_server: None,
             worlds: Vec::new(),
             selected_world: None,
             worlds_error: None,
@@ -2837,6 +2841,17 @@ impl UiState {
             | NodeAction::DeleteWorld => self.activate_world_action(a, e)?,
             NodeAction::AddServer => {
                 self.adding_server = true;
+                self.editing_server = None;
+                self.title_error = None;
+                self.transition(Screen::DirectConnect);
+                self.focus = Some("title/server".into());
+            }
+            NodeAction::EditServer(index) => {
+                let server = self.servers.get(index).ok_or("server_not_found")?.clone();
+                self.field("server/name", server.name, 64, false)?;
+                self.field("title/server", server.address, 253, false)?;
+                self.adding_server = true;
+                self.editing_server = Some(index);
                 self.title_error = None;
                 self.transition(Screen::DirectConnect);
                 self.focus = Some("title/server".into());

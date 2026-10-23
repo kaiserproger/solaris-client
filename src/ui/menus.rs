@@ -78,6 +78,27 @@ impl UiState {
     }
 
     pub(crate) fn save_server(&mut self) -> Result<()> {
+        let servers = self.edited_servers()?;
+        let path = crate::local_config::client_settings_path()
+            .ok_or("Cannot locate local server list")?
+            .with_file_name("servers.json");
+        let tmp = path.with_extension("json.tmp");
+        std::fs::write(
+            &tmp,
+            serde_json::to_vec_pretty(&servers).map_err(|e| e.to_string())?,
+        )
+        .and_then(|()| std::fs::rename(&tmp, &path))
+        .map_err(|e| format!("Cannot save server list: {e}"))?;
+        self.servers = servers;
+        self.editing_server = None;
+        self.transition(Screen::Multiplayer);
+        self.invalidate();
+        Ok(())
+    }
+
+    /// Saved list after the Add/Edit Server form's Done: the edited entry is
+    /// replaced in place, a new one appended.
+    fn edited_servers(&self) -> Result<Vec<SavedServer>> {
         let address = self.fields["title/server"].text.trim().to_owned();
         if address.is_empty() {
             return Err("Server address is required".into());
@@ -95,22 +116,12 @@ impl UiState {
             },
             address,
         };
-        let path = crate::local_config::client_settings_path()
-            .ok_or("Cannot locate local server list")?
-            .with_file_name("servers.json");
         let mut servers = self.servers.clone();
-        servers.push(entry);
-        let tmp = path.with_extension("json.tmp");
-        std::fs::write(
-            &tmp,
-            serde_json::to_vec_pretty(&servers).map_err(|e| e.to_string())?,
-        )
-        .and_then(|()| std::fs::rename(&tmp, &path))
-        .map_err(|e| format!("Cannot save server list: {e}"))?;
-        self.servers = servers;
-        self.transition(Screen::Multiplayer);
-        self.invalidate();
-        Ok(())
+        match self.editing_server.filter(|&index| index < servers.len()) {
+            Some(index) => servers[index] = entry,
+            None => servers.push(entry),
+        }
+        Ok(servers)
     }
 
     /// Themed translucent panel node (frame only; carries no action).
@@ -193,11 +204,12 @@ impl UiState {
         for index in start..(start + rows).min(self.servers.len()) {
             let server = &self.servers[index];
             let label = format!("{}  —  {}", server.name, server.address);
+            let y = list_top + (index - start) as f32 * 30.;
             self.add(
                 format!("server/{index}"),
                 "button",
                 label,
-                [cx - 160., list_top + (index - start) as f32 * 30., 320., 26.],
+                [cx - 160., y, 266., 26.],
                 true,
                 None,
                 NodeAction::JoinServer(index),
@@ -205,6 +217,14 @@ impl UiState {
                     delim: "  —  ",
                     desc: "",
                 },
+            )?;
+            self.button(
+                &format!("server/{index}/edit"),
+                "Edit",
+                [cx + 110., y, 50., 26.],
+                NodeAction::EditServer(index),
+                true,
+                None,
             )?;
         }
         if self.servers.is_empty() {
@@ -266,10 +286,12 @@ impl UiState {
         self.frame("connect/panel", [cx - 120., top, 240., 212.])?;
         self.label(
             "connect/title",
-            if self.adding_server {
-                "Add Server"
-            } else {
+            if !self.adding_server {
                 "Direct Connect"
+            } else if self.editing_server.is_some() {
+                "Edit Server Info"
+            } else {
+                "Add Server"
             }
             .into(),
             [cx - 110., top + 10., 220., 12.],
@@ -450,5 +472,55 @@ mod tests {
         assert_eq!(ui.screen(), Screen::Title);
         ui.show_disconnected(r#"Play disconnect: {"text":"Removed by server"}"#.into());
         assert_eq!(ui.title_error_text().as_deref(), Some("Removed by server"));
+    }
+    #[test]
+    fn edit_server_prefills_and_replaces_the_saved_entry() {
+        let (content, mut inventory, mut ui) = state();
+        ui.enter_title(Some(""), Some("Friend")).unwrap();
+        ui.servers = vec![
+            SavedServer { name: "Old".into(), address: "10.0.0.1".into() },
+            SavedServer { name: "Keep".into(), address: "10.0.0.2".into() },
+        ];
+        ui.activate_for_test(NodeAction::EditServer(0), &mut inventory, &content)
+            .unwrap();
+        assert_eq!(ui.screen(), Screen::DirectConnect);
+        assert_eq!(ui.title_field("server/name").as_deref(), Some("Old"));
+        assert_eq!(ui.title_field("title/server").as_deref(), Some("10.0.0.1"));
+        ui.field("title/server", "135.106.208.217:25565".into(), 253, false)
+            .unwrap();
+        let servers = ui.edited_servers().unwrap();
+        assert_eq!(servers.len(), 2, "edit must not append");
+        assert_eq!(servers[0].address, "135.106.208.217:25565");
+        assert_eq!(servers[0].name, "Old");
+        assert_eq!(servers[1].address, "10.0.0.2");
+        ui.activate_for_test(NodeAction::AddServer, &mut inventory, &content)
+            .unwrap();
+        assert_eq!(ui.edited_servers().unwrap().len(), 3, "Add Server appends");
+    }
+    #[test]
+    fn ctrl_v_pastes_clipboard_text_into_the_server_address_field() {
+        let (content, mut inventory, mut ui) = state();
+        ui.enter_title(Some(""), Some("Friend")).unwrap();
+        ui.activate_for_test(NodeAction::AddServer, &mut inventory, &content)
+            .unwrap();
+        ui.execute(
+            UiIntent::Key {
+                key: "v".into(),
+                pressed: true,
+                modifiers: Modifiers { control: true, ..Default::default() },
+            },
+            &mut inventory,
+            &content,
+        )
+        .unwrap();
+        assert!(matches!(
+            ui.take_clipboard_request(),
+            Some(crate::ui::ClipboardRequest::Get)
+        ));
+        ui.clipboard_insert("135.106.208.217:25565").unwrap();
+        assert_eq!(
+            ui.title_field("title/server").as_deref(),
+            Some("135.106.208.217:25565")
+        );
     }
 }
