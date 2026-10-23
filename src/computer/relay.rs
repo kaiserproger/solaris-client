@@ -81,6 +81,8 @@ pub(crate) struct Relay {
     pub active: BTreeMap<Id, Remote>,
     pub demand: BTreeMap<Id, Demand>,
     pub requests: VecDeque<Request>,
+    /// Owner answers to this viewer's requests; the app knows which are still wanted.
+    pub answers: VecDeque<(Id, bool)>,
     pub notice: Option<String>,
 }
 impl Relay {
@@ -157,7 +159,10 @@ impl Relay {
             5 => {
                 let allow = r.bool()?;
                 r.done()?;
-                self.notice = Some(if allow { "Viewing allowed — look at the screen; F8 leaves" } else { "Screen owner denied viewing" }.into());
+                if self.answers.len() >= 32 {
+                    return Err("screen permission answer bound".into());
+                }
+                self.answers.push_back((id, allow));
             }
             6 => {
                 let on = r.bool()?;
@@ -285,6 +290,18 @@ mod tests {
         assert!(relay.demand.is_empty());
         active.push(0);
         assert!(relay.receive(&active).is_err());
+    }
+    #[test]
+    fn owner_answers_are_queued_with_their_screen_for_the_app_to_check() {
+        let mut relay = Relay::default();
+        let mut allow = id().packet(5);
+        allow.push(1);
+        relay.receive(&allow).unwrap();
+        assert_eq!(relay.answers.pop_front(), Some((id(), true)));
+        assert!(
+            relay.notice.is_none(),
+            "a cancelled request must not announce viewing"
+        );
     }
     #[test]
     fn pictures_are_bounded_reassembled_and_removed_on_stop() {

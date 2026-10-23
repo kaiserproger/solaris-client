@@ -638,9 +638,13 @@ impl Session {
             .set_interaction_seed(u64::from_ne_bytes(entropy));
         self.inventory.game_mode = mode;
         self.flat_world = flat;
+        // The server announces a dimension's active screens only when the player
+        // enters it, so a same-dimension respawn keeps the screen catalog.
+        if self.dimension.as_ref() != Some(&dimension) {
+            self.screen_relay = Default::default();
+            self.screen_audio.clear();
+        }
         self.dimension = Some(dimension.clone());
-        self.screen_relay = Default::default();
-        self.screen_audio.clear();
         self.dimension_epoch += 1;
         self.entities.clear_dimension();
         self.predicted_blocks.clear();
@@ -865,6 +869,55 @@ mod tests {
             let error = session.apply(phase, packet, &push(true)).unwrap_err();
             assert!(error.contains("requires a custom resource pack"), "{error}");
         }
+    }
+
+    #[test]
+    fn same_dimension_respawn_keeps_the_active_screen_catalog() {
+        let mut session = Session::new_mode("respawn-screens".into(), false);
+        let mut content = Content::test_cube();
+        content.set_registries(BTreeMap::from([(
+            "minecraft:dimension_type".to_owned(),
+            vec![(
+                "minecraft:overworld".to_owned(),
+                json!({"min_y": 0, "height": 16, "has_skylight": true, "has_ceiling": false, "attributes": {}}),
+            )],
+        )]));
+        session.content = Some(content);
+        session.phase = "play".into();
+        let respawn = |dimension: &str| {
+            let mut w = Writer::default();
+            w.var(0);
+            w.string(dimension);
+            w.0.extend_from_slice(&0i64.to_be_bytes());
+            w.0.extend_from_slice(&[0, 255, 0, 0, 0]); // mode, previous, debug, flat, no death location
+            w.var(0);
+            w.var(63);
+            w.byte(1); // keep attributes: this fixture has no entity models
+            w.0
+        };
+        session
+            .apply(Phase::Play, 82, &respawn("minecraft:overworld"))
+            .unwrap();
+        // ACTIVE(on) for a 1x1 monitor at the origin, overworld.
+        let mut active = vec![1, 6];
+        active.extend_from_slice(&[0; 12]);
+        active.extend_from_slice(&[2, 1, 1, 0, 1]);
+        session.screen_relay.receive(&active).unwrap();
+        session
+            .apply(Phase::Play, 82, &respawn("minecraft:overworld"))
+            .unwrap();
+        assert_eq!(
+            session.screen_relay.active.len(),
+            1,
+            "the server will not announce it again"
+        );
+        session
+            .apply(Phase::Play, 82, &respawn("minecraft:the_nether"))
+            .unwrap();
+        assert!(
+            session.screen_relay.active.is_empty(),
+            "a new dimension gets its own catalog"
+        );
     }
 
     #[test]

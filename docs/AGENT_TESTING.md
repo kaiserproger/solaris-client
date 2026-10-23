@@ -807,7 +807,12 @@ Up/Down/Enter work; Esc denies. It explicitly grants pictures from all the owner
 screens, only while the viewer looks. Viewers cannot forward any input.
 
 F8 revokes all locally approved viewers and leaves all requested viewing sessions.
-Closing the last capture, disconnecting, or leaving also ends permission server-side.
+An owner's Allow that arrives after F8 cancelled the request is answered with
+LEAVE, so viewing does not resume. Closing the last capture, disconnecting, or
+leaving also ends permission server-side. A viewer's active-screen catalog and
+viewing requests survive a same-dimension respawn (the server announces a
+dimension's screens only on entering it); a dimension change or reconnect starts
+them fresh.
 Only after local Allow **and** server DEMAND are present does the owner encode
 JPEG thumbnails, at most 640×640, 128 KiB and five frames/second. Full-resolution
 capture remains local; multipart payloads are at most 30,000 image bytes each.

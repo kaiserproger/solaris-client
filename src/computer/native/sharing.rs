@@ -5,7 +5,9 @@ use std::{collections::{BTreeMap, BTreeSet}, time::{Duration, Instant}};
 
 #[derive(Default)]
 pub(super) struct Sharing {
-    epochs: Option<(u64, u64)>,
+    /// Connection epoch and screen dimension this state belongs to. The server keeps
+    /// screens and grants across a same-dimension respawn, so this state does too.
+    scope: Option<(u64, Option<u8>)>,
     announced: Option<Id>,
     pub pending: Option<Request>,
     pub viewers: BTreeMap<[u8; 16], String>,
@@ -101,9 +103,15 @@ impl App {
         self.computer.selection = 0;
     }
     pub(super) fn sync_screen_sharing(&mut self, enabled: bool) {
-        let epochs = self.session.context_epochs();
-        if self.computer.sharing.epochs != Some(epochs) {
-            self.computer.sharing = Sharing { epochs: Some(epochs), ..Default::default() };
+        let scope = (
+            self.session.context_epochs().0,
+            self.session.screen_dimension(),
+        );
+        if self.computer.sharing.scope != Some(scope) {
+            self.computer.sharing = Sharing {
+                scope: Some(scope),
+                ..Default::default()
+            };
         }
         let live = enabled && self.session.phase == "play";
         if live && let Err(error) = self.session.register_screens() {
@@ -149,6 +157,20 @@ impl App {
         if let Some(notice) = self.session.screen_relay.notice.take() {
             self.computer.message = notice;
             self.publish_session();
+        }
+        while let Some((id, allow)) = self.session.screen_relay.answers.pop_front() {
+            if self.computer.sharing.watching.contains(&id) {
+                self.computer.message = if allow {
+                    "Viewing allowed — look at the screen; F8 leaves"
+                } else {
+                    "Screen owner denied viewing"
+                }
+                .into();
+                self.publish_session();
+            } else if allow {
+                // F8 cancelled this request before the owner answered: leave the late grant.
+                let _ = self.session.send_screen(id.packet(6));
+            }
         }
         if self.computer.sharing.pending.is_none() {
             while let Some(request) = self.session.screen_relay.requests.pop_front() {
