@@ -35,6 +35,17 @@ pub enum Event {
 /// this means the writer is genuinely stalled (TCP backpressure, the same
 /// condition the write timeout reports) rather than a momentary burst.
 const MAX_OUTBOUND_BACKLOG: usize = 8192;
+/// Inbound chunks/wakes buffered for the I/O owner; a full queue blocks the
+/// reader, which keeps TCP backpressure toward the server.
+const INPUT_QUEUE: usize = 32;
+/// Everything that wakes the I/O owner. Outbound packets stay on their own
+/// unbounded queue and only post a best-effort `Wake`.
+enum Input {
+    Received(Vec<u8>),
+    Closed,
+    Failed(String),
+    Wake,
+}
 struct ConnectionState {
     cancelled: AtomicBool,
     outbound_backlog: AtomicUsize,
@@ -45,8 +56,9 @@ struct ConnectionState {
 pub struct Network {
     incoming: Receiver<Event>,
     outgoing: mpsc::Sender<(i32, Vec<u8>)>,
+    wake_io: SyncSender<Input>,
     state: Arc<ConnectionState>,
-    socket: Option<TcpStream>,
+    socket: Arc<TcpStream>,
     #[cfg(test)]
     worker: Option<thread::JoinHandle<()>>,
 }
@@ -59,6 +71,7 @@ impl Network {
     ) -> Result<Self> {
         let (send, incoming) = mpsc::sync_channel(16);
         let (outgoing, receive) = mpsc::channel();
+        let (wake_io, input) = mpsc::sync_channel(INPUT_QUEUE);
         let state = Arc::new(ConnectionState {
             cancelled: AtomicBool::new(false),
             outbound_backlog: AtomicUsize::new(0),
@@ -69,20 +82,37 @@ impl Network {
         let endpoint = endpoint(&address)?;
         let addresses: Vec<_> = endpoint
             .to_socket_addrs()
-            .map_err(|e| e.to_string())?
+            .map_err(|e| format!("resolve failed: {e}"))?
             .take(8)
             .collect();
         let addr = *addresses.first().ok_or("address resolved no targets")?;
-        let socket =
-            TcpStream::connect_timeout(&addr, Duration::from_secs(5)).map_err(|e| e.to_string())?;
-        socket
-            .set_read_timeout(Some(Duration::from_millis(10)))
-            .map_err(|e| e.to_string())?;
+        let socket = TcpStream::connect_timeout(&addr, Duration::from_secs(5))
+            .map_err(|e| format!("connect failed: {e}"))?;
+        // No read timeout: Winsock documents that a timed-out blocking receive
+        // leaves the connection indeterminate and it must be closed. The old
+        // 10 ms poll timed out ~100 times a second and Windows clients died
+        // with `os error 997` (ERROR_IO_PENDING). A dedicated reader blocks
+        // instead; a write timeout is still fatal, which is what Winsock asks.
         socket
             .set_write_timeout(Some(Duration::from_secs(2)))
+            .map_err(|e| format!("socket setup failed: {e}"))?;
+        socket
+            .set_nodelay(true)
+            .map_err(|e| format!("socket setup failed: {e}"))?;
+        let control = Arc::new(
+            socket
+                .try_clone()
+                .map_err(|e| format!("socket setup failed: {e}"))?,
+        );
+        let reader = socket
+            .try_clone()
+            .map_err(|e| format!("socket setup failed: {e}"))?;
+        let reader_input = wake_io.clone();
+        thread::Builder::new()
+            .name("minecraft-read".into())
+            .spawn(move || read_socket(reader, &reader_input))
             .map_err(|e| e.to_string())?;
-        socket.set_nodelay(true).map_err(|e| e.to_string())?;
-        let control = socket.try_clone().map_err(|e| e.to_string())?;
+        let closer = control.clone();
         let worker = thread::Builder::new()
             .name("minecraft-io".into())
             .spawn(move || {
@@ -92,14 +122,21 @@ impl Network {
                     endpoint,
                     username,
                     &send,
-                    receive,
+                    &receive,
+                    &input,
                     &stop,
                     wake.as_ref(),
                 );
+                // Close the connection itself, not just this handle: the
+                // server sees the disconnect now and the reader unblocks.
+                let _ = closer.shutdown(Shutdown::Both);
                 if let Err(e) = result {
                     *stop.terminal_error.lock() = Some(e);
                     wake();
                 }
+                // `receive` drops only now, so a failed `send` can report
+                // the terminal error instead of a bare closed queue.
+                drop(receive);
             })
             .map_err(|e| e.to_string())?;
         #[cfg(not(test))]
@@ -107,8 +144,9 @@ impl Network {
         Ok(Self {
             incoming,
             outgoing,
+            wake_io,
             state,
-            socket: Some(control),
+            socket: control,
             #[cfg(test)]
             worker: Some(worker),
         })
@@ -131,8 +169,14 @@ impl Network {
         }
         self.outgoing.send((id, body)).map_err(|_| {
             state.outbound_backlog.fetch_sub(1, Ordering::AcqRel);
-            "outbound queue closed: network thread ended".to_string()
-        })
+            match state.terminal_error.lock().as_deref() {
+                Some(error) => format!("network thread ended: {error}"),
+                None => "outbound queue closed: network thread ended".to_string(),
+            }
+        })?;
+        // A full queue already guarantees the owner wakes and flushes.
+        let _ = self.wake_io.try_send(Input::Wake);
+        Ok(())
     }
 
     /// Publish a setting; the I/O owner sends the proper Configuration/Play form.
@@ -140,14 +184,14 @@ impl Network {
         self.state
             .view_distance
             .store(view_distance, Ordering::Release);
+        let _ = self.wake_io.try_send(Input::Wake);
     }
 }
 impl Drop for Network {
     fn drop(&mut self) {
         self.state.cancelled.store(true, Ordering::Release);
-        if let Some(socket) = self.socket.take() {
-            let _ = socket.shutdown(Shutdown::Both);
-        }
+        let _ = self.wake_io.try_send(Input::Wake);
+        let _ = self.socket.shutdown(Shutdown::Both);
     }
 }
 fn endpoint(s: &str) -> Result<String> {
@@ -195,10 +239,28 @@ fn flush_outbound(
     }
     Ok(())
 }
+/// Errors name the failed operation; io::Error's text keeps `(os error N)`.
 fn write(socket: &mut TcpStream, id: i32, body: &[u8], threshold: Option<usize>) -> Result<()> {
     socket
         .write_all(&frame(id, body, threshold)?)
-        .map_err(|e| e.to_string())
+        .map_err(|e| format!("write failed: {e}"))
+}
+/// Sole reader of the play socket; it blocks (no SO_RCVTIMEO, see `connect`)
+/// and hands chunks to the I/O owner. Ends after reporting close or failure.
+fn read_socket(mut socket: TcpStream, input: &SyncSender<Input>) {
+    let mut tmp = [0; 16384];
+    loop {
+        let message = match socket.read(&mut tmp) {
+            Ok(0) => Input::Closed,
+            Ok(n) => Input::Received(tmp[..n].to_vec()),
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(e) => Input::Failed(format!("read failed: {e}")),
+        };
+        let last = !matches!(message, Input::Received(_));
+        if input.send(message).is_err() || last {
+            return;
+        }
+    }
 }
 fn run(
     mut socket: TcpStream,
@@ -206,22 +268,27 @@ fn run(
     endpoint: String,
     username: String,
     events: &SyncSender<Event>,
-    commands: Receiver<(i32, Vec<u8>)>,
+    commands: &Receiver<(i32, Vec<u8>)>,
+    input: &Receiver<Input>,
     state: &ConnectionState,
     wake: &(dyn Fn() + Send + Sync),
 ) -> Result<()> {
     // Status uses its own connection, so its bytes cannot cross login framing.
-    let mut status =
-        TcpStream::connect_timeout(&addr, Duration::from_secs(3)).map_err(|e| e.to_string())?;
+    // Its read timeout is terminal and the socket is discarded either way.
+    let mut status = TcpStream::connect_timeout(&addr, Duration::from_secs(3))
+        .map_err(|e| format!("status connect failed: {e}"))?;
     status
         .set_read_timeout(Some(Duration::from_secs(3)))
-        .map_err(|e| e.to_string())?;
-    write(&mut status, 0, &handshake(&endpoint, addr.port(), 1), None)?;
-    write(&mut status, 0, &[], None)?;
+        .map_err(|e| format!("status socket setup failed: {e}"))?;
+    write(&mut status, 0, &handshake(&endpoint, addr.port(), 1), None)
+        .map_err(|e| format!("status {e}"))?;
+    write(&mut status, 0, &[], None).map_err(|e| format!("status {e}"))?;
     let mut bytes = Vec::new();
     let mut tmp = [0; 8192];
     loop {
-        let n = status.read(&mut tmp).map_err(|e| e.to_string())?;
+        let n = status
+            .read(&mut tmp)
+            .map_err(|e| format!("status read failed: {e}"))?;
         if n == 0 {
             return Err("status peer closed".into());
         }
@@ -255,7 +322,7 @@ fn run(
     let mut buffer = Vec::with_capacity(65536);
     let mut advertised_radius = None;
     while !state.cancelled.load(Ordering::Acquire) {
-        flush_outbound(&mut socket, &commands, state, compression)?;
+        flush_outbound(&mut socket, commands, state, compression)?;
         let radius = state.view_distance.load(Ordering::Acquire);
         if phase != Phase::Login && advertised_radius != Some(radius) {
             // Packet IDs from the local 26.1.2 protocol dump: Configuration
@@ -272,7 +339,7 @@ fn run(
             let Some((id, body)) = extract(&mut buffer, compression)? else {
                 break;
             };
-            flush_outbound(&mut socket, &commands, state, compression)?;
+            flush_outbound(&mut socket, commands, state, compression)?;
             let original = phase;
             let radius = state.view_distance.load(Ordering::Acquire);
             if phase == Phase::Login {
@@ -323,22 +390,18 @@ fn run(
                 .map_err(|_| "session gone")?;
             wake();
         }
-        match socket.read(&mut tmp) {
-            Ok(0) => return Err("server closed connection".into()),
-            Ok(n) => {
-                if buffer.len() + n > MAX_FRAME + 5 {
+        // Blocks until bytes, a queued packet/setting wake, close or failure.
+        match input.recv() {
+            Ok(Input::Received(bytes)) => {
+                if buffer.len() + bytes.len() > MAX_FRAME + 5 {
                     return Err("network buffer bound".into());
                 }
-                buffer.extend_from_slice(&tmp[..n]);
+                buffer.extend_from_slice(&bytes);
             }
-            Err(e)
-                if matches!(
-                    e.kind(),
-                    std::io::ErrorKind::WouldBlock
-                        | std::io::ErrorKind::TimedOut
-                        | std::io::ErrorKind::Interrupted
-                ) => {}
-            Err(e) => return Err(e.to_string()),
+            Ok(Input::Wake) => {}
+            Ok(Input::Closed) => return Err("server closed connection".into()),
+            Ok(Input::Failed(error)) => return Err(error),
+            Err(_) => return Err("network reader ended".into()),
         }
     }
     Ok(())
@@ -456,6 +519,15 @@ mod tests {
             // Joining the real I/O worker proves all 16 sends completed and
             // termination ran while no consumer had freed a queue slot.
             network.worker.take().unwrap().join().unwrap();
+            let expected_error = if malformed_frame {
+                "frame length bound"
+            } else {
+                "server closed connection"
+            };
+            // A send after the worker ended names the cause (Windows QA saw
+            // only "outbound queue closed") without consuming the event.
+            let send_error = network.send(0, Vec::new()).unwrap_err();
+            assert_eq!(send_error, format!("network thread ended: {expected_error}"));
             assert!(matches!(
                 network.try_recv(),
                 Ok(Event::Status(status)) if status["version"]["protocol"] == 775
@@ -476,11 +548,6 @@ mod tests {
                         if body == token.to_be_bytes()
                 ));
             }
-            let expected_error = if malformed_frame {
-                "frame length bound"
-            } else {
-                "server closed connection"
-            };
             assert!(
                 matches!(
                     network.try_recv(),
@@ -495,6 +562,46 @@ mod tests {
                 ));
             }
         }
+    }
+
+    #[test]
+    fn queued_packet_wakes_an_idle_owner_without_socket_read_timeout() {
+        // Regression (Windows "os error 997"): Winsock leaves a connection
+        // whose blocking receive timed out indeterminate, so the play socket
+        // has no read timeout and a queued packet must wake the idle owner.
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let (configured, idle) = mpsc::channel();
+        let peer = thread::spawn(move || {
+            let (mut login, _) = listener.accept().unwrap();
+            let (mut status, _) = listener.accept().unwrap();
+            for socket in [&mut login, &mut status] {
+                socket.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+            }
+            assert_eq!(read_packet(&mut status).0, 0);
+            assert_eq!(read_packet(&mut status), (0, Vec::new()));
+            let mut response = Writer::default();
+            response.string(r#"{"version":{"protocol":775}}"#);
+            write(&mut status, 0, &response.0, None).unwrap();
+            assert_eq!(read_packet(&mut login).0, 0);
+            assert_eq!(read_packet(&mut login).0, 0);
+            let mut success = Writer(vec![0; 16]);
+            success.string("Idle");
+            success.var(0);
+            write(&mut login, 2, &success.0, None).unwrap();
+            assert_eq!(read_packet(&mut login), (3, Vec::new()));
+            assert_eq!(read_packet(&mut login), (0, client_information(8)));
+            configured.send(()).unwrap();
+            assert_eq!(read_packet(&mut login), (2, vec![7]));
+            login.shutdown(Shutdown::Write).unwrap();
+        });
+        let mut network =
+            Network::connect(address.to_string(), "Idle".into(), 8, Arc::new(|| {})).unwrap();
+        assert_eq!(network.socket.read_timeout().unwrap(), None);
+        idle.recv_timeout(Duration::from_secs(5)).unwrap();
+        network.send(2, vec![7]).unwrap();
+        peer.join().unwrap();
+        network.worker.take().unwrap().join().unwrap();
     }
 
     #[test]
