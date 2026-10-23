@@ -19,7 +19,7 @@ use std::{
     thread,
     time::{Duration, Instant},
 };
-use unsafe_libopus as opus;
+use unsafe_libopus as libopus;
 
 pub(crate) use app::Client;
 
@@ -100,7 +100,7 @@ pub(crate) fn parse(bytes: &[u8]) -> Result<Incoming<'_>> {
     }
 }
 
-pub(crate) struct Encoder(*mut opus::OpusEncoder);
+pub(crate) struct Encoder(*mut libopus::OpusEncoder);
 // The encoder state is only ever touched by the thread that owns this value.
 unsafe impl Send for Encoder {}
 impl Encoder {
@@ -110,29 +110,29 @@ impl Encoder {
     /// `music` selects the general-audio application/signal instead of speech.
     pub fn with_bitrate(bits_per_second: i32, music: bool) -> Result<Self> {
         let (application, signal) = if music {
-            (opus::OPUS_APPLICATION_AUDIO, opus::OPUS_SIGNAL_MUSIC)
+            (libopus::OPUS_APPLICATION_AUDIO, libopus::OPUS_SIGNAL_MUSIC)
         } else {
-            (opus::OPUS_APPLICATION_VOIP, opus::OPUS_SIGNAL_VOICE)
+            (libopus::OPUS_APPLICATION_VOIP, libopus::OPUS_SIGNAL_VOICE)
         };
         let mut error = 0;
         // SAFETY: valid arguments; the pointer is checked and freed exactly once in Drop.
-        let state = unsafe { opus::opus_encoder_create(RATE as i32, 1, application, &mut error) };
-        if error != opus::OPUS_OK || state.is_null() {
+        let state = unsafe { libopus::opus_encoder_create(RATE as i32, 1, application, &mut error) };
+        if error != libopus::OPUS_OK || state.is_null() {
             return Err(format!("opus encoder create failed: {error}"));
         }
         let encoder = Self(state);
         // SAFETY: `state` is a live encoder; each request takes one i32.
         unsafe {
-            opus::opus_encoder_ctl!(state, opus::OPUS_SET_BITRATE_REQUEST, bits_per_second);
-            opus::opus_encoder_ctl!(state, opus::OPUS_SET_SIGNAL_REQUEST, signal);
-            opus::opus_encoder_ctl!(state, opus::OPUS_SET_COMPLEXITY_REQUEST, 5);
+            libopus::opus_encoder_ctl!(state, libopus::OPUS_SET_BITRATE_REQUEST, bits_per_second);
+            libopus::opus_encoder_ctl!(state, libopus::OPUS_SET_SIGNAL_REQUEST, signal);
+            libopus::opus_encoder_ctl!(state, libopus::OPUS_SET_COMPLEXITY_REQUEST, 5);
         }
         Ok(encoder)
     }
     pub fn encode(&mut self, pcm: &[f32; FRAME]) -> Result<Vec<u8>> {
         let mut out = vec![0u8; MAX_OPUS];
         // SAFETY: `pcm` holds FRAME samples, `out` MAX_OPUS bytes; the encoder is live.
-        let n = unsafe { opus::opus_encode_float(self.0, pcm.as_ptr(), FRAME as i32, out.as_mut_ptr(), MAX_OPUS as i32) };
+        let n = unsafe { libopus::opus_encode_float(self.0, pcm.as_ptr(), FRAME as i32, out.as_mut_ptr(), MAX_OPUS as i32) };
         if n < 0 {
             return Err(format!("opus encode failed: {n}"));
         }
@@ -143,19 +143,19 @@ impl Encoder {
 impl Drop for Encoder {
     fn drop(&mut self) {
         // SAFETY: created by opus_encoder_create and never freed elsewhere.
-        unsafe { opus::opus_encoder_destroy(self.0) }
+        unsafe { libopus::opus_encoder_destroy(self.0) }
     }
 }
 
-pub(crate) struct Decoder(*mut opus::OpusDecoder);
+pub(crate) struct Decoder(*mut libopus::OpusDecoder);
 // Owned by one speaker entry, used only under the mixer lock.
 unsafe impl Send for Decoder {}
 impl Decoder {
     pub fn new() -> Result<Self> {
         let mut error = 0;
         // SAFETY: valid arguments; the pointer is checked and freed exactly once in Drop.
-        let state = unsafe { opus::opus_decoder_create(RATE as i32, 1, &mut error) };
-        if error != opus::OPUS_OK || state.is_null() {
+        let state = unsafe { libopus::opus_decoder_create(RATE as i32, 1, &mut error) };
+        if error != libopus::OPUS_OK || state.is_null() {
             return Err(format!("opus decoder create failed: {error}"));
         }
         Ok(Self(state))
@@ -165,7 +165,7 @@ impl Decoder {
         let mut pcm = [0f32; FRAME];
         let (data, len) = packet.map_or((std::ptr::null(), 0), |p| (p.as_ptr(), p.len() as i32));
         // SAFETY: `pcm` holds FRAME samples; `data`/`len` describe a live slice or are null/0.
-        let n = unsafe { opus::opus_decode_float(self.0, data, len, pcm.as_mut_ptr(), FRAME as i32, 0) };
+        let n = unsafe { libopus::opus_decode_float(self.0, data, len, pcm.as_mut_ptr(), FRAME as i32, 0) };
         if n != FRAME as i32 {
             return Err(format!("opus decode failed: {n}"));
         }
@@ -178,7 +178,7 @@ impl Decoder {
 impl Drop for Decoder {
     fn drop(&mut self) {
         // SAFETY: created by opus_decoder_create and never freed elsewhere.
-        unsafe { opus::opus_decoder_destroy(self.0) }
+        unsafe { libopus::opus_decoder_destroy(self.0) }
     }
 }
 

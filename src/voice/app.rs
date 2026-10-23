@@ -35,10 +35,8 @@ impl App {
             .and_then(serde_json::Value::as_bool)
             .unwrap_or(false)
             && self.session.phase == "play";
-        if enabled {
-            if let Err(error) = self.session.register_voice() {
-                eprintln!("voice register failed: {error}");
-            }
+        if enabled && let Err(error) = self.session.register_voice() {
+            eprintln!("voice register failed: {error}");
         }
         // The microphone is only opened once the server announced voice support: against a
         // server without `solaris:voice` the toggle stays inert and silent.
@@ -58,10 +56,8 @@ impl App {
         let mic_volume = level(self, "voice_mic_volume");
         let server = self.session.voice_net.enabled;
         let listen = enabled && server && !deaf;
-        if listen != self.session.voice_net.listening {
-            if self.session.send_voice(listen_packet(listen)).is_ok() {
-                self.session.voice_net.listening = listen;
-            }
+        if listen != self.session.voice_net.listening && self.session.send_voice(listen_packet(listen)).is_ok() {
+            self.session.voice_net.listening = listen;
         }
         let Some(capture) = &self.voice.capture else { return };
         let game_input = self.focused && self.session.screen() == "game"
