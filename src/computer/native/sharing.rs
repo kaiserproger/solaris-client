@@ -319,7 +319,6 @@ mod tests {
         use crate::computer::audio::WavSource;
         let mut capture = capture(WavSource::tone(440., 1.).advanced(Duration::from_millis(100)));
         let (packets, failure) = capture.step();
-        owner.packets_sent = capture.sent;
         assert!(failure.is_none());
         assert!((4..=6).contains(&packets.len()), "100 ms is five 20 ms packets, got {}", packets.len());
         assert_eq!(packets.iter().map(|p| p.0).collect::<Vec<_>>(), (1..=packets.len() as u32).collect::<Vec<_>>());
