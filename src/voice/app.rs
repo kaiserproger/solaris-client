@@ -12,6 +12,12 @@ pub(crate) struct Client {
     key_down: bool,
 }
 
+/// The microphone opens only when the player enabled voice chat in play **and** the server
+/// announced `VOICE_STATE(enabled)`; against a server without `solaris:voice` it never opens.
+fn microphone_wanted(setting_in_play: bool, server_enabled: bool) -> bool {
+    setting_in_play && server_enabled
+}
+
 impl App {
     pub(crate) fn voice_key(&mut self, code: KeyCode, pressed: bool) {
         if code == PTT_KEY {
@@ -33,6 +39,10 @@ impl App {
             if let Err(error) = self.session.register_voice() {
                 eprintln!("voice register failed: {error}");
             }
+        }
+        // The microphone is only opened once the server announced voice support: against a
+        // server without `solaris:voice` the toggle stays inert and silent.
+        if microphone_wanted(enabled, self.session.voice_net.enabled) {
             if self.voice.capture.is_none() {
                 self.voice.capture = Some(Capture::start());
             }
@@ -71,5 +81,17 @@ impl App {
             MicState::Talking => Some(("TALK", [0.1, 0.55, 0.15])),
             MicState::Unavailable => Some(("NO MIC", [0.6, 0.1, 0.1])),
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::microphone_wanted;
+
+    #[test]
+    fn microphone_stays_closed_without_server_voice_support() {
+        assert!(!microphone_wanted(true, false), "server never offered voice");
+        assert!(!microphone_wanted(false, true), "player left voice chat off");
+        assert!(microphone_wanted(true, true));
     }
 }
