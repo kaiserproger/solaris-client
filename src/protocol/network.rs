@@ -4,9 +4,9 @@ use std::{
     io::{Read, Write},
     net::{Shutdown, TcpStream, ToSocketAddrs},
     sync::{
-        atomic::{AtomicBool, AtomicU8, AtomicUsize, Ordering},
-        mpsc::{self, Receiver, SyncSender},
         Arc,
+        atomic::{AtomicBool, AtomicIsize, AtomicU8, AtomicUsize, Ordering},
+        mpsc::{self, Receiver, Sender, SyncSender},
     },
     thread,
     time::Duration,
@@ -36,8 +36,15 @@ pub enum Event {
 /// condition the write timeout reports) rather than a momentary burst.
 const MAX_OUTBOUND_BACKLOG: usize = 8192;
 /// Inbound chunks/wakes buffered for the I/O owner; a full queue blocks the
-/// reader, which keeps TCP backpressure toward the server.
+/// reader, which keeps TCP backpressure toward the server. The owner never
+/// waits for the session, so this only paces parsing.
 const INPUT_QUEUE: usize = 32;
+/// Parsed packets (body bytes plus per-event overhead) waiting for the
+/// session. The handoff never blocks: the session drains on the game thread,
+/// which can stall for seconds (software GL, loading), while the I/O owner
+/// must keep answering keepalives. Only a client hopelessly behind its server
+/// is disconnected, with an explicit reason, instead of growing without end.
+const MAX_INBOUND_BACKLOG: isize = 256 << 20;
 /// Everything that wakes the I/O owner. Outbound packets stay on their own
 /// unbounded queue and only post a best-effort `Wake`.
 enum Input {
@@ -49,6 +56,9 @@ enum Input {
 struct ConnectionState {
     cancelled: AtomicBool,
     outbound_backlog: AtomicUsize,
+    /// Bytes of `MAX_INBOUND_BACKLOG` in use. The owner counts a packet after
+    /// sending it, so the session may subtract first and this dips below zero.
+    inbound_backlog: AtomicIsize,
     terminal_error: Mutex<Option<String>>,
     /// Latest setting; only the I/O owner chooses the phase-specific packet ID.
     view_distance: AtomicU8,
@@ -69,12 +79,13 @@ impl Network {
         view_distance: u8,
         wake: Arc<dyn Fn() + Send + Sync>,
     ) -> Result<Self> {
-        let (send, incoming) = mpsc::sync_channel(16);
+        let (send, incoming) = mpsc::channel();
         let (outgoing, receive) = mpsc::channel();
         let (wake_io, input) = mpsc::sync_channel(INPUT_QUEUE);
         let state = Arc::new(ConnectionState {
             cancelled: AtomicBool::new(false),
             outbound_backlog: AtomicUsize::new(0),
+            inbound_backlog: AtomicIsize::new(0),
             terminal_error: Mutex::new(None),
             view_distance: AtomicU8::new(view_distance),
         });
@@ -152,8 +163,25 @@ impl Network {
         })
     }
     pub fn try_recv(&self) -> Result<Event, mpsc::TryRecvError> {
+        let state = &self.state;
+        // A connection dropped for an overfull backlog says so now, not after
+        // the game thread has worked through everything it fell behind on.
+        if state.inbound_backlog.load(Ordering::Acquire) > MAX_INBOUND_BACKLOG {
+            if let Some(error) = state.terminal_error.lock().take() {
+                return Ok(Event::Error(error));
+            }
+        }
         match self.incoming.try_recv() {
-            Ok(event) => Ok(event),
+            Ok(event) => {
+                if let Event::Packet(_, _, body) = &event {
+                    // Released before the caller's next `try_recv`; `deliver`
+                    // relies on that to skip waking a session still draining.
+                    state
+                        .inbound_backlog
+                        .fetch_sub(packet_cost(body), Ordering::AcqRel);
+                }
+                Ok(event)
+            }
             Err(error) => match self.state.terminal_error.lock().take() {
                 Some(error) => Ok(Event::Error(error)),
                 None => Err(error),
@@ -262,12 +290,42 @@ fn read_socket(mut socket: TcpStream, input: &SyncSender<Input>) {
         }
     }
 }
+/// Hand a parsed packet to the session without waiting for it (see
+/// `MAX_INBOUND_BACKLOG`). Only a packet that finds the backlog empty wakes
+/// the session; one still draining reaches it through its next `try_recv`.
+fn deliver(
+    events: &Sender<Event>,
+    state: &ConnectionState,
+    wake: &(dyn Fn() + Send + Sync),
+    phase: Phase,
+    id: i32,
+    body: Vec<u8>,
+) -> Result<()> {
+    let cost = packet_cost(&body);
+    events
+        .send(Event::Packet(phase, id, body))
+        .map_err(|_| "session gone")?;
+    let before = state.inbound_backlog.fetch_add(cost, Ordering::AcqRel);
+    if before == 0 {
+        wake();
+    }
+    if before + cost > MAX_INBOUND_BACKLOG {
+        return Err(format!(
+            "client too slow: more than {} MiB of server packets are waiting for the game thread",
+            MAX_INBOUND_BACKLOG >> 20
+        ));
+    }
+    Ok(())
+}
+fn packet_cost(body: &[u8]) -> isize {
+    (body.len() + std::mem::size_of::<Event>()) as isize
+}
 fn run(
     mut socket: TcpStream,
     addr: std::net::SocketAddr,
     endpoint: String,
     username: String,
-    events: &SyncSender<Event>,
+    events: &Sender<Event>,
     commands: &Receiver<(i32, Vec<u8>)>,
     input: &Receiver<Input>,
     state: &ConnectionState,
@@ -385,10 +443,7 @@ fn run(
                     _ => {}
                 }
             }
-            events
-                .send(Event::Packet(original, id, body))
-                .map_err(|_| "session gone")?;
-            wake();
+            deliver(events, state, wake, original, id, body)?;
         }
         // Blocks until bytes, a queued packet/setting wake, close or failure.
         match input.recv() {
@@ -463,7 +518,7 @@ mod tests {
     }
 
     #[test]
-    fn saturated_packet_queue_preserves_terminal_error_once() {
+    fn undrained_packet_queue_preserves_terminal_error_once() {
         // Declared protocol-error fixture, not a vanilla compatibility oracle.
         for malformed_frame in [false, true] {
             let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -516,8 +571,8 @@ mod tests {
             )
             .unwrap();
             peer.join().unwrap();
-            // Joining the real I/O worker proves all 16 sends completed and
-            // termination ran while no consumer had freed a queue slot.
+            // Joining the real I/O worker proves all 16 events were queued and
+            // termination ran while no consumer had taken any of them.
             network.worker.take().unwrap().join().unwrap();
             let expected_error = if malformed_frame {
                 "frame length bound"
@@ -553,7 +608,7 @@ mod tests {
                     network.try_recv(),
                     Ok(Event::Error(error)) if error == expected_error
                 ),
-                "terminal error was lost behind the saturated packet queue"
+                "terminal error was lost behind the undrained packet queue"
             );
             for _ in 0..2 {
                 assert!(matches!(
@@ -701,6 +756,117 @@ mod tests {
         network.set_view_distance(16);
         peer.join().unwrap();
         network.worker.take().unwrap().join().unwrap();
+    }
+
+    #[test]
+    fn keepalives_are_answered_while_the_session_never_drains() {
+        // Regression (Windows QA, software GL): the handoff to the session was
+        // a 16-slot queue, so a slow game thread stopped the I/O owner and the
+        // server's keepalive behind the queued packets timed out (25-60 s).
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let peer = thread::spawn(move || {
+            let (mut login, _) = listener.accept().unwrap();
+            let (mut status, _) = listener.accept().unwrap();
+            for socket in [&mut login, &mut status] {
+                socket
+                    .set_read_timeout(Some(Duration::from_secs(5)))
+                    .unwrap();
+                socket
+                    .set_write_timeout(Some(Duration::from_secs(5)))
+                    .unwrap();
+            }
+            assert_eq!(read_packet(&mut status).0, 0);
+            assert_eq!(read_packet(&mut status), (0, Vec::new()));
+            let mut response = Writer::default();
+            response.string(r#"{"version":{"protocol":775}}"#);
+            write(&mut status, 0, &response.0, None).unwrap();
+            assert_eq!(read_packet(&mut login).0, 0);
+            assert_eq!(read_packet(&mut login).0, 0);
+            let mut success = Writer(vec![0; 16]);
+            success.string("Stalled");
+            success.var(0);
+            write(&mut login, 2, &success.0, None).unwrap();
+            assert_eq!(read_packet(&mut login), (3, Vec::new()));
+            assert_eq!(read_packet(&mut login), (0, client_information(8)));
+            write(&mut login, 3, &[], None).unwrap();
+            assert_eq!(read_packet(&mut login), (3, Vec::new()));
+            // Play: bursts of world packets, each followed by a keepalive
+            // (ClientboundKeepAlive 44 -> ServerboundKeepAlive 28).
+            for token in 0i64..8 {
+                for _ in 0..64 {
+                    write(&mut login, 0x27, &[7; 1024], None).unwrap();
+                }
+                write(&mut login, 44, &token.to_be_bytes(), None).unwrap();
+                assert_eq!(read_packet(&mut login), (28, token.to_be_bytes().to_vec()));
+            }
+            login.shutdown(Shutdown::Write).unwrap();
+        });
+        let wakes = Arc::new(AtomicUsize::new(0));
+        let counter = wakes.clone();
+        let mut network = Network::connect(
+            address.to_string(),
+            "Stalled".into(),
+            8,
+            Arc::new(move || {
+                counter.fetch_add(1, Ordering::Relaxed);
+            }),
+        )
+        .unwrap();
+        peer.join().unwrap();
+        network.worker.take().unwrap().join().unwrap();
+        // Status, the first queued packet and the terminal error: a stalled
+        // session is not flooded with a wake per packet.
+        assert_eq!(wakes.load(Ordering::Relaxed), 3);
+        assert!(matches!(network.try_recv(), Ok(Event::Status(_))));
+        assert!(matches!(
+            network.try_recv(),
+            Ok(Event::Packet(Phase::Login, 2, _))
+        ));
+        assert!(matches!(
+            network.try_recv(),
+            Ok(Event::Packet(Phase::Configuration, 3, _))
+        ));
+        for token in 0i64..8 {
+            for _ in 0..64 {
+                assert!(matches!(
+                    network.try_recv(),
+                    Ok(Event::Packet(Phase::Play, 0x27, body)) if body == [7; 1024]
+                ));
+            }
+            assert!(matches!(
+                network.try_recv(),
+                Ok(Event::Packet(Phase::Play, 44, body)) if body == token.to_be_bytes()
+            ));
+        }
+        assert!(matches!(
+            network.try_recv(),
+            Ok(Event::Error(error)) if error == "server closed connection"
+        ));
+        assert_eq!(network.state.inbound_backlog.load(Ordering::Acquire), 0);
+    }
+
+    #[test]
+    fn a_session_hopelessly_behind_is_disconnected_with_the_reason_first() {
+        // Nothing accepts the sockets, so the worker itself queues nothing.
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let network = Network::connect(
+            listener.local_addr().unwrap().to_string(),
+            "Behind".into(),
+            8,
+            Arc::new(|| {}),
+        )
+        .unwrap();
+        let state = &network.state;
+        let (events, _incoming) = mpsc::channel();
+        state
+            .inbound_backlog
+            .store(MAX_INBOUND_BACKLOG - 64, Ordering::Release);
+        let error = deliver(&events, state, &|| {}, Phase::Play, 0x27, vec![0; 1024]).unwrap_err();
+        assert!(error.starts_with("client too slow"), "{error}");
+        *state.terminal_error.lock() = Some(error.clone());
+        // The reason comes before the packets the game thread fell behind on.
+        assert!(matches!(network.try_recv(), Ok(Event::Error(reason)) if reason == error));
     }
 
     #[test]
