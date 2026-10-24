@@ -888,6 +888,85 @@ fn launcher_binary() -> Option<PathBuf> {
     beside.is_file().then_some(beside)
 }
 
+/// Run a first-run helper (runtime download, content import) to completion,
+/// handing each output line to `line`. Cancel takes effect within a moment
+/// even while the helper prints nothing (the import's datagen runs silent for
+/// minutes on slow machines) and also ends the processes the helper started.
+fn run_helper(
+    mut command: Command,
+    cancel: &Cancel,
+    mut line: impl FnMut(&str),
+) -> Result<std::process::ExitStatus, String> {
+    const POLL: Duration = Duration::from_millis(100);
+    let (read, write) = std::io::pipe().map_err(|e| format!("cannot create pipe: {e}"))?;
+    command
+        .stdin(Stdio::null())
+        .stdout(write.try_clone().map_err(|e| e.to_string())?)
+        .stderr(write);
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        // Its own process group, so Cancel also reaches the import's JVM.
+        command.process_group(0);
+    }
+    let spawned = command.spawn();
+    let program = PathBuf::from(command.get_program());
+    // The command holds the pipe's write ends: drop them, so output ends
+    // once the helper and its children are gone.
+    drop(command);
+    let mut child = spawned.map_err(|e| format!("cannot start {}: {e}", program.display()))?;
+    let (lines_tx, lines) = mpsc::channel();
+    std::thread::spawn(move || {
+        for text in BufReader::new(read).lines().map_while(Result::ok) {
+            if lines_tx.send(text).is_err() {
+                break;
+            }
+        }
+    });
+    let mut output_open = true;
+    loop {
+        if cancel.cancelled() {
+            kill_tree(&mut child);
+            return Err("Cancelled".into());
+        }
+        if output_open {
+            match lines.recv_timeout(POLL) {
+                Ok(text) => line(&text),
+                Err(mpsc::RecvTimeoutError::Timeout) => {}
+                Err(mpsc::RecvTimeoutError::Disconnected) => output_open = false,
+            }
+        } else if let Some(status) = child.try_wait().map_err(|e| e.to_string())? {
+            return Ok(status);
+        } else {
+            std::thread::sleep(POLL);
+        }
+    }
+}
+
+/// End a first-run helper together with the processes it started.
+fn kill_tree(child: &mut Child) {
+    // The helper leads its own process group (see `run_helper`).
+    #[cfg(unix)]
+    unsafe {
+        libc::killpg(child.id() as libc::pid_t, libc::SIGKILL);
+    }
+    // No process group to signal: taskkill walks the helper's child processes.
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        let _ = Command::new("taskkill")
+            .args(["/T", "/F", "/PID"])
+            .arg(child.id().to_string())
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .creation_flags(0x0800_0000)
+            .status();
+    }
+    let _ = child.kill();
+    let _ = child.wait();
+}
+
 /// Singleplayer's first run needs the Minecraft server jar and a JDK for the content import;
 /// multiplayer players never download them. The launcher owns the downloads (hash-checked,
 /// resumable), so run it in its runtime-only mode and relay its progress lines.
@@ -898,33 +977,22 @@ fn fetch_runtime(root: &Path, cancel: &Cancel, progress: &dyn Fn(String)) -> Res
          `solaris-launcher --singleplayer-runtime` once, or set SOLARIS_LAUNCHER_BIN."
             .to_owned()
     })?;
-    let (read, write) = std::io::pipe().map_err(|e| format!("cannot create pipe: {e}"))?;
-    let mut child = Command::new(&launcher)
+    let mut command = Command::new(&launcher);
+    command
         .arg("--singleplayer-runtime")
         .arg("--data-dir")
-        .arg(root)
-        .stdin(Stdio::null())
-        .stdout(write.try_clone().map_err(|e| e.to_string())?)
-        .stderr(write)
-        .spawn()
-        .map_err(|e| format!("cannot start {}: {e}", launcher.display()))?;
+        .arg(root);
     let mut tail = VecDeque::new();
-    for line in BufReader::new(read).lines().map_while(Result::ok) {
+    let status = run_helper(command, cancel, |line| {
         if tail.len() == 6 {
             tail.pop_front();
         }
-        tail.push_back(strip_ansi(&line));
+        tail.push_back(strip_ansi(line));
         // Stage lines look like `[1/2] Downloading Java toolchain (Temurin JDK)`.
         if line.starts_with('[') {
             progress(format!("Preparing Java runtime (first run only): {line}"));
         }
-        if cancel.cancelled() {
-            let _ = child.kill();
-            let _ = child.wait();
-            return Err("Cancelled".into());
-        }
-    }
-    let status = child.wait().map_err(|e| e.to_string())?;
+    })?;
     if !status.success() {
         return Err(format!(
             "Downloading the Java runtime failed ({status}).\n{}",
@@ -967,8 +1035,8 @@ fn ensure_content(
     let mut path = std::ffi::OsString::from(jdk.join("bin"));
     path.push(if cfg!(windows) { ";" } else { ":" });
     path.push(std::env::var_os("PATH").unwrap_or_default());
-    let (read, write) = std::io::pipe().map_err(|e| format!("cannot create pipe: {e}"))?;
-    let mut child = Command::new(binary)
+    let mut command = Command::new(binary);
+    command
         .args(["content", "import", "--version", GAME_VERSION, "--from"])
         .arg(&jar)
         .arg("--cache")
@@ -976,30 +1044,19 @@ fn ensure_content(
         .current_dir(root)
         .env("JAVA_HOME", &jdk)
         .env("JAVA", jdk.join("bin").join(exe_name("java")))
-        .env("PATH", path)
-        .stdin(Stdio::null())
-        .stdout(write.try_clone().map_err(|e| e.to_string())?)
-        .stderr(write)
-        .spawn()
-        .map_err(|e| format!("cannot start {}: {e}", binary.display()))?;
+        .env("PATH", path);
     let mut tail = VecDeque::new();
-    for line in BufReader::new(read).lines().map_while(Result::ok) {
+    let status = run_helper(command, cancel, |line| {
         let _ = writeln!(log, "{line}");
         if tail.len() == 6 {
             tail.pop_front();
         }
-        tail.push_back(strip_ansi(&line));
+        tail.push_back(strip_ansi(line));
         // Only the importer's own `content import:` lines are user-facing.
         if let Some(step) = line.strip_prefix("content import: ") {
             progress(format!("Preparing server data: {step}"));
         }
-        if cancel.cancelled() {
-            let _ = child.kill();
-            let _ = child.wait();
-            return Err("Cancelled".into());
-        }
-    }
-    let status = child.wait().map_err(|e| e.to_string())?;
+    })?;
     if !status.success() || !content_ready(&cache) {
         return Err(format!(
             "Server data import failed ({status}). Log: {}\n{}",
@@ -1354,6 +1411,51 @@ mod tests {
         .err()
         .unwrap();
         assert_eq!(error, "Cancelled");
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn cancel_ends_a_silent_first_run_helper_and_its_children() {
+        // Regression (Windows QA): the content import's datagen prints nothing
+        // for minutes and Cancel was only noticed on the helper's next line.
+        let root = temp_root("silent-helper");
+        let pid_file = root.join("child.pid");
+        let mut command = Command::new("/bin/sh");
+        command.arg("-c").arg(format!(
+            "echo started; sleep 600 & echo $! > '{}'; wait",
+            pid_file.display()
+        ));
+        let (cancel, _events) = start_channel();
+        let canceller = cancel.clone();
+        let timer = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(300));
+            canceller.cancel();
+        });
+        let started = std::time::Instant::now();
+        let mut lines = Vec::new();
+        let error = run_helper(command, &cancel, |line| lines.push(line.to_owned())).unwrap_err();
+        timer.join().unwrap();
+        assert_eq!(error, "Cancelled");
+        assert!(
+            started.elapsed() < Duration::from_secs(3),
+            "{:?}",
+            started.elapsed()
+        );
+        assert_eq!(lines, ["started"]);
+        let pid = fs::read_to_string(&pid_file).unwrap().trim().to_owned();
+        let stat = format!("/proc/{pid}/stat");
+        let gone = (0..40).any(|_| {
+            let dead = fs::read_to_string(&stat).map_or(true, |text| {
+                text.rsplit_once(") ")
+                    .is_some_and(|(_, rest)| rest.starts_with('Z'))
+            });
+            if !dead {
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            dead
+        });
+        assert!(gone, "the helper's child outlived Cancel");
         let _ = fs::remove_dir_all(root);
     }
 }
