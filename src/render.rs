@@ -107,6 +107,41 @@ fn gpu_instance() -> wgpu::Instance {
     wgpu::Instance::new(&wgpu::InstanceDescriptor::from_env_or_default())
 }
 
+/// The title backdrop's upper sky tone, so the blank frame fades into the title.
+const BLANK_FRAME: wgpu::Color = wgpu::Color {
+    r: 85. / 255.,
+    g: 89. / 255.,
+    b: 93. / 255.,
+    a: 1.,
+};
+
+/// Present one plain frame as soon as the surface exists. Pipeline builds and
+/// the title's content load follow on the window thread, and until a window
+/// first presents, Windows paints it white (about 12 s on software GL).
+/// Best effort: the regular frame path reports surface failures.
+fn present_blank(surface: &wgpu::Surface, device: &wgpu::Device, queue: &wgpu::Queue) {
+    let Ok(frame) = surface.get_current_texture() else {
+        return;
+    };
+    let view = frame.texture.create_view(&Default::default());
+    let mut encoder = device.create_command_encoder(&Default::default());
+    encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+        label: Some("blank first frame"),
+        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+            view: &view,
+            depth_slice: None,
+            resolve_target: None,
+            ops: wgpu::Operations {
+                load: wgpu::LoadOp::Clear(BLANK_FRAME),
+                store: wgpu::StoreOp::Store,
+            },
+        })],
+        ..Default::default()
+    });
+    queue.submit([encoder.finish()]);
+    frame.present();
+}
+
 pub fn doctor() -> Result<Value, String> {
     let instance = gpu_instance();
     let adapters = instance.enumerate_adapters(wgpu::Backends::all());
@@ -585,6 +620,7 @@ impl Renderer {
             config.present_mode = wgpu::PresentMode::Fifo;
             config.desired_maximum_frame_latency = 2;
             surface.configure(&device, &config);
+            present_blank(surface, &device, &queue);
             config
         } else {
             wgpu::SurfaceConfiguration {
