@@ -542,7 +542,7 @@ impl App {
                             Phase::Running(_) => { ui.label(RichText::new("Minecraft process running").strong()); ui.weak("Startup and connection details are in Logs."); }
                             Phase::Idle => {
                                 let (title, detail, color) = if !valid {
-                                    ("Check your selection", "Use a 3–16 character offline name and a valid server address.".to_owned(), self.palette.error)
+                                    ("Check your selection", "Use a 3–16 character Latin offline name and a valid server address.".to_owned(), self.palette.error)
                                 } else if let Some((message, error)) = &self.status {
                                     (if *error { "Something went wrong · see Logs" } else { "Status" }, message.clone(), if *error { self.palette.error } else { self.palette.muted })
                                 } else if self.ready { ("Ready to play", "Your game files are installed.".into(), self.palette.muted) }
@@ -1008,8 +1008,9 @@ impl App {
         }
         let mut candidate = self.config.clone();
         if kind == Dialog::Profiles {
-            if !config::valid_username(&self.draft_name) {
-                self.dialog_error = Some("Use 3–16 letters, digits or underscore.".into());
+            let name = self.draft_name.trim();
+            if !config::valid_username(name) {
+                self.dialog_error = Some("Use 3–16 Latin letters, digits or underscore.".into());
                 return false;
             }
             let skin = self.draft_skin.trim();
@@ -1020,7 +1021,7 @@ impl App {
                 return false;
             }
             let profile = Profile {
-                username: self.draft_name.clone(),
+                username: name.to_owned(),
                 skin_path: (!skin.is_empty()).then(|| skin.to_owned()),
             };
             if let Some(index) = self.editing {
@@ -1086,13 +1087,15 @@ impl App {
                     }
                 });
                 ui.separator();
-                text_field(ui, if kind == Dialog::Profiles { "Username" } else { "Server name" }, &mut self.draft_name, if kind == Dialog::Profiles { 16 } else { 80 });
-                if kind == Dialog::Servers { text_field(ui, "Address · host[:port]", &mut self.draft_address, 512); }
+                // Editing the draft retires the previous save error.
+                let mut edited = text_field(ui, if kind == Dialog::Profiles { "Username" } else { "Server name" }, &mut self.draft_name, if kind == Dialog::Profiles { 16 } else { 80 }).changed();
+                if kind == Dialog::Servers { edited |= text_field(ui, "Address · host[:port]", &mut self.draft_address, 512).changed(); }
                 else {
-                    text_field(ui, "Local skin PNG · optional path", &mut self.draft_skin, 4096);
+                    edited |= text_field(ui, "Local skin PNG · optional path", &mut self.draft_skin, 4096).changed();
                     ui.weak(media::LOCAL_SKIN_NOTICE);
                     ui.weak("No skin selected: installed Steve texture, or the original Solaris avatar.");
                 }
+                if edited { self.dialog_error = None; }
                 if let Some(error) = &self.dialog_error { note(ui, error.clone(), self.palette.error); }
                 ui.add_space(6.0);
                 ui.horizontal(|ui| {

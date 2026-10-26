@@ -35,7 +35,7 @@ The native launcher opens at 820×530 logical pixels, resizes down to 640×460, 
 
 ### Connect to the Solaris test server
 
-The launcher ships with a server entry `Solaris test` = `135.106.208.217:25565` (Minecraft Java 26.1.2, offline mode). Select it, choose a username (3–16 letters, digits or `_`) and press PLAY. Use **+ Add server** to add others (`host` or `host:port`).
+The launcher ships with a server entry `Solaris test` = `135.106.208.217:25565` (Minecraft Java 26.1.2, offline mode). Select it, choose a username (3–16 Latin letters, digits or `_`, as vanilla offline names) and press PLAY. Use **+ Add server** to add others (`host` or `host:port`).
 
 Without the launcher: `solaris-client --server 135.106.208.217:25565 --username YourName`.
 
