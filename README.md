@@ -10,7 +10,7 @@ A Rust/wgpu client for Minecraft Java Edition **26.1.2**, with a small launcher 
 2. Unpack it anywhere (keep `solaris-launcher` and `solaris-client` in the same folder).
 3. Run the launcher: `./solaris-launcher` (Linux) or double-click `solaris-launcher.exe` (Windows).
    Linux desktop entry (optional): `./install-desktop.sh` adds "Solaris Launcher" to your application menu; `./install-desktop.sh --uninstall` removes it.
-4. Pick or type an **offline username**, pick a server (the **Solaris test** server is pre-filled) and press **PLAY**.
+4. Use **Profiles** to choose or edit an **offline username** and **Servers** to choose a server (the **Solaris test** server is pre-filled), then press **Play**.
 5. **First run only:** the launcher downloads about **480 MB** and unpacks about **1 GB** into your data folder (see below), with a progress bar and a log. Later launches go straight into the game without touching the network. No Java is needed to play on a server.
 
 The download is not bundled with the launcher: no Mojang files are ever shipped in this project's releases or repository. On first run your machine fetches them itself:
@@ -21,7 +21,17 @@ The download is not bundled with the launcher: no Mojang files are ever shipped 
 | Game assets (sounds, languages) | Mojang (`resources.download.minecraft.net`, SHA-1 verified) | ~440 MB |
 | Solaris data tables (block/item facts, collision shapes) | Solaris static server (SHA-256 **pinned inside the launcher**) | ~1 MB |
 
-Downloads are parallel, resumable (an interrupted run continues from the partial files) and every file is hash-checked. If anything is damaged use **Settings → Verify / repair game files**.
+Downloads are parallel, resumable (an interrupted run continues from the partial files) and every file is hash-checked. If anything is damaged use **Settings → Advanced → Verify / repair game files**.
+
+### Launcher appearance
+
+The native launcher opens at 820×530 logical pixels, resizes down to 640×460, and remembers its normal window size. Home keeps server/profile editing in compact dialogs rather than permanent forms.
+
+**Settings → Appearance → Themes** contains 40 coordinated palettes with real interface miniatures, search, Dark/Light/Colorful filters and favorites. Click a preview or its name to apply it immediately; the choice is saved in `launcher.json`. Graphite is the default warm-accent dark theme. Custom themes support validated colors, editing, reset, deletion and JSON import/export (export never overwrites an existing file).
+
+**Appearance → Background & motion** enables an optional landscape banner, accepts a local PNG, and offers reduced motion. The bundled default is an original Solaris illustration, not a Minecraft screenshot. Images and settings stay local; no image service or sign-in is required.
+
+**Profiles → Local skin PNG** previews a 64×64/64×32 skin (or an integer HD multiple) with its hat layer. Without a selected file, the launcher uses the installed Steve texture when present, otherwise a clearly labeled original Solaris avatar. This is a launcher preview only: it does not change the skin used by an offline server. See [launcher verification and remaining acceptance gates](docs/LAUNCHER_REDESIGN.md).
 
 ### Connect to the Solaris test server
 
@@ -48,7 +58,7 @@ The client renders vanilla 26.1.2 server-driven dialogs (`show_dialog`/`clear_di
 
 ## Where things live
 
-The data folder is `$XDG_DATA_HOME/solaris-client` (default `~/.local/share/solaris-client`) on Linux and `%APPDATA%\solaris-client` on Windows; Settings → **Open** shows it. Override with `solaris-launcher --data-dir DIR`.
+The data folder is `$XDG_DATA_HOME/solaris-client` (default `~/.local/share/solaris-client`) on Linux and `%APPDATA%\solaris-client` on Windows; **Settings → General → Open data folder** shows it. Override with `solaris-launcher --data-dir DIR`.
 
 ```
 facts/ data/vanilla/                  Solaris data tables (entity metadata and models ship inside the client)
@@ -63,7 +73,7 @@ launcher.json  client-settings.json   your profiles/servers, and in-game Options
 logs/launcher.log                     everything the launcher and the client printed
 ```
 
-Render distance and fullscreen in the launcher's Settings write the same `client-settings.json` the in-game Options screen uses, so they never disagree.
+Render distance and fullscreen in the launcher's Settings use the same `client-settings.json` as the in-game Options screen. Launcher editing is disabled while installation or the launched game is active; use in-game Options while playing. Each launch reads the current persisted fullscreen value, and launcher edits refuse to overwrite corrupt or unreadable game settings with defaults. This does not coordinate independently started clients or multiple launcher instances.
 
 ## Troubleshooting
 
