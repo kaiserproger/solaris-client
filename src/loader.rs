@@ -139,8 +139,20 @@ impl Loader {
         if payload.len() > 32767 {
             return Err("Loader manifest byte limit".into());
         }
-        let manifest: Manifest = serde_json::from_slice(payload).map_err(|e| e.to_string())?;
+        let mut manifest: Manifest = serde_json::from_slice(payload).map_err(|e| e.to_string())?;
+        if manifest.protocol != 3 || manifest.bundles.is_empty() || manifest.bundles.len() > 64 {
+            return Err("invalid Loader manifest protocol/bundle count".into());
+        }
+        manifest.bundles.retain(|bundle| {
+            bundle.loaders.iter().any(|platform| platform == "native")
+                && bundle.permissions.iter().all(|permission| {
+                    PERMISSIONS.contains(&permission.as_str()) && grants.contains(permission)
+                })
+        });
         validate_manifest(&manifest, grants)?;
+        if manifest.bundles.is_empty() {
+            return self.acknowledge();
+        }
         let size = manifest.bundles[0].size_bytes;
         self.transfer = Some(Transfer {
             manifest,
@@ -155,6 +167,13 @@ impl Loader {
         outgoing(
             "solaris:loader/request",
             json!({"protocol":3,"cache_key":transfer.manifest.bundles[transfer.next].cache_key}),
+        )
+    }
+    fn acknowledge(&mut self) -> Result<Outgoing> {
+        self.acknowledged = true;
+        outgoing(
+            "solaris:loader/ack",
+            json!({"protocol":3,"platform":"native","loader_version":env!("CARGO_PKG_VERSION"),"accepted_permissions":self.accepted,"cached_bundles":self.cache_keys,"carrier_block_state_ids":{}}),
         )
     }
     pub fn artifact(&mut self, payload: &[u8]) -> Result<Option<Outgoing>> {
@@ -239,8 +258,7 @@ impl Loader {
         }
         self.transfer = None;
         // This is activation acknowledgement, not an acknowledgement of receiving a manifest.
-        self.acknowledged = true;
-        outgoing("solaris:loader/ack", json!({"protocol":3,"platform":"native","loader_version":env!("CARGO_PKG_VERSION"),"accepted_permissions":self.accepted,"cached_bundles":self.cache_keys,"carrier_block_state_ids":{}})).map(Some)
+        self.acknowledge().map(Some)
     }
     pub fn sound(&mut self, payload: &[u8], active: bool, tick: u64) -> Result<sounds::Resolved> {
         self.sounds
@@ -595,7 +613,7 @@ fn unique_list(list: &[String]) -> bool {
     !list.is_empty() && list.len() <= 64 && list.iter().collect::<BTreeSet<_>>().len() == list.len()
 }
 fn validate_manifest(manifest: &Manifest, grants: &BTreeSet<String>) -> Result<()> {
-    if manifest.protocol != 3 || manifest.bundles.is_empty() || manifest.bundles.len() > 64 {
+    if manifest.protocol != 3 || manifest.bundles.len() > 64 {
         return Err("invalid Loader manifest protocol/bundle count".into());
     }
     let mut keys = BTreeSet::new();
@@ -873,23 +891,33 @@ mod tests {
         out
     }
     #[test]
-    fn native_loader_manifest_rejects_platform_permissions_and_identity() {
+    fn native_loader_skips_foreign_or_ungranted_bundle_before_validation() {
         let bytes = bundle();
         let mut value = manifest(&bytes);
         value["bundles"][0]["loaders"] = json!(["fabric"]);
-        assert!(begin(&value).is_err());
+        let mut loader = Loader::default();
+        let ack = loader
+            .begin(&serde_json::to_vec(&value).unwrap(), &BTreeSet::new())
+            .unwrap();
+        assert_eq!(ack.channel, "solaris:loader/ack");
+        assert!(loader.acknowledged);
+        assert_eq!(
+            serde_json::from_slice::<Value>(&ack.payload).unwrap()["cached_bundles"],
+            json!([])
+        );
+
         value = manifest(&bytes);
         value["bundles"][0]["cache_key"] = json!("wrong");
         assert!(begin(&value).is_err());
         let mut loader = Loader::default();
-        assert!(
-            loader
-                .begin(
-                    &serde_json::to_vec(&manifest(&bytes)).unwrap(),
-                    &BTreeSet::new()
-                )
-                .is_err()
-        );
+        let ack = loader
+            .begin(
+                &serde_json::to_vec(&manifest(&bytes)).unwrap(),
+                &BTreeSet::new(),
+            )
+            .unwrap();
+        assert_eq!(ack.channel, "solaris:loader/ack");
+        assert!(loader.acknowledged);
         value = manifest(&bytes);
         value["bundles"][0]["content"] = json!(["blocks"]);
         assert!(begin(&value).is_err());

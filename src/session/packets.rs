@@ -96,6 +96,12 @@ impl Session {
         if channel.starts_with("solaris:loader") {
             let payload = r.take(r.bytes.len() - r.offset)?;
             match channel.as_str() {
+                "solaris:loader/probe" if self.phase == "configuration" => {
+                    if !payload.is_empty() {
+                        return Err("Loader probe carries no payload".into());
+                    }
+                    // The network state machine already wrote the hello in packet order.
+                }
                 "solaris:loader/manifest" if self.phase == "configuration" => {
                     let grants = crate::loader::Loader::local_permissions()?;
                     let outgoing = self.loader.begin(payload, &grants)?;

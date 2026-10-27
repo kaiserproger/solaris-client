@@ -287,6 +287,13 @@ fn run(
                     4 => write(&mut socket, 4, &body, compression)?,
                     5 => write(&mut socket, 5, &body, compression)?,
                     14 => write(&mut socket, 7, &[0], compression)?,
+                    // A Loader probe is answered here, in packet order, so the hello
+                    // is written before the KnownPacks reply the server waits behind.
+                    1 if matches!(Reader::new(&body).string(32767), Ok(ref channel) if channel == "solaris:loader/probe") => {
+                        let mut w = Writer::default();
+                        w.string("solaris:loader/hello");
+                        write(&mut socket, 2, &w.0, compression)?
+                    }
                     0 => {
                         let mut r = Reader::new(&body);
                         let key = r.string(32767)?;
