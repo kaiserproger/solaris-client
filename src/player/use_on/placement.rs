@@ -17,6 +17,60 @@ struct PlacementContext {
     horizontal: u8,
     nearest: u8,
 }
+
+fn transformer_owner(component: Option<&Value>) -> Option<&'static str> {
+    match component.and_then(Value::as_str) {
+        Some("minecraft:axe") => Some("AxeItem"),
+        Some("minecraft:hoe") => Some("HoeItem"),
+        Some("minecraft:shovel") => Some("ShovelItem"),
+        _ => None,
+    }
+}
+
+fn source_tool_owner(
+    item: &crate::inventory::Stack,
+    content: &Content,
+) -> Result<Option<&'static str>> {
+    let defaults = content.item_components(item.id)?;
+    let transformer = item
+        .component("minecraft:block_transformer")
+        .or_else(|| defaults.get("minecraft:block_transformer"));
+    if transformer.is_some() {
+        return Ok(transformer_owner(transformer));
+    }
+    for (tag, owner) in [
+        ("minecraft:axes", "AxeItem"),
+        ("minecraft:hoes", "HoeItem"),
+        ("minecraft:shovels", "ShovelItem"),
+    ] {
+        if content.registry_tag_contains("minecraft:item", tag, item.id as i32)? {
+            return Ok(Some(owner));
+        }
+    }
+    Ok(None)
+}
+
+#[cfg(test)]
+mod transformer_tests {
+    use super::*;
+
+    #[test]
+    fn block_transformers_select_legacy_tool_predictions() {
+        assert_eq!(
+            transformer_owner(Some(&serde_json::json!("minecraft:axe"))),
+            Some("AxeItem")
+        );
+        assert_eq!(
+            transformer_owner(Some(&serde_json::json!("minecraft:hoe"))),
+            Some("HoeItem")
+        );
+        assert_eq!(
+            transformer_owner(Some(&serde_json::json!("minecraft:shovel"))),
+            Some("ShovelItem")
+        );
+    }
+}
+
 fn set(content: &Content, state: u32, key: &str, value: impl AsRef<str>) -> Result<u32> {
     content.with_state_property(state, key, value.as_ref())
 }
@@ -744,7 +798,7 @@ impl Player {
                     powered,
                 )?;
             }
-            "BedBlock" => {
+            "AbstractBedBlock" => {
                 let head = relative(position, i32::from(context.horizontal))?;
                 if !world.border_contains_block(head)
                     || !self.block_can_replace(
@@ -947,7 +1001,7 @@ impl Player {
             "ConcretePowderBlock" => {
                 state = self.placement_concrete(state, position, old, world, content)?
             }
-            "DirtPathBlock" | "FarmlandBlock" => {
+            "PathBlock" | "FarmlandBlock" => {
                 if !self.can_survive(state, position, world, content, entities, tick)? {
                     state = content.resolve_block_state("minecraft:dirt", &BTreeMap::new())?;
                 }
@@ -965,10 +1019,10 @@ impl Player {
                     self.placement_repeater_locked(state, position, world, content, entities)?,
                 )?;
             }
-            "PointedDripstoneBlock" => {
+            "SpeleothemBlock" => {
                 return self.placement_dripstone(state, context, world, content);
             }
-            "RedStoneWireBlock" => state = self.placement_wire(state, position, world, content)?,
+            "RedstoneWireBlock" => state = self.placement_wire(state, position, world, content)?,
             "MossyCarpetBlock" => state = self.placement_mossy(state, position, world, content)?,
             "TestBlock" => {
                 if let Some(mode) = stack
@@ -2052,7 +2106,8 @@ impl Player {
         )?) {
             // These original client methods either do nothing or schedule server-only block ticks.
             "Block"
-            | "BedBlock"
+            | "AbstractBedBlock"
+            | "SignBlock"
             | "PistonBaseBlock"
             | "CommandBlock"
             | "StructureBlock"
@@ -2291,7 +2346,8 @@ impl Player {
             return Ok(Outcome::Fail);
         }
         let state = self.use_block(world, hit.position)?;
-        match short_class(owner) {
+        let owner = source_tool_owner(item, content)?.unwrap_or_else(|| short_class(owner));
+        match owner {
             "Item" | "LeadItem" | "PlaceOnWaterBlockItem" => Ok(Outcome::Pass),
             "DebugStickItem" | "SpawnEggItem" => Ok(Outcome::CLIENT),
             "ArmorStandItem" => {

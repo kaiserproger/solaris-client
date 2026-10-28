@@ -397,7 +397,7 @@ impl Player {
                 world.source_raw_brightness(position)? >= 8
                     && self.placement_vegetation_support(state, position, world, content)?
             }
-            "DirtPathBlock" => {
+            "PathBlock" => {
                 !content.block_is_solid(above()?)?
                     || short_class(content.block_placement_owners(above()?)?.0) == "FenceGateBlock"
             }
@@ -492,13 +492,13 @@ impl Player {
                     || world.source_raw_brightness(position)? < 13
                         && content.info(below()?)?.solid_render
             }
-            "PointedDripstoneBlock" => self.placement_dripstone_support(
+            "SpeleothemBlock" => self.placement_dripstone_support(
                 position,
                 face(property(content, state, "vertical_direction")?)?,
                 world,
                 content,
             )?,
-            "RedStoneWireBlock" => {
+            "RedstoneWireBlock" => {
                 face_support(0, 0)? || content.name(below()?) == Some("minecraft:hopper")
             }
             "ScaffoldingBlock" => {

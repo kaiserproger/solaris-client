@@ -5,6 +5,8 @@ use crate::protocol::{
 use serde_json::Value;
 use std::{collections::BTreeMap, path::Path, sync::Arc};
 
+const TERRAIN_FACTS_VERSION: &str = "26.3";
+
 #[derive(Clone, Copy, Default)]
 pub(crate) struct BlockOffset {
     enabled: bool,
@@ -183,7 +185,7 @@ impl TerrainFact {
         BTreeMap<String, BTreeMap<String, Vec<String>>>,
         FeatureRequirements,
     )> {
-        if report.version != "26.1.2" {
+        if report.version != TERRAIN_FACTS_VERSION {
             return Err("terrain facts version mismatch".into());
         }
         if report.states.len() != fingerprints.len() {

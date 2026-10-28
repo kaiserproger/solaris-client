@@ -200,7 +200,7 @@ impl Player {
                 self.predict_block(world, position, next, 2)?;
                 self.refresh_comparator(position, next, world, content, entities, tick)?;
             }
-            "RedStoneWireBlock" => {
+            "RedstoneWireBlock" => {
                 self.predict_block(
                     world,
                     position,
@@ -435,7 +435,7 @@ impl Player {
             | "SmithingTableBlock"
             | "StonecutterBlock"
             | "CrafterBlock"
-            | "BedBlock"
+            | "AbstractBedBlock"
             | "LightBlock"
             | "DaylightDetectorBlock"
             | "CaveVinesBlock"
