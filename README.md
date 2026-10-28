@@ -65,7 +65,7 @@ On Solaris servers with `[lod]` enabled the client draws a coarse heightfield of
 
 ## Where things live
 
-The data folder is `$XDG_DATA_HOME/solaris-client` (default `~/.local/share/solaris-client`) on Linux, `%APPDATA%\solaris-client` on Windows, and `~/Library/Application Support/solaris-client` on macOS; **Settings → General → Open data folder** shows it. Override with `solaris-launcher --data-dir DIR`.
+The data folder is `$XDG_DATA_HOME/solaris-client` (default `~/.local/share/solaris-client`) on Linux, `%APPDATA%\solaris-client` on Windows, and `~/Library/Application Support/solaris-client` on macOS; **Settings → General → Open data folder** shows it. Override with `solaris-launcher --data-dir DIR` or `solaris-client --data-dir DIR`. Direct launches keep in-game Options and the saved multiplayer list in that root, not beside the installed executable. The explicit `SOLARIS_CLIENT_SETTINGS` environment override still selects a different settings file.
 
 ```
 facts/ data/vanilla/                  Solaris data tables (entity metadata and models ship inside the client)
@@ -76,11 +76,15 @@ servers/content/26.3/               singleplayer only: server content cache, ins
 servers/                              singleplayer: plugin copy, optional solaris-v2
 worlds/<name>/                        singleplayer worlds (world data, server.toml, ops.json, logs/server.log)
 far-terrain/<server>/overworld/       far terrain tiles (heights and colours) per server
-launcher.json  client-settings.json   your profiles/servers, and in-game Options
+launcher.json                        launcher profiles and saved connections
+client-settings.json  servers.json   in-game Options and the client's multiplayer list
+artifacts/yyyy-MM-dd_HH.mm.ss.png     F2 screenshots (suffix _1, _2, … on collisions)
 logs/launcher.log                     everything the launcher and the client printed
 ```
 
 Render distance and fullscreen in the launcher's Settings use the same `client-settings.json` as the in-game Options screen. Launcher editing is disabled while installation or the launched game is active; use in-game Options while playing. Each launch reads the current persisted fullscreen value, and launcher edits refuse to overwrite corrupt or unreadable game settings with defaults. This does not coordinate independently started clients or multiple launcher instances.
+
+In Multiplayer, select a saved row, then use **Join Server**, **Edit**, or **Delete**. Delete asks for confirmation; Edit and confirmed Delete rewrite the local `servers.json`. F2 reports screenshot success or failure in chat; it never replaces an earlier capture. Creative tabs and recipe controls adapt to the logical GUI width; on narrow windows the open recipe book temporarily covers the container, and its book button returns to the slots.
 
 ## Troubleshooting
 
@@ -136,7 +140,7 @@ Upload the archive(s) and `solaris-content.json` to `http://135.106.208.217:8080
 ./target/release/solaris-client
 ```
 
-`setup` links an existing locally prepared bundle and Prism assets cache into the data folder. `SOLARIS_CLIENT_*` variables optionally override individual content paths (see [docs/AGENT_TESTING.md](docs/AGENT_TESTING.md)); `SOLARIS_CLIENT_DATA_DIR` is the **vanilla metadata directory** (`data/vanilla`), not the whole root. Missing startup files produce an error naming the path before a window opens. `SOLARIS_CLIENT_SETTINGS` overrides where Options are saved (default: next to the executable; the launcher points it at the data folder).
+`setup` links an existing locally prepared bundle and Prism assets cache into the data folder. `SOLARIS_CLIENT_*` variables optionally override individual content paths (see [docs/AGENT_TESTING.md](docs/AGENT_TESTING.md)); `SOLARIS_CLIENT_DATA_DIR` is the **vanilla metadata directory** (`data/vanilla`), not the whole root. Missing startup files produce an error naming the path before a window opens. `SOLARIS_CLIENT_SETTINGS` overrides where Options are saved (default: `client-settings.json` in the selected data folder, shared with the launcher).
 
 No arguments opens the Title screen; `--server HOST[:PORT]` joins directly (default port `25565`, default username `Player`). The `play` subcommand and automation flags remain supported (`play --help`).
 

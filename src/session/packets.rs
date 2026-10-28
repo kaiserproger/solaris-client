@@ -817,6 +817,48 @@ mod tests {
     use super::*;
     use crate::protocol::world::{Palette, Section, SurfaceHeightmap};
 
+    #[test]
+    fn disconnect_packet_context_keeps_component_readable() {
+        use crate::protocol::nbt::Nbt;
+        let mut content = Content::test_cube();
+        content.creative_tabs_report = Arc::from(br#"{"tabs":[]}"#.as_slice());
+        for (phase, id) in [
+            (Phase::Login, login::clientbound::LOGIN_DISCONNECT),
+            (Phase::Configuration, configuration::clientbound::DISCONNECT),
+            (Phase::Play, cb::DISCONNECT),
+        ] {
+            let mut session = Session::new_mode("disconnect-test".into(), false);
+            session.content = Some(Content::test_cube());
+            let mut packet = Writer::default();
+            if phase == Phase::Login {
+                packet.string(r#"{"text":"Kicked","extra":[{"text":": maintenance"}]}"#);
+            } else {
+                Nbt::Compound(vec![
+                    ("text".into(), Nbt::String("Kicked".into())),
+                    ("extra".into(), Nbt::List(10, vec![Nbt::Compound(vec![
+                        ("text".into(), Nbt::String(": maintenance".into())),
+                    ])])),
+                ]).write_root(&mut packet).unwrap();
+            }
+            let error = session.apply(phase, id, &packet.0).unwrap_err();
+            let mut ui = UiState::new_state(&content).unwrap();
+            ui.show_disconnected(format!("{phase:?} packet 0x{id:02x} sequence 1: {error}"));
+            assert_eq!(ui.title_error_text().as_deref(), Some("Kicked: maintenance"), "{phase:?}");
+        }
+    }
+
+    #[test]
+    fn disconnect_translation_fallback_and_unrelated_diagnostics() {
+        let mut content = Content::test_cube();
+        content.creative_tabs_report = Arc::from(br#"{"tabs":[]}"#.as_slice());
+        let mut ui = UiState::new_state(&content).unwrap();
+        ui.show_disconnected(r#"Play packet 0x20 sequence 7: Play disconnect: {"translate":"missing.kick.key","fallback":"Banned: %s","with":[{"text":"rules"}],"extra":[{"text":"!"}]}"#.into());
+        assert_eq!(ui.title_error_text().as_deref(), Some("Banned: rules!"));
+        let diagnostic = "Play packet 0x01 sequence 8: malformed data: {\"text\":\"do not strip\"}";
+        ui.show_disconnected(diagnostic.into());
+        assert_eq!(ui.title_error_text().as_deref(), Some(diagnostic));
+    }
+
     fn session_with_received_cube(position: [i32; 3]) -> Session {
         let mut session = Session::new_mode("received-prediction-test".into(), false);
         let mut content = Content::test_cube();

@@ -530,6 +530,11 @@ impl UiState {
         self.invalidate();
         Ok(true)
     }
+    pub(crate) fn local_message(&mut self, message: &str) -> Result<()> {
+        self.push_chat(json!({"text": message}), None, None, false)?;
+        self.invalidate();
+        Ok(())
+    }
     fn push_chat(
         &mut self,
         component: Value,

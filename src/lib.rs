@@ -19,6 +19,7 @@ pub mod profile_textures;
 pub mod protocol;
 pub mod render;
 pub mod session;
+mod screenshot;
 mod singleplayer;
 pub mod terrain;
 pub mod ui;
@@ -150,7 +151,7 @@ pub fn cli(args: impl IntoIterator<Item = String>) -> Result<(), String> {
         Some("play") | None => launch::play(args),
         Some("setup") => launch::setup(args),
         Some("--help") | Some("-h") => {
-            println!("{}", launch::HELP);
+            launch::print_help();
             Ok(())
         }
         Some(command) => Err(format!("unknown_command: {command}")),
@@ -179,6 +180,10 @@ fn pointer_grab_change(game_input: bool, grabbed: bool) -> Option<bool> {
     (game_input != grabbed).then_some(game_input)
 }
 
+fn owns_native_text(chat: bool, shell: bool, dialog: bool, field: bool) -> bool {
+    chat || shell || dialog || field
+}
+
 struct App {
     options: Options,
     session: Session,
@@ -197,6 +202,8 @@ struct App {
     pointer_inside: bool,
     debug_overlay: bool,
     shift_held: bool,
+    native_modifiers: crate::ui::Modifiers,
+    ime_composing: bool,
     hotbar_wheel: hotbar_wheel::HotbarWheel,
     next_tick: Instant,
     tick_interval: Duration,
@@ -213,6 +220,8 @@ struct App {
     look_events: u32,
     captured_frame: Option<String>,
     pending_capture: Option<Request>,
+    screenshot_replies: Vec<(PathBuf, mpsc::Receiver<Result<serde_json::Value, String>>)>,
+    screenshot_captures: std::collections::VecDeque<Request>,
     pending_tasks: Vec<(Request, minecraft::Task)>,
     shutdown: bool,
     error: Option<String>,
@@ -262,6 +271,8 @@ impl App {
             pointer_inside: false,
             debug_overlay: false,
             shift_held: false,
+            native_modifiers: crate::ui::Modifiers::default(),
+            ime_composing: false,
             hotbar_wheel: hotbar_wheel::HotbarWheel::default(),
             next_tick: Instant::now(),
             tick_interval,
@@ -278,6 +289,8 @@ impl App {
             look_events: 0,
             captured_frame: None,
             pending_capture: None,
+            screenshot_replies: Vec::new(),
+            screenshot_captures: std::collections::VecDeque::new(),
             pending_tasks: Vec::new(),
             shutdown: false,
             error: None,
@@ -364,24 +377,53 @@ impl App {
         self.publish_session();
     }
     fn capture_screenshot(&mut self) {
-        let (reply, _) = mpsc::sync_channel(1);
-        if self
-            .sender
-            .try_send(Request {
-                command: Command::Capture {
-                    name: "screenshot".into(),
-                    destination: None,
-                },
-                reply,
-                expected_connection_epoch: None,
-                expected_dimension_epoch: None,
-                automation_fence: None,
-                cancelled: None,
-            })
-            .is_err()
-        {
-            eprintln!("screenshot: command_queue_full");
+        if self.screenshot_replies.len() >= 16 {
+            self.screenshot_notice(Err("screenshot queue full".into()));
+            return;
         }
+        let stamp = match screenshot::timestamp() {
+            Ok(stamp) => stamp,
+            Err(error) => {
+                self.screenshot_notice(Err(error));
+                return;
+            }
+        };
+        let path = screenshot::path(&self.options.artifacts, &stamp,
+            self.screenshot_replies.iter().map(|(path, _)| path));
+        let name = path.file_stem().unwrap().to_string_lossy().into_owned();
+        let (reply, receive) = mpsc::sync_channel(1);
+        self.screenshot_captures.push_back(Request {
+            command: Command::Capture { name, destination: Some(path.clone()) },
+            reply,
+            expected_connection_epoch: None,
+            expected_dimension_epoch: None,
+            automation_fence: None,
+            cancelled: None,
+        });
+        self.screenshot_replies.push((path, receive));
+    }
+    /// Physical F2 requests wait for the renderer; automation captures retain
+    /// their existing immediate/busy contract.
+    fn schedule_screenshot(&mut self, renderer_ready: bool) {
+        if renderer_ready && self.pending_capture.is_none()
+            && let Some(request) = self.screenshot_captures.pop_front() {
+            self.pending_capture = Some(request);
+            self.next_frame = Instant::now();
+            if let Some(window) = &self.window {
+                window.request_redraw();
+            }
+        }
+    }
+    fn screenshot_notice(&mut self, result: Result<serde_json::Value, String>) {
+        let message = screenshot::message(&result);
+        if result.is_err() {
+            eprintln!("{message}");
+        }
+        if let Some(ui) = self.session.ui_mut()
+            && let Err(error) = ui.local_message(&message) {
+            eprintln!("screenshot chat: {error}");
+        }
+        self.publish_session();
     }
     fn manual(&mut self, intent: InputIntent) {
         // Raw look events arrive at mouse polling frequency. Session input
@@ -696,6 +738,18 @@ impl App {
                 changed = true;
             }
         }
+        let mut index = 0;
+        while index < self.screenshot_replies.len() {
+            let result = match self.screenshot_replies[index].1.try_recv() {
+                Ok(result) => result,
+                Err(mpsc::TryRecvError::Empty) => { index += 1; continue; }
+                Err(mpsc::TryRecvError::Disconnected) => Err("capture reply channel closed".into()),
+            };
+            self.screenshot_replies.swap_remove(index);
+            self.screenshot_notice(result);
+            changed = true;
+        }
+        self.schedule_screenshot(self.renderer.as_ref().is_some_and(Renderer::capture_ready));
         // tick() drains events itself; calling process_events() here first
         // would rebuild the scene twice per frame (baseline: pure waste when
         // both return unchanged). Pass the already-drained flag in so the
@@ -752,6 +806,16 @@ impl App {
         let fullscreen = self.session.native_setting("fullscreen").and_then(serde_json::Value::as_bool).unwrap_or(false);
         if fullscreen != window.fullscreen().is_some() {
             window.set_fullscreen(fullscreen.then_some(winit::window::Fullscreen::Borderless(None)));
+        }
+        if let Some(ui) = self.session.ui_mut() {
+            let ime = ui.ime_state();
+            window.set_ime_allowed(ime.allowed);
+            if ime.allowed {
+                window.set_ime_cursor_area(
+                    winit::dpi::PhysicalPosition::new(ime.position[0], ime.position[1]),
+                    winit::dpi::PhysicalSize::new(ime.size[0], ime.size[1]),
+                );
+            }
         }
         if let Some(renderer) = &mut self.renderer {
             renderer.set_vsync(self.session.native_setting("vsync").and_then(serde_json::Value::as_bool).unwrap_or(true));
@@ -867,6 +931,9 @@ impl ApplicationHandler for App {
                 if !focused {
                     self.release("focus_lost");
                     self.hotbar_wheel.reset();
+                    self.native_modifiers = crate::ui::Modifiers::default();
+                    self.shift_held = false;
+                    self.ime_composing = false;
                 } else {
                     self.publish_session();
                 }
@@ -921,7 +988,32 @@ impl ApplicationHandler for App {
                     self.publish_session();
                 }
             }
-            WindowEvent::KeyboardInput { event, .. } if self.focused && !event.repeat => {
+            WindowEvent::ModifiersChanged(modifiers) => {
+                let state = modifiers.state();
+                self.native_modifiers = crate::ui::Modifiers {
+                    shift: state.shift_key(), control: state.control_key(),
+                    alt: state.alt_key(), logo: state.super_key(),
+                };
+                self.shift_held = state.shift_key();
+            }
+            WindowEvent::Ime(ime) if self.focused && self.session.text_field_focused() => {
+                match ime {
+                    winit::event::Ime::Preedit(text, cursor) => {
+                        self.ime_composing = !text.is_empty();
+                        self.manual(InputIntent::Ui { intent: crate::ui::UiIntent::Composition {
+                            text, cursor: cursor.map(|(a, b)| [a, b]),
+                        }});
+                    }
+                    winit::event::Ime::Commit(text) => {
+                        self.ime_composing = false;
+                        self.manual(InputIntent::Ui { intent: crate::ui::UiIntent::Text { text } });
+                    }
+                    winit::event::Ime::Disabled => self.ime_composing = false,
+                    _ => {}
+                }
+            }
+            WindowEvent::KeyboardInput { event, .. } if self.focused
+                && (!event.repeat || self.session.text_field_focused()) => {
                 let PhysicalKey::Code(code) = event.physical_key else {
                     return;
                 };
@@ -971,10 +1063,17 @@ impl ApplicationHandler for App {
                 // focused field. Escape closes chat; Enter submits (Game<-Chat).
                 // The Title screen reuses the same path for its server/username
                 // fields (chat is never open on Title; Escape there is a noop).
-                if self.session.chat_open()
-                    || self.session.shell_screen_active()
-                    || self.session.server_dialog_open()
+                if owns_native_text(
+                    self.session.chat_open(),
+                    self.session.shell_screen_active(),
+                    self.session.server_dialog_open(),
+                    self.session.text_field_focused(),
+                )
                 {
+                    // The platform IME owns candidate confirmation/navigation.
+                    if self.ime_composing {
+                        return;
+                    }
                     if code == KeyCode::Escape && pressed {
                         self.manual(InputIntent::Ui {
                             intent: crate::ui::UiIntent::Key {
@@ -986,6 +1085,8 @@ impl ApplicationHandler for App {
                         return;
                     }
                     let key = match code {
+                        KeyCode::KeyA if (self.native_modifiers.control || self.native_modifiers.logo)
+                            && !self.native_modifiers.alt => Some("a"),
                         KeyCode::Enter | KeyCode::NumpadEnter => Some("Enter"),
                         KeyCode::Tab => Some("Tab"),
                         KeyCode::Backspace => Some("Backspace"),
@@ -1004,27 +1105,27 @@ impl ApplicationHandler for App {
                                 intent: crate::ui::UiIntent::Key {
                                     key: key.into(),
                                     pressed: true,
-                                    modifiers: crate::ui::Modifiers {
-                                        shift: self.shift_held,
-                                        ..Default::default()
-                                    },
+                                    modifiers: self.native_modifiers,
                                 },
                             });
                         }
                         return;
                     }
-                    if pressed {
-                        if let Some(text) = event.text.as_ref().filter(|t| {
+                    let alt_graph = self.native_modifiers.control && self.native_modifiers.alt
+                        && !self.native_modifiers.logo;
+                    if pressed && ((!self.native_modifiers.control && !self.native_modifiers.logo
+                        && !self.native_modifiers.alt) || alt_graph)
+                        && let Some(text) = event.text.as_ref().filter(|t| {
                             !t.is_empty()
                                 && t.chars().all(|c| !c.is_control() || c == '\t')
                                 && t.as_str() != "\t"
-                        }) {
-                            self.manual(InputIntent::Ui {
-                                intent: crate::ui::UiIntent::Text {
-                                    text: text.to_string(),
-                                },
-                            });
-                        }
+                        })
+                    {
+                        self.manual(InputIntent::Ui {
+                            intent: crate::ui::UiIntent::Text {
+                                text: text.to_string(),
+                            },
+                        });
                     }
                     return;
                 }
@@ -1391,5 +1492,46 @@ mod window_input_pacing_tests {
         assert_eq!(pointer_grab_change(true, grabbed), None, "held grab is kept");
         assert_eq!(pointer_grab_change(false, grabbed), Some(false), "menus/focus loss release");
         assert_eq!(pointer_grab_change(false, false), None);
+    }
+
+    #[test]
+    fn rc1_focused_inventory_text_owns_printable_and_editing_keys() {
+        assert!(owns_native_text(false, false, false, true));
+        assert!(!owns_native_text(false, false, false, false));
+        assert!(owns_native_text(true, false, false, false));
+        assert!(owns_native_text(false, true, false, false));
+    }
+
+    #[test]
+    fn rc1_f2_requests_distinct_vanilla_screenshot_names() {
+        let options = Options {
+            automation: false,
+            bind: "127.0.0.1:0".parse().unwrap(),
+            artifacts: std::env::temp_dir(),
+            headless: Some(true),
+            runtime_dir: std::env::temp_dir(),
+            profile: "fixture".into(),
+            server: None,
+            direct_join: false,
+            username: None,
+            width: 1280,
+            height: 720,
+            fullscreen: false,
+        };
+        let mut app = App::new(options, Arc::new(|| {})).unwrap();
+        app.capture_screenshot();
+        app.capture_screenshot();
+        app.schedule_screenshot(true);
+        let first = app.pending_capture.take().unwrap();
+        app.schedule_screenshot(false);
+        assert!(app.pending_capture.is_none(), "encoding retains the next F2 request");
+        assert_eq!(app.screenshot_captures.len(), 1);
+        app.schedule_screenshot(true);
+        let second = app.pending_capture.take().unwrap();
+        let Command::Capture { name: first, .. } = first.command else { panic!() };
+        let Command::Capture { name: second, .. } = second.command else { panic!() };
+        assert_ne!(first, second, "F2 requests in the same second must not collide");
+        assert_eq!(first.len(), 19, "yyyy-MM-dd_HH.mm.ss");
+        assert_eq!(first.as_bytes()[10], b'_');
     }
 }

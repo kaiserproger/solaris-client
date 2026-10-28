@@ -1510,6 +1510,10 @@ impl Renderer {
         Ok(())
     }
 
+    pub(crate) fn capture_ready(&self) -> bool {
+        self.capture.is_none() && !self.encoding
+    }
+
     pub fn poll_capture(&mut self) -> Option<u64> {
         self.collect_completed();
         let mapped = self

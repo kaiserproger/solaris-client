@@ -1,5 +1,8 @@
 //! One local data root; Mojang content is linked from the user's existing caches.
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
+
+static SELECTED_ROOT: OnceLock<PathBuf> = OnceLock::new();
 
 const INPUTS: &[(&str, &str)] = &[
     (
@@ -30,9 +33,15 @@ pub(crate) fn default_root() -> Result<PathBuf, String> {
     solaris_paths::data_root(None)
 }
 
+/// The launch-selected data root, or the platform default outside a launch.
+pub(crate) fn selected_root() -> Result<PathBuf, String> {
+    SELECTED_ROOT.get().cloned().map(Ok).unwrap_or_else(default_root)
+}
+
 /// Called only by the CLI before the event loop or any application threads exist.
 /// Explicit environment overrides are retained, including for harness launches.
 pub(crate) fn apply_defaults(root: &Path) {
+    let _ = SELECTED_ROOT.set(root.to_owned());
     for (suffix, relative) in INPUTS {
         let var = format!("SOLARIS_CLIENT_{suffix}");
         if std::env::var_os(&var).is_none() {

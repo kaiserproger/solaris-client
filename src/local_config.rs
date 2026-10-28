@@ -151,17 +151,17 @@ pub fn apply_exe_defaults() -> LocalDefaults {
         }),
     }
 }
-/// Client-local Options persistence: `<exe-dir>/client-settings.json`, a flat
-/// JSON map of managed setting keys. Unknown keys are ignored on load; writes
-/// are best-effort (missing exe dir or IO errors are silently skipped) so a
-/// read-only install never breaks gameplay.
-pub fn client_settings_path() -> Option<std::path::PathBuf> {
-    // The launcher points this at `<data-dir>/client-settings.json` so installs
-    // in read-only locations keep their Options; dist bundles stay exe-adjacent.
+/// Options use the selected data root unless explicitly overridden.
+pub fn client_settings_path() -> Option<PathBuf> {
     if let Some(explicit) = std::env::var_os("SOLARIS_CLIENT_SETTINGS").filter(|v| !v.is_empty()) {
-        return Some(std::path::PathBuf::from(explicit));
+        return Some(PathBuf::from(explicit));
     }
-    exe_dir().map(|dir| dir.join("client-settings.json"))
+    crate::content_paths::selected_root().ok().map(|root| root.join("client-settings.json"))
+}
+
+/// Server lists always belong to the selected data root, independent of settings overrides.
+pub(crate) fn servers_path() -> Option<PathBuf> {
+    crate::content_paths::selected_root().ok().map(|root| root.join("servers.json"))
 }
 /// Load persisted managed settings. Missing file/keys/parse errors yield an
 /// empty map; callers fill defaults via `UiState::default_setting_value`.
@@ -224,6 +224,11 @@ pub fn save_client_settings_to(
     let Ok(text) = serde_json::to_string_pretty(&kept) else {
         return;
     };
+    if let Some(parent) = path.parent().filter(|parent| !parent.as_os_str().is_empty())
+        && std::fs::create_dir_all(parent).is_err()
+    {
+        return;
+    }
     let tmp = path.with_extension("json.tmp");
     if std::fs::write(&tmp, text).is_err() {
         return;
@@ -234,6 +239,42 @@ pub fn save_client_settings_to(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn settings_follow_selected_data_root_and_explicit_override() {
+        const CHILD: &str = "SOLARIS_SETTINGS_PATH_TEST_CHILD";
+        if let Some(case) = std::env::var_os(CHILD) {
+            let root = if case == "explicit-root" {
+                PathBuf::from("/tmp/selected-client-root")
+            } else {
+                crate::content_paths::default_root().unwrap()
+            };
+            crate::content_paths::apply_defaults(&root);
+            let expected = if case == "settings-override" {
+                PathBuf::from("/tmp/custom-settings.json")
+            } else {
+                root.join("client-settings.json")
+            };
+            assert_eq!(client_settings_path(), Some(expected));
+            assert_eq!(servers_path(), Some(root.join("servers.json")));
+            return;
+        }
+        for case in ["explicit-root", "platform-root", "settings-override"] {
+            let mut child = std::process::Command::new(std::env::current_exe().unwrap());
+            child.args(["--exact", "local_config::tests::settings_follow_selected_data_root_and_explicit_override"])
+                .env(CHILD, case)
+                .env("HOME", "/tmp/client-test-home")
+                .env("XDG_DATA_HOME", "/tmp/client-test-xdg")
+                .env("APPDATA", "/tmp/client-test-appdata")
+                .env_remove("SOLARIS_CLIENT_SETTINGS")
+                .env_remove("SOLARIS_CLIENT_ROOT");
+            if case == "settings-override" {
+                child.env("SOLARIS_CLIENT_SETTINGS", "/tmp/custom-settings.json");
+            }
+            let output = child.output().unwrap();
+            assert!(output.status.success(), "{case}: {}", String::from_utf8_lossy(&output.stdout));
+        }
+    }
 
     #[test]
     fn parses_flat_and_section_keys() {

@@ -2,8 +2,7 @@ use super::{artifact_root, content_paths, headless, local_config, App, Options};
 use std::{path::PathBuf, sync::Arc};
 use winit::event_loop::EventLoop;
 
-pub(crate) const HELP: &str = "Solaris native client (Minecraft Java 26.1.2 offline preview)
-Usage:
+const HELP: &str = "Usage:
   solaris-client                         Open the title screen
   solaris-client --server HOST[:PORT] [--username NAME]
                  [--width W --height H] [--fullscreen] [--data-dir DIR]
@@ -21,6 +20,17 @@ SOLARIS_CLIENT_* environment variables optionally override individual content pa
 Default username: Player. Server port defaults to 25565. --help / -h prints this text.
 WASD move, Space jump, Shift sneak, Ctrl sprint, mouse look, left break/right use,
 1–9 hotbar, E inventory, Escape menu.";
+
+fn help() -> String {
+    format!(
+        "Solaris native client (Minecraft Java {} offline preview)\n{HELP}",
+        crate::singleplayer::GAME_VERSION
+    )
+}
+
+pub(crate) fn print_help() {
+    println!("{}", help());
+}
 
 struct Parsed {
     options: Options,
@@ -113,7 +123,7 @@ pub(crate) fn play(args: impl Iterator<Item = String>) -> Result<(), String> {
     // Help does not require installed content, a display, or config mutation.
     let parsed = parse(args)?;
     if parsed.help {
-        println!("{HELP}");
+        print_help();
         return Ok(());
     }
     let Parsed {
@@ -179,7 +189,7 @@ pub(crate) fn setup(mut args: impl Iterator<Item = String>) -> Result<(), String
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--help" | "-h" => {
-                println!("{HELP}");
+                print_help();
                 return Ok(());
             }
             "--from-dist" => dist = Some(PathBuf::from(args.next().ok_or("missing_from_dist")?)),
@@ -199,6 +209,11 @@ mod tests {
     use super::*;
     fn parsed(args: &[&str]) -> Result<Parsed, String> {
         parse(args.iter().map(|s| (*s).to_owned()))
+    }
+    #[test]
+    fn help_reports_target_game_version() {
+        assert!(help().contains(&format!("Minecraft Java {}", crate::singleplayer::GAME_VERSION)));
+        assert!(!help().contains("26.1.2"));
     }
     #[test]
     fn empty_launch_opens_title_not_direct_join() {

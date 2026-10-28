@@ -309,6 +309,9 @@ impl Session {
             .as_ref()
             .is_some_and(|ui| ui.screen() == crate::ui::Screen::Chat)
     }
+    pub(crate) fn text_field_focused(&self) -> bool {
+        self.ui.as_ref().is_some_and(UiState::text_field_focused)
+    }
     pub fn context_epochs(&self) -> (u64, u64) {
         (self.connection_epoch, self.dimension_epoch)
     }

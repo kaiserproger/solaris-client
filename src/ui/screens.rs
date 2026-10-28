@@ -15,7 +15,7 @@ impl UiState {
         self.anim.nodes_epoch += 1;
         match self.screen {
             Screen::Game => self.hud_tree(inventory, content)?,
-            Screen::Menu => self.menu_tree(inventory, content)?,
+            Screen::Menu => self.menu_tree(inventory, content, 0.)?,
             Screen::Creative => self.creative_tree(inventory, content)?,
             Screen::Loader => self.loader_tree()?,
             Screen::ServerDialog => self.dialog_tree()?,
@@ -416,12 +416,28 @@ impl UiState {
             Paint::Image(name.into(), [0., 0., 1., 1.]),
         )
     }
-    fn menu_tree(&mut self, inventory: &InventoryStore, content: &Content) -> Result<()> {
-        self.panel();
+    fn menu_tree(&mut self, inventory: &InventoryStore, content: &Content, min_y: f32) -> Result<()> {
+        if self.screen != Screen::Creative {
+            self.panel();
+        }
         let menu = inventory.menu();
         let layout = Layout::menu(menu)?;
-        let x = (self.width - layout.width) / 2.;
-        let y = (self.height - layout.height) / 2.;
+        let has_recipe = menu.kind != MenuKind::Inventory && menu.kind.recipe_book().is_some();
+        let compact_recipe = has_recipe && self.recipe_open && self.width < layout.width + 180.;
+        let x = if has_recipe && self.recipe_open && !compact_recipe {
+            (self.width - layout.width - 180.) / 2. + 180.
+        } else {
+            (self.width - layout.width) / 2.
+        };
+        let y = ((self.height - layout.height) / 2.).max(min_y);
+        if compact_recipe {
+            self.button(
+                "recipe/book", "Recipes", [self.width - 54., 8., 50., 20.],
+                NodeAction::RecipeBook, true, None,
+            )?;
+            self.recipe_panel(inventory, content, 30., y)?;
+            return Ok(());
+        }
         let name = format!("gui/container/{}", menu.kind.name());
         // Themed frame around the (warm-tinted) container texture.
         self.add(
@@ -554,7 +570,7 @@ impl UiState {
         }
         // The player inventory keeps the vanilla frame clean until its recipe
         // book presentation is complete; typed recipe actions remain available.
-        if menu.kind != MenuKind::Inventory && menu.kind.recipe_book().is_some() {
+        if has_recipe {
             self.button(
                 "recipe/book",
                 "Recipes",
@@ -564,20 +580,18 @@ impl UiState {
                 None,
             )?;
             if self.recipe_open {
-                if !self.fields.contains_key("recipe/search") {
-                    self.field("recipe/search", String::new(), 256, false)?;
-                }
-                self.edit_node(
-                    "recipe/search",
-                    "Search recipes",
-                    [x - 150., y, 140., 20.],
-                    true,
-                )?;
-                self.recipe_tree(inventory, content, x - 150., y + 24.)?;
+                self.recipe_panel(inventory, content, x - 150., y)?;
             }
         }
         self.menu_controls(inventory, content, x, y)?;
         Ok(())
+    }
+    fn recipe_panel(&mut self, inventory: &InventoryStore, content: &Content, x: f32, y: f32) -> Result<()> {
+        if !self.fields.contains_key("recipe/search") {
+            self.field("recipe/search", String::new(), 256, false)?;
+        }
+        self.edit_node("recipe/search", "Search recipes", [x, y, 140., 20.], true)?;
+        self.recipe_tree(inventory, content, x, y + 24.)
     }
     fn menu_controls(
         &mut self,
@@ -809,14 +823,17 @@ impl UiState {
                 )
             })
             .collect();
+        let columns = 7.max(descriptors.len().div_ceil(2));
+        let tab_width = (self.width - 16.) / columns as f32;
+        let tab_rows = descriptors.len().div_ceil(columns);
         for (position, (index, id, title)) in descriptors.into_iter().enumerate() {
             self.button(
                 &format!("creative/tab/{id}"),
                 &self.text.language.plain(&title)?,
                 [
-                    8. + (position % 7) as f32 * 74.,
-                    8. + (position / 7) as f32 * 22.,
-                    72.,
+                    8. + (position % columns) as f32 * tab_width,
+                    8. + (position / columns) as f32 * 22.,
+                    tab_width - 2.,
                     20.,
                 ],
                 NodeAction::CreativeTab(index),
@@ -825,7 +842,7 @@ impl UiState {
             )?;
         }
         if inventory_tab {
-            self.menu_tree(inventory, content)?;
+            self.menu_tree(inventory, content, 12. + tab_rows as f32 * 22.)?;
             self.button(
                 "creative/trash",
                 "Destroy item",
@@ -1501,5 +1518,123 @@ impl UiState {
             }
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod item8_layout_tests {
+    use super::*;
+    use std::sync::Arc;
+
+    fn state() -> (Content, InventoryStore, UiState) {
+        let mut content = Content::test_cube();
+        let tabs: Vec<_> = (0..12)
+            .map(|i| json!({
+                "id": format!("minecraft:tab_{i}"),
+                "title_component": {"text": format!("Tab {i}")},
+                "type": if i == 10 { "SEARCH" } else if i == 11 { "INVENTORY" } else { "CATEGORY" },
+                "items": []
+            }))
+            .collect();
+        content.creative_tabs_report = Arc::from(json!({"tabs": tabs}).to_string().into_bytes());
+        let mut ui = UiState::new_state(&content).unwrap();
+        ui.resize(1280, 720, 1.);
+        (content, InventoryStore::default(), ui)
+    }
+
+    fn node<'a>(ui: &'a UiState, id: &str) -> &'a super::super::state::SemanticNode {
+        ui.nodes.iter().find(|node| node.id == id).unwrap()
+    }
+
+    fn inside(ui: &UiState, id: &str) {
+        let [x, y, w, h] = node(ui, id).bounds;
+        assert!(x >= 0. && y >= 0. && x + w <= ui.width && y + h <= ui.height,
+            "{id} outside {}x{}: {:?}", ui.width, ui.height, [x, y, w, h]);
+    }
+    fn reachable(ui: &UiState, id: &str) {
+        inside(ui, id);
+        let target = node(ui, id);
+        let [x, y, w, h] = target.bounds;
+        let point = [x + w / 2., y + h / 2.];
+        let hit = ui.nodes.iter().rev().find(|n| {
+            n.visible && !matches!(n.action, NodeAction::None)
+                && super::super::state::contains(n.bounds, point)
+        }).unwrap();
+        assert!(target.enabled && hit.id == id, "{id} is covered by {}", hit.id);
+    }
+
+
+    fn disjoint(a: [f32; 4], b: [f32; 4]) -> bool {
+        a[0] + a[2] <= b[0] || b[0] + b[2] <= a[0]
+            || a[1] + a[3] <= b[1] || b[1] + b[3] <= a[1]
+    }
+
+    #[test]
+    fn creative_tabs_search_and_inventory_are_reachable_at_default_scale() {
+        let (content, inventory, mut ui) = state();
+        ui.screen = Screen::Creative;
+        ui.creative_tab = 10;
+        ui.rebuild(&inventory, &content).unwrap();
+        for i in 0..12 {
+            let id = format!("creative/tab/minecraft:tab_{i}");
+            reachable(&ui, &id);
+            assert!(matches!(&node(&ui, &id).action, NodeAction::CreativeTab(index) if *index == i));
+            assert!(disjoint(node(&ui, &id).bounds, node(&ui, "creative/search").bounds));
+        }
+        reachable(&ui, "creative/search");
+        ui.creative_tab = 11;
+        ui.rebuild(&inventory, &content).unwrap();
+        reachable(&ui, "creative/trash");
+        for i in 0..12 {
+            let id = format!("creative/tab/minecraft:tab_{i}");
+            reachable(&ui, &id);
+            assert!(disjoint(node(&ui, &id).bounds, node(&ui, "menu/background").bounds));
+        }
+    }
+
+    #[test]
+    fn recipe_controls_fit_and_container_is_usable_at_wide_and_narrow_widths() {
+        let (content, mut inventory, mut ui) = state();
+        let mut menu = inventory.player.clone();
+        menu.kind = MenuKind::Crafting;
+        menu.slots.resize(menu.kind.slot_count(), None);
+        menu.slots.fill(Some(crate::inventory::Stack::default()));
+        inventory.active = Some(menu);
+        for (id, category) in ["minecraft:crafting_building_blocks", "minecraft:crafting_equipment", "minecraft:crafting_misc"].into_iter().enumerate() {
+            inventory.recipes.insert(id as i32, crate::inventory::Recipe {
+                id: id as i32,
+                display: Arc::new(json!({"result": {"type": "minecraft:empty"}})),
+                group: None,
+                category: category.into(),
+                ingredients: None,
+                flags: 0,
+                display_stacks: Vec::new(),
+                ingredient_items: None,
+            });
+        }
+        ui.screen = Screen::Menu;
+        for width in [427., 320.] {
+            ui.width = width;
+            ui.recipe_open = true;
+            ui.rebuild(&inventory, &content).unwrap();
+            for id in ["recipe/book", "recipe/search", "recipe/category/", "recipe/filter"] {
+                reachable(&ui, id);
+            }
+            assert!(matches!(&node(&ui, "recipe/category/").action, NodeAction::RecipeCategory(s) if s.is_empty()));
+            for category in ["minecraft:crafting_building_blocks", "minecraft:crafting_equipment", "minecraft:crafting_misc"] {
+                let id = format!("recipe/category/{category}");
+                reachable(&ui, &id);
+                assert!(matches!(&node(&ui, &id).action, NodeAction::RecipeCategory(value) if value == category));
+                assert!(disjoint(node(&ui, &id).bounds, node(&ui, "recipe/search").bounds));
+            }
+            if width == 427. {
+                assert!(disjoint(node(&ui, "recipe/search").bounds, node(&ui, "menu/background").bounds));
+                reachable(&ui, "slot/0");
+            }
+            ui.recipe_open = false;
+            ui.rebuild(&inventory, &content).unwrap();
+            reachable(&ui, "slot/0");
+            inside(&ui, "recipe/book");
+        }
     }
 }
