@@ -163,14 +163,24 @@ def main():
         report['capabilities_end'] = mcp.request('resources/read', {'uri': 'solaris-client://capabilities'})
         report['adapter'] = json.loads(
             report['capabilities_end']['result']['contents'][0]['text'])['renderer']['adapter']
-        # Close only this private compositor's client and let its trace writer
-        # drain. SIGTERM would bypass Rust destructors and lose queued rows.
-        subprocess.run(
-            [str(a.prefix / 'root/usr/bin/swaymsg'), f'[pid={client.pid}]', 'kill'],
-            env=env, check=True, capture_output=True)
-        report['client_exit_code'] = client.wait(timeout=30)
-        if report['client_exit_code'] != 0:
-            raise RuntimeError(f"client exit failed: {report['client_exit_code']}")
+        if a.legacy_synchronous_trace:
+            # Preserve the original baseline harness teardown: synchronous
+            # rows are already written; there is no asynchronous queue to drain.
+            report['shutdown_strategy'] = 'legacy_sigterm'
+            stop(client)
+            report['client_exit_code'] = client.returncode
+            if client.returncode not in (0, -signal.SIGTERM):
+                raise RuntimeError(f'unexpected baseline exit: {client.returncode}')
+        else:
+            # Close only this private compositor's client and drain the writer.
+            # SIGTERM bypasses Rust destructors and would lose queued rows.
+            report['shutdown_strategy'] = 'graceful_wayland_close'
+            subprocess.run(
+                [str(a.prefix / 'root/usr/bin/swaymsg'), f'[pid={client.pid}]', 'kill'],
+                env=env, check=True, capture_output=True)
+            report['client_exit_code'] = client.wait(timeout=30)
+            if report['client_exit_code'] != 0:
+                raise RuntimeError(f"client exit failed: {report['client_exit_code']}")
         trace_lines = (out / 'frames.tsv').read_text().splitlines()
         footer = trace_lines[-1] if trace_lines else ''
         report['trace_completion'] = footer if footer.startswith('# trace_complete') else None

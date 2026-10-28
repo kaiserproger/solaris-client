@@ -790,7 +790,9 @@ focus; it emits no key events. All movement stays on MCP, with no uinput.
 Frame bounds come from MCP submitted-frame IDs, not asynchronously written
 file tails. The harness closes its private client gracefully and requires the
 lossless completion footer before computing statistics. Only comparisons with
-older synchronous baseline binaries may use `--legacy-synchronous-trace`.
+older synchronous baseline binaries may use `--legacy-synchronous-trace`; that
+mode retains their original SIGTERM teardown after measurement and records the
+exit status separately. It does not validate graceful shutdown of the baseline.
 Run repetitions under Main's approved `mem-run.sh -p` measurement lane. The
 harness records `pgrep -a solaris-client` at both ends and marks overlapping
 runs discarded. A private compositor is not evidence of physical scanout or a
