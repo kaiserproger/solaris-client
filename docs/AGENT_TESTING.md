@@ -760,8 +760,15 @@ renderer thread CPU. `gpu_timestamps` is a single JSON cell containing completed
 GPU pass durations and its own frame ID: join by that ID, not by the enclosing
 submission row, because readback is asynchronous. CPU phase wall durations are
 not GPU execution durations; queue/acquire/present waits must remain separate.
-`previous_trace_record_ms` measures serialization and synchronous trace I/O from
+`previous_trace_record_ms` measures serialization and nonblocking enqueue from
 the preceding recorded frame; that observer cost falls in the current interval.
+File writes run on a dedicated thread behind a bounded 4096-row queue, never
+on the frame owner. Earlier synchronous trace writes produced measured stalls
+of 1725 ms despite a 3 ms draw. Queue overflow or a write failure invalidates
+the trace rather than blocking rendering or silently claiming complete evidence.
+Close the client normally to drain the writer; a valid trace ends with
+`# trace_complete` and `dropped_rows=0` separated by a tab. Forced termination
+can leave an incomplete trace, which must not be used for percentile claims.
 `skipped_draw_attempts`, `skipped_draw_ms` and `skipped_advance_ms` preserve work
 from draw attempts that did not submit a new frame (for example, GPU in-flight
 backpressure). App owner timings reset after each attempt, not only submissions;
@@ -780,6 +787,10 @@ work behind a long warmup. The result retains poses, trace
 bounds, startup logs, capabilities and command transcript. A private virtual
 keyboard supplies seat capability so the compositor can send native keyboard
 focus; it emits no key events. All movement stays on MCP, with no uinput.
+Frame bounds come from MCP submitted-frame IDs, not asynchronously written
+file tails. The harness closes its private client gracefully and requires the
+lossless completion footer before computing statistics. Only comparisons with
+older synchronous baseline binaries may use `--legacy-synchronous-trace`.
 Run repetitions under Main's approved `mem-run.sh -p` measurement lane. The
 harness records `pgrep -a solaris-client` at both ends and marks overlapping
 runs discarded. A private compositor is not evidence of physical scanout or a

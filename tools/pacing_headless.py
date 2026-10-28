@@ -68,6 +68,8 @@ def main():
     p.add_argument('--steps', type=int, default=24)
     p.add_argument('--gpu', choices=['nvidia', 'radeon'], default='nvidia')
     p.add_argument('--warm-ticks', type=int, default=10)
+    p.add_argument('--legacy-synchronous-trace', action='store_true',
+                   help='allow baseline binaries predating the asynchronous trace completion footer')
     a = p.parse_args()
     out = a.out.resolve()
     out.mkdir(parents=True, exist_ok=False)
@@ -147,7 +149,8 @@ def main():
         mcp.tool('minecraft_wait_ticks', {'ticks': 12})
         report['start'] = mcp.tool('minecraft_observe')
         def frame():
-            return int((out / 'frames.tsv').read_text().splitlines()[-1].split('\t')[1])
+            caps = mcp.request('resources/read', {'uri': 'solaris-client://capabilities'})
+            return int(json.loads(caps['result']['contents'][0]['text'])['renderer']['submitted_frame_id'])
         report['first_frame'] = frame()
         report['poses'] = []
         for step in range(a.steps):
@@ -160,7 +163,24 @@ def main():
         report['capabilities_end'] = mcp.request('resources/read', {'uri': 'solaris-client://capabilities'})
         report['adapter'] = json.loads(
             report['capabilities_end']['result']['contents'][0]['text'])['renderer']['adapter']
-        rows = list(csv.DictReader((out / 'frames.tsv').open(), delimiter='\t'))
+        # Close only this private compositor's client and let its trace writer
+        # drain. SIGTERM would bypass Rust destructors and lose queued rows.
+        subprocess.run(
+            [str(a.prefix / 'root/usr/bin/swaymsg'), f'[pid={client.pid}]', 'kill'],
+            env=env, check=True, capture_output=True)
+        report['client_exit_code'] = client.wait(timeout=30)
+        if report['client_exit_code'] != 0:
+            raise RuntimeError(f"client exit failed: {report['client_exit_code']}")
+        trace_lines = (out / 'frames.tsv').read_text().splitlines()
+        footer = trace_lines[-1] if trace_lines else ''
+        report['trace_completion'] = footer if footer.startswith('# trace_complete') else None
+        if footer.startswith('# trace_complete'):
+            if footer != '# trace_complete\tdropped_rows=0':
+                raise RuntimeError(f'incomplete trace: {footer}')
+        elif not a.legacy_synchronous_trace:
+            raise RuntimeError('trace writer did not report complete lossless output')
+        report['legacy_synchronous_trace'] = a.legacy_synchronous_trace
+        rows = list(csv.DictReader((line for line in trace_lines if not line.startswith('#')), delimiter='\t'))
         rows = [r for r in rows if report['first_frame'] < int(r['frame_id']) <= report['last_frame']]
         values = sorted(float(r['submitted_frame_interval_ms']) for r in rows)
         report['interval_ms'] = {k: values[min(len(values)-1, math.ceil(q*len(values))-1)] for k,q in [('p50', .5), ('p95', .95), ('p99', .99)]}
@@ -176,6 +196,7 @@ def main():
         report['status'] = 'discarded_client_overlap' if other_clients else 'completed'
         print(json.dumps({'out': str(out), 'interval_ms': report['interval_ms'], 'mean_fps': report['mean_fps']}), flush=True)
     except BaseException as error:
+        report['status'] = 'failed'
         report['error'] = repr(error)
         raise
     finally:
