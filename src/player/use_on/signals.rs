@@ -220,7 +220,7 @@ impl Player {
                     0
                 }
             }
-            "RedStoneWireBlock" => {
+            "RedstoneWireBlock" => {
                 let power = number(content, state, "power")?;
                 if face == 0 || power == 0 {
                     0

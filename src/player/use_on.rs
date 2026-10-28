@@ -642,7 +642,7 @@ impl Player {
             | "SmithingTableBlock"
             | "StonecutterBlock"
             | "CrafterBlock" => Outcome::CLIENT,
-            "BedBlock" | "LightBlock" => Outcome::CONSUME,
+            "AbstractBedBlock" | "LightBlock" => Outcome::CONSUME,
             "SignBlock" => {
                 if has_be("minecraft:sign") || has_be("minecraft:hanging_sign") {
                     Outcome::CONSUME
@@ -664,7 +664,7 @@ impl Player {
                     Outcome::Pass
                 }
             }
-            "RedStoneWireBlock" => {
+            "RedstoneWireBlock" => {
                 let dot = ["north", "south", "west", "east"]
                     .into_iter()
                     .all(|key| property(content, state, key) == Ok("none"));

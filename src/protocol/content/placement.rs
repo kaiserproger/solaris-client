@@ -1,5 +1,10 @@
 use super::*;
 
+const PLACEMENT_STATE_FACTS_VERSION: &str = "26.3";
+const ITEM_PLACEMENT_FACTS_VERSION: &str = "26.3";
+const ACTION_STATE_FACTS_VERSION: &str = "26.3";
+const ENTITY_USE_STATIC_VERSION: &str = "26.3";
+
 #[derive(Default)]
 pub(super) struct PlacementFacts {
     states: Vec<StateFacts>,
@@ -136,19 +141,17 @@ impl PlacementFacts {
             "action_state_facts.json",
             16 << 20,
         )?;
-        let entity_use = report(
+        let entity_use: Value = report(
             data,
             "SOLARIS_CLIENT_ENTITY_USE_STATIC",
             "entity_use_static.json",
             2 << 20,
         )?;
-        if [
-            &placement.game_version,
-            &items.game_version,
-            &actions.game_version,
-        ]
-        .into_iter()
-        .any(|version| version != "26.1.2")
+        if placement.game_version != PLACEMENT_STATE_FACTS_VERSION
+            || items.game_version != ITEM_PLACEMENT_FACTS_VERSION
+            || actions.game_version != ACTION_STATE_FACTS_VERSION
+            || entity_use.get("game_version").and_then(Value::as_str)
+                != Some(ENTITY_USE_STATIC_VERSION)
         {
             return Err("Source placement/action facts version mismatch".into());
         }
@@ -566,7 +569,7 @@ impl Content {
             self.placement_metadata(state)?["class"].as_str(),
             Some(
                 "net.minecraft.world.level.block.BambooStalkBlock"
-                    | "net.minecraft.world.level.block.PointedDripstoneBlock"
+                    | "net.minecraft.world.level.block.SpeleothemBlock"
                     | "net.minecraft.world.level.block.ShulkerBoxBlock"
             )
         ) {

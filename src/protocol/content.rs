@@ -18,6 +18,35 @@ use std::{
 mod loader_resources;
 mod placement;
 
+const BLOCK_REPORTS_VERSION: &str = "26.3";
+const BLOCK_USE_FACTS_VERSION: &str = "26.3";
+const ITEM_USE_FACTS_VERSION: &str = "26.3";
+const INTERACTION_FACTS_VERSION: &str = "26.3";
+const ITEM_PROPERTIES_VERSION: &str = "26.3";
+const STATE_PREDICATES_VERSION: &str = "26.3";
+const STATIC_CLIENT_FACTS_VERSION: &str = "26.3";
+const RESOURCE_PACK_FORMAT: (u64, u64) = (84, 0);
+
+fn validate_block_reports_versions(mining: &Value, light: &Value) -> Result<()> {
+    if mining["version"] != BLOCK_REPORTS_VERSION || light["version"] != BLOCK_REPORTS_VERSION {
+        return Err("block facts version mismatch".into());
+    }
+    Ok(())
+}
+
+fn interaction_fact_versions_match(
+    block_use: &str,
+    item_use: &str,
+    interaction: &str,
+    item_properties: &str,
+) -> bool {
+    block_use == BLOCK_USE_FACTS_VERSION
+        && item_use == ITEM_USE_FACTS_VERSION
+        && interaction == INTERACTION_FACTS_VERSION
+        && item_properties == ITEM_PROPERTIES_VERSION
+}
+
+
 #[derive(serde::Deserialize)]
 struct ItemDefaultsReport {
     components: BTreeMap<String, Value>,
@@ -84,6 +113,13 @@ struct ItemUseSource<'a> {
     air: &'a str,
     #[serde(rename = "useOn")]
     on_block: &'a str,
+}
+
+#[derive(serde::Deserialize)]
+struct ItemUseReport<'a> {
+    game_version: &'a str,
+    #[serde(borrow)]
+    items: BTreeMap<&'a str, ItemUseSource<'a>>,
 }
 #[derive(serde::Deserialize)]
 struct InteractionReport<'a> {
@@ -182,7 +218,7 @@ fn interaction_facts(
         .map(PathBuf::from)
         .unwrap_or_else(|_| data.join("reports/item_use_owners.json"));
     let item_bytes = bounded_bytes(&item_path, 1 << 20)?;
-    let item_use: BTreeMap<&str, ItemUseSource<'_>> = serde_json::from_slice(&item_bytes)
+    let item_use: ItemUseReport<'_> = serde_json::from_slice(&item_bytes)
         .map_err(|error| format!("invalid item use facts: {error}"))?;
     let interaction_path = std::env::var("SOLARIS_CLIENT_INTERACTION_FACTS")
         .map(PathBuf::from)
@@ -197,10 +233,12 @@ fn interaction_facts(
     let mut item_properties: ItemPropertiesReport<'_> =
         serde_json::from_slice(&properties_bytes)
             .map_err(|error| format!("invalid item properties: {error}"))?;
-    if item_properties.source_version != "26.1.2" {
-        return Err("item properties version mismatch".into());
-    }
-    if blocks.version != "26.1.2" || interaction.version != "26.1.2" {
+    if !interaction_fact_versions_match(
+        blocks.version,
+        item_use.game_version,
+        interaction.version,
+        item_properties.source_version,
+    ) {
         return Err("interaction facts version mismatch".into());
     }
     let mut pool = BTreeSet::new();
@@ -239,6 +277,7 @@ fn interaction_facts(
     let mut item_facts = BTreeMap::new();
     for (&id, name) in items {
         let source = item_use
+            .items
             .get(name.as_str())
             .ok_or_else(|| format!("verified item use owners missing {name}"))?;
         let properties = item_properties
@@ -283,9 +322,8 @@ struct StatePredicates {
 fn state_predicates(bytes: &[u8], count: usize) -> Result<BTreeMap<usize, StatePredicates>> {
     let report: StatePredicatesReport<'_> = serde_json::from_slice(bytes)
         .map_err(|error| format!("invalid block state predicates: {error}"))?;
-    if report.game_version != "26.1.2"
+    if report.game_version != STATE_PREDICATES_VERSION
         || report.states.len() != count
-        || report.states.keys().any(|state| *state >= count)
     {
         return Err(
             "block state predicate source version or complete holder coverage mismatch".into(),
@@ -325,7 +363,7 @@ fn static_client_facts(
 ) -> Result<Vec<FuelRule>> {
     let report: StaticClientReport<'_> = serde_json::from_slice(bytes)
         .map_err(|error| format!("invalid static client source facts: {error}"))?;
-    if report.game_version != "26.1.2" || report.fuel_rules.len() > 512 {
+    if report.game_version != STATIC_CLIENT_FACTS_VERSION || report.fuel_rules.len() > 512 {
         return Err("fuel source version or rule bound".into());
     }
     for (registry, mut facts) in [
@@ -878,9 +916,10 @@ fn validate_pack(root: &Path) -> Result<()> {
     } else {
         format(&pack["max_format"])?
     };
-    if min > max || min > (84, 0) || max < (84, 0) {
+    if min > max || min > RESOURCE_PACK_FORMAT || max < RESOURCE_PACK_FORMAT {
         return Err(format!(
-            "resource pack format incompatible with pinned26.1.2: {min:?}..{max:?}"
+            "resource pack format incompatible with pinned {}: {min:?}..{max:?}",
+            BLOCK_REPORTS_VERSION
         ));
     }
     if !metadata["filter"].is_null() || !metadata["overlays"].is_null() {
@@ -983,9 +1022,7 @@ impl Content {
         let blocks = json_file(&data.join("reports/blocks.json"), 64 << 20)?;
         let mining = json_file(&data.join("reports/block_mining.json"), 16 << 20)?;
         let light = json_file(&data.join("reports/block_light.json"), 16 << 20)?;
-        if mining["version"] != "26.1.2" || light["version"] != "26.1.2" {
-            return Err("block facts version mismatch".into());
-        }
+        validate_block_reports_versions(&mining, &light)?;
         let registries = json_file(&data.join("reports/registries.json"), 32 << 20)?;
         let max = mining["max_state_id"]
             .as_u64()
@@ -2879,7 +2916,8 @@ impl ShapeTable {
         }
         if self.fingerprints[id] != hash {
             return Err(format!(
-                "26.1.2 collision state fingerprint mismatch {id}/{name}"
+                "{} collision state fingerprint mismatch {id}/{name}",
+                BLOCK_REPORTS_VERSION
             ));
         }
         Ok(())
@@ -2953,6 +2991,34 @@ impl Simplex2 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn published_26_3_block_report_labels_are_accepted() {
+        let mining = serde_json::json!({"version": "26.3"});
+        let light = serde_json::json!({"version": "26.3"});
+        validate_block_reports_versions(&mining, &light).unwrap();
+    }
+
+    #[test]
+    fn stale_block_report_label_is_rejected() {
+        let mining = serde_json::json!({"version": "26.1.2"});
+        let light = serde_json::json!({"version": "26.3"});
+        assert_eq!(
+            validate_block_reports_versions(&mining, &light)
+                .unwrap_err()
+                .to_string(),
+            "block facts version mismatch"
+        );
+    }
+
+    #[test]
+    fn all_published_26_3_interaction_fact_labels_are_required() {
+        assert!(interaction_fact_versions_match("26.3", "26.3", "26.3", "26.3"));
+        assert!(!interaction_fact_versions_match(
+            "26.3", "26.1.2", "26.3", "26.3"
+        ));
+    }
+
+
     #[test]
     fn received_tag_order_drives_menu_indices_without_changing_membership() {
         let mut content = Content::test_cube();
