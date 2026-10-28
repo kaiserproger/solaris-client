@@ -1,5 +1,39 @@
 use super::*;
 
+/// Frames per second over windows of at least half a second, like vanilla's
+/// once-a-second counter. A single frame interval is not a rate: with FIFO
+/// presentation and two frames of latency the CPU submits in bursts (one
+/// frame waits on the swapchain, the next does not), so `1000/interval`
+/// swings far above and below the steady display rate.
+#[derive(Default)]
+pub(super) struct FpsCounter {
+    window_start: Option<Instant>,
+    frames: u32,
+    fps: Option<f64>,
+}
+
+impl FpsCounter {
+    const WINDOW: f64 = 0.5;
+
+    pub(super) fn frame(&mut self, now: Instant) {
+        let Some(start) = self.window_start else {
+            self.window_start = Some(now);
+            return;
+        };
+        self.frames += 1;
+        let elapsed = now.duration_since(start).as_secs_f64();
+        if elapsed >= Self::WINDOW {
+            self.fps = Some(f64::from(self.frames) / elapsed);
+            self.window_start = Some(now);
+            self.frames = 0;
+        }
+    }
+
+    pub(super) fn fps(&self) -> Option<f64> {
+        self.fps
+    }
+}
+
 impl Renderer {
     /// No JSON/snapshot allocation on the frame path. A completed frame must
     /// contain the current nearby uploads after their ordinary terrain fade.
@@ -220,7 +254,12 @@ impl Renderer {
         target["surface_acquire_ms"] = json!(self.stats.surface_acquire_ms);
         target["present_call_ms"] = json!(self.stats.present_call_ms);
         target["present_thread_cpu_ms"] = json!(self.stats.present_thread_cpu_ms);
+        target["collect_completed_ms"] = json!(self.stats.collect_ms);
+        target["encoder_finish_ms"] = json!(self.stats.finish_ms);
+        target["queue_submit_ms"] = json!(self.stats.submit_ms);
+        target["render_thread_cpu_ms"] = json!(self.stats.render_thread_cpu_ms);
         target["submitted_frame_interval_ms"] = json!(self.frame_interval_ms);
+        target["fps"] = json!(self.fps.fps());
         target["terrain_upload_bytes"] = json!(self.stats.terrain_upload_bytes);
         target["terrain_uploaded_chunks"] = json!(self.stats.terrain_uploaded_chunks);
         target["terrain_freed_chunks"] = json!(self.stats.terrain_freed_chunks);
@@ -296,5 +335,27 @@ impl Renderer {
         resident["shadow_instance_reserved_bytes"] = json!(((mesh::MAX_CHUNKS + 2) * 16) as u64);
         resident["terrain_vertex_budget_bytes"] = json!(mesh::VERTEX_BUDGET);
         resident["terrain_index_budget_bytes"] = json!(mesh::INDEX_BUDGET);
+    }
+}
+
+#[cfg(test)]
+mod fps_counter_tests {
+    use super::FpsCounter;
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn bursty_fifo_submission_reports_the_steady_rate() {
+        // 144 Hz display, CPU submits alternately after 3 ms and 10.9 ms: the
+        // per-frame counter swung between ~92 and ~333 fps.
+        let mut counter = FpsCounter::default();
+        let mut now = Instant::now();
+        counter.frame(now);
+        assert_eq!(counter.fps(), None, "no rate before a full window");
+        for i in 0..144 {
+            now += Duration::from_micros(if i % 2 == 0 { 3_000 } else { 10_889 });
+            counter.frame(now);
+        }
+        let fps = counter.fps().expect("a full window elapsed");
+        assert!((fps - 144.).abs() < 1.5, "fps {fps}");
     }
 }

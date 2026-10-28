@@ -798,15 +798,10 @@ impl Session {
     /// are omitted, never fabricated. Capped at 16 lines.
     pub fn debug_lines(&self, render: &Value) -> Vec<String> {
         let mut lines = Vec::new();
-        // fps + frame ms (render/metrics.rs: frame_interval_ms,
-        // frame_wall_ms; no fps gauge exists, computed as 1000/interval).
-        if let Some(interval) = render
-            .get("submitted_frame_interval_ms")
-            .and_then(Value::as_f64)
-            && interval > 0.
-            && interval.is_finite()
-        {
-            let mut line = format!("{} fps", (1000. / interval).round() as u64);
+        // The renderer owns the windowed submission rate. Until its first
+        // complete window, omit FPS rather than showing a bursty reciprocal.
+        if let Some(fps) = render.get("fps").and_then(Value::as_f64).filter(|fps| fps.is_finite()) {
+            let mut line = format!("{} fps", fps.round() as u64);
             if let Some(wall) = render.get("frame_wall_ms").and_then(Value::as_f64)
                 && wall.is_finite()
             {
@@ -884,13 +879,18 @@ mod debug_tests {
     fn fps_formats_from_render_metrics_and_missing_keys_omit() {
         let session = Session::new_mode("f3-test".into(), false);
         let full = session.debug_lines(&json!({
-            "submitted_frame_interval_ms": 16.666,
+            "fps": 60.0,
             "frame_wall_ms": 5.125,
             "draw_calls": 42,
             "index_count": 1000,
         }));
         assert!(full[0].starts_with("60 fps"), "fps line: {full:?}");
         assert!(full[0].contains("5.12 ms"), "frame ms: {full:?}");
+        // The windowed average wins over one (bursty) frame interval.
+        let averaged = session.debug_lines(&json!({
+            "fps": 143.6, "submitted_frame_interval_ms": 3.0, "frame_wall_ms": 2.0,
+        }));
+        assert!(averaged[0].starts_with("144 fps"), "fps line: {averaged:?}");
         assert!(
             full.iter().any(|l| l == "draws: 42 indices: 1000"),
             "{full:?}"
@@ -905,6 +905,8 @@ mod debug_tests {
             bare.iter().all(|l| !l.contains("fps")),
             "no fabricated fps: {bare:?}"
         );
+        let initial = session.debug_lines(&json!({"submitted_frame_interval_ms": 3.0}));
+        assert!(initial.iter().all(|line| !line.contains("fps")), "{initial:?}");
         assert!(bare.iter().all(|l| !l.starts_with("draws:")), "{bare:?}");
         assert!(bare.iter().any(|l| l.starts_with("XYZ: ")), "{bare:?}");
         assert!(bare.len() <= 16, "{bare:?}");

@@ -751,3 +751,85 @@ Idle CPU measurements must leave no pending MCP wait action and use a bounded
 profiler interval, recording process CPU time, wall time, RSS and actual tick/
 packet progress separately. A profiler timeout is a measurement window, not a
 sleep-based gameplay readiness claim.
+
+### Native pointer capture and VSync pacing
+
+Gameplay capture follows focused, non-occluded Play with no chat, container or
+dialog owning input. Entering that state requests a locked pointer (confined
+where locking is unsupported); an unsuccessful request is reconsidered on the
+next owner turn rather than consuming the only screen transition. Leaving it
+releases capture immediately. On Wayland, a successful request is not proof
+that the compositor activated it: record `zwp_locked_pointer_v1.locked()` and
+camera motion from real relative input. Winit retains a pending capture across
+pointer entry, so repeatedly recreating a successful Wayland lock is unnecessary.
+
+VSync selects FIFO presentation; the software Max FPS cap applies only with
+VSync disabled. Applying both independently can repeat panel refreshes (for
+example, a 120 FPS timer on a 144 Hz display). Reapplying the same VSync setting
+does not reconfigure the surface. The renderer's `fps` gauge counts submitted
+frames over at least half a second; individual reciprocal submission intervals
+are not a reliable FPS counter when FIFO queues submissions in bursts.
+Presentation-paced and hidden surfaces have no software frame wakeup deadline:
+window/compositor events schedule their redraws, while ticks and pending actions
+keep their own deadlines. This avoids a past `WaitUntil` spinning while a Wayland
+frame callback is pending. Raw-motion-only wakes apply the look immediately but
+do not repeat network/scene owner work before a real deadline or owner event.
+
+For a pacing regression, retain `SOLARIS_CLIENT_FRAME_TRACE=/absolute/path.tsv`,
+the exact executable hash, native display/backend and adapter, window size,
+settings, route and walking interval. Compare `submitted_frame_interval_ms`
+percentiles only within that interval, separately from CPU/GPU work and
+presentation-call time. Submission is not physical display scanout evidence.
+Mouse-look must use the ordinary Session input path, release an automation
+controller on human input, and defer its expensive observation publication to
+the next owner tick/frame rather than rebuilding it at mouse polling frequency.
+
+The opt-in TSV also records visibility/sort, command encoding, completion
+collection, encoder finish, queue submission, present wall/thread CPU and total
+renderer thread CPU. `gpu_timestamps` is a single JSON cell containing completed
+GPU pass durations and its own frame ID: join by that ID, not by the enclosing
+submission row, because readback is asynchronous. CPU phase wall durations are
+not GPU execution durations; queue/acquire/present waits must remain separate.
+`previous_trace_record_ms` measures serialization and nonblocking enqueue from
+the preceding recorded frame; that observer cost falls in the current interval.
+File writes run on a dedicated thread behind a bounded 4096-row queue, never
+on the frame owner. Earlier synchronous trace writes produced measured stalls
+of 1725 ms despite a 3 ms draw. Queue overflow or a write failure invalidates
+the trace rather than blocking rendering or silently claiming complete evidence.
+Close the client normally to drain the writer; a valid trace ends with
+`# trace_complete` and `dropped_rows=0` separated by a tab. Forced termination
+can leave an incomplete trace, which must not be used for percentile claims.
+Normal event-loop exit destroys the renderer and joins its GPU completion
+worker before releasing the native window/display, then drains the trace.
+This ordering also covers inactive EGL backends in a Vulkan-selected instance;
+destroying them after the Wayland connection caused a native shutdown SIGSEGV.
+`skipped_draw_attempts`, `skipped_draw_ms` and `skipped_advance_ms` preserve work
+from draw attempts that did not submit a new frame (for example, GPU in-flight
+backpressure). App owner timings reset after each attempt, not only submissions;
+without these fields deduplication would discard that work.
+
+`tools/pacing_headless.py --binary /absolute/client --out /absolute/.analysis/run`
+uses a private headless sway, native Wayland (Xwayland disabled), 1280×720 at a
+requested 144 Hz, and FIFO. Default `--gpu nvidia` selects `/dev/dri/renderD129`;
+`--gpu radeon` selects RADV on `/dev/dri/renderD128`. It clones the
+stopped `.analysis/server/world` for each run, starts the local release server,
+discovers live MCP schemas, waits 10 ticks after joining and 12 after looking
+down, then walks with ordinary `minecraft_look`/`minecraft_press_inputs` calls.
+`--warm-ticks` permits a separately labelled steady-state experiment; default
+timing retains the original near-join measurement instead of hiding startup
+work behind a long warmup. The result retains poses, trace
+bounds, startup logs, capabilities and command transcript. A private virtual
+keyboard supplies seat capability so the compositor can send native keyboard
+focus; it emits no key events. All movement stays on MCP, with no uinput.
+Frame bounds come from MCP submitted-frame IDs, not asynchronously written
+file tails. The harness closes its private client gracefully and requires the
+lossless completion footer before computing statistics. Only comparisons with
+older synchronous baseline binaries may use `--legacy-synchronous-trace`; that
+mode retains their original SIGTERM teardown after measurement and records the
+exit status separately. It does not validate graceful shutdown of the baseline.
+Run repetitions under Main's approved `mem-run.sh -p` measurement lane. The
+harness records `pgrep -a solaris-client` at both ends and marks overlapping
+runs discarded. A private compositor is not evidence of physical scanout or a
+reproduction of the owner's Mutter scheduling. The original baseline needs the
+same 8-bit native-Wayland surface-format correction as HEAD on RADV; retain that
+common delta in the executable provenance instead of claiming identical bytes.

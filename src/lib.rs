@@ -157,6 +157,28 @@ pub fn cli(args: impl IntoIterator<Item = String>) -> Result<(), String> {
     }
 }
 
+/// Frame scheduling: with vsync the FIFO swapchain paces frames at the
+/// display refresh (a CPU cap below it repeats frames on some refreshes, e.g.
+/// 120 fps on a 144 Hz panel), so `max_fps` only caps unsynced presentation.
+fn frame_interval(vsync: bool, max_fps: u64) -> Duration {
+    match (vsync, max_fps) {
+        (true, _) | (false, 0) => Duration::ZERO,
+        (false, fps) => Duration::from_secs_f64(1. / fps as f64),
+    }
+}
+
+fn frame_deadline(timer_paced: bool, next_tick: Instant, next_frame: Instant) -> Instant {
+    if timer_paced { next_tick.min(next_frame) } else { next_tick }
+}
+
+/// Pointer capture follows gameplay input on every owner turn, not only on
+/// screen transitions: grab whenever the game owns input and no grab is held
+/// (a failed X11 grab is retried next turn), release as soon as it does not.
+/// `Some(true)` grab, `Some(false)` release, `None` keep.
+fn pointer_grab_change(game_input: bool, grabbed: bool) -> Option<bool> {
+    (game_input != grabbed).then_some(game_input)
+}
+
 struct App {
     options: Options,
     session: Session,
@@ -172,6 +194,7 @@ struct App {
     cursor_locked: bool,
     last_cursor: Option<(f64, f64)>,
     last_dialog_screen: bool,
+    input_only_wakeup: bool,
     pointer_inside: bool,
     debug_overlay: bool,
     shift_held: bool,
@@ -237,6 +260,7 @@ impl App {
             cursor_locked: false,
             last_cursor: None,
             last_dialog_screen: false,
+            input_only_wakeup: false,
             pointer_inside: false,
             debug_overlay: false,
             shift_held: false,
@@ -362,6 +386,9 @@ impl App {
         }
     }
     fn manual(&mut self, intent: InputIntent) {
+        // Raw look events arrive at mouse polling frequency. Session input
+        // records their revision; the next tick/frame publishes it once.
+        let defer_publication = matches!(intent, InputIntent::Look { .. });
         if self
             .automation
             .as_ref()
@@ -381,7 +408,7 @@ impl App {
         }
         if old_screen != self.session.screen() {
             self.release("screen_transition");
-        } else {
+        } else if !defer_publication {
             self.publish_session();
         }
     }
@@ -721,10 +748,10 @@ impl App {
     }
 
     fn frame_interval(&self) -> Duration {
-        match self.session.native_setting("max_fps").and_then(serde_json::Value::as_u64).unwrap_or(120) {
-            0 => Duration::ZERO,
-            fps => Duration::from_secs_f64(1. / fps as f64),
-        }
+        frame_interval(
+            self.session.native_setting("vsync").and_then(serde_json::Value::as_bool).unwrap_or(true),
+            self.session.native_setting("max_fps").and_then(serde_json::Value::as_u64).unwrap_or(120),
+        )
     }
 
     fn sync_native_window(&mut self) {
@@ -740,25 +767,39 @@ impl App {
         let game_input = self.focused && !self.occluded && self.session.phase() == "play"
             && self.session.screen() == "game" && !self.session.chat_open()
             && !self.session.dialog_screen_active();
-        if !game_input && self.cursor_locked {
-            let _ = window.set_cursor_grab(CursorGrabMode::None);
-            window.set_cursor_visible(true);
-            self.cursor_locked = false;
-        } else if game_input && self.last_dialog_screen
-            && window.set_cursor_grab(CursorGrabMode::Locked)
-                .or_else(|_| window.set_cursor_grab(CursorGrabMode::Confined)).is_ok()
-        {
-            window.set_cursor_visible(false);
-            self.cursor_locked = true;
+        match pointer_grab_change(game_input, self.cursor_locked) {
+            Some(false) => {
+                let _ = window.set_cursor_grab(CursorGrabMode::None);
+                window.set_cursor_visible(true);
+                self.cursor_locked = false;
+            }
+            Some(true)
+                if window.set_cursor_grab(CursorGrabMode::Locked)
+                    .or_else(|_| window.set_cursor_grab(CursorGrabMode::Confined)).is_ok() =>
+            {
+                window.set_cursor_visible(false);
+                self.cursor_locked = true;
+            }
+            _ => {}
         }
-        self.last_dialog_screen = !game_input;
     }
 
     fn deadline(&self) -> Instant {
+        // Presentation-paced frames are woken by the window/compositor, not
+        // a past WaitUntil deadline (which would busy-spin on Wayland).
+        // A hidden/zero-size surface has no frame timer either.
+        let renderable = !self.occluded && self.window.as_ref().is_some_and(|window| {
+            let size = window.inner_size();
+            size.width > 0 && size.height > 0
+        });
         self.pending_tasks
             .iter()
             .map(|(_, task)| task.deadline())
-            .fold(self.next_tick.min(self.next_frame), Instant::min)
+            .fold(frame_deadline(
+                renderable && !self.frame_interval().is_zero(),
+                self.next_tick,
+                self.next_frame,
+            ), Instant::min)
     }
 }
 
@@ -818,6 +859,7 @@ impl ApplicationHandler for App {
         window_id: WindowId,
         event: WindowEvent,
     ) {
+        self.input_only_wakeup = false;
         if self.window.as_ref().is_none_or(|w| w.id() != window_id) {
             return;
         }
@@ -1245,8 +1287,15 @@ impl ApplicationHandler for App {
             }
         }
     }
+    fn new_events(&mut self, _: &ActiveEventLoop, _: winit::event::StartCause) {
+        self.input_only_wakeup = true;
+    }
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
-        self.advance();
+        // Raw motion is already applied. Drain/rebuild once for an owner
+        // event or a tick/task/frame deadline, not at mouse polling frequency.
+        if !self.input_only_wakeup || Instant::now() >= self.deadline() {
+            self.advance();
+        }
         if self.shutdown {
             event_loop.exit();
             return;
@@ -1274,7 +1323,9 @@ impl ApplicationHandler for App {
         event_loop.set_control_flow(ControlFlow::WaitUntil(self.deadline()));
     }
 
-    fn user_event(&mut self, _: &ActiveEventLoop, _: ()) {}
+    fn user_event(&mut self, _: &ActiveEventLoop, _: ()) {
+        self.input_only_wakeup = false;
+    }
     fn suspended(&mut self, _: &ActiveEventLoop) {
         self.release("suspended");
     }
@@ -1282,6 +1333,12 @@ impl ApplicationHandler for App {
         self.release("exiting");
         let _ = self.session.command(Command::Disconnect);
         self.automation.take();
+        // run_app consumes the event loop. Destroy GPU instances (including
+        // the completion worker's EGL backend) before its Wayland display,
+        // while the window still owns valid native handles.
+        self.renderer.take();
+        self.window.take();
+        self.frame_trace.take();
     }
 }
 
@@ -1307,4 +1364,43 @@ mod cpu_hotpath_advance_tests {
             "noted publish must close the gate for the next idle turn");
     }
 
+}
+
+#[cfg(test)]
+mod window_input_pacing_tests {
+    use super::*;
+
+    #[test]
+    fn vsync_is_present_paced_and_max_fps_caps_only_unsynced_frames() {
+        // 120 fps under FIFO on a 144 Hz panel repeated every sixth refresh.
+        assert_eq!(frame_interval(true, 120), Duration::ZERO);
+        assert_eq!(frame_interval(true, 0), Duration::ZERO);
+        assert_eq!(frame_interval(false, 0), Duration::ZERO);
+        assert_eq!(frame_interval(false, 120), Duration::from_secs_f64(1. / 120.));
+    }
+
+    #[test]
+    fn presentation_paced_or_hidden_surface_does_not_spin_on_frame_deadline() {
+        let now = Instant::now();
+        let tick = now + Duration::from_millis(50);
+        assert_eq!(frame_deadline(false, tick, now), tick);
+        assert_eq!(frame_deadline(true, tick, now), now);
+        assert_eq!(frame_deadline(!frame_interval(true, 120).is_zero(), tick, now), tick);
+        assert_eq!(frame_deadline(!frame_interval(false, 120).is_zero(), tick, now), now);
+        assert_eq!(frame_deadline(!frame_interval(false, 0).is_zero(), tick, now), tick);
+    }
+
+    #[test]
+    fn pointer_grab_retries_every_turn_until_held() {
+        // Entering play while the grab cannot be taken yet (X11 grab refused,
+        // window not viewable): the old transition-only rule never retried.
+        let mut grabbed = false;
+        for grab_succeeds in [false, false, true] {
+            assert_eq!(pointer_grab_change(true, grabbed), Some(true));
+            grabbed = grab_succeeds;
+        }
+        assert_eq!(pointer_grab_change(true, grabbed), None, "held grab is kept");
+        assert_eq!(pointer_grab_change(false, grabbed), Some(false), "menus/focus loss release");
+        assert_eq!(pointer_grab_change(false, false), None);
+    }
 }

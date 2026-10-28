@@ -335,6 +335,10 @@ struct FrameStats {
     surface_acquire_ms: f64,
     present_call_ms: f64,
     present_thread_cpu_ms: Option<f64>,
+    collect_ms: f64,
+    finish_ms: f64,
+    submit_ms: f64,
+    render_thread_cpu_ms: Option<f64>,
 }
 
 pub struct Renderer {
@@ -414,6 +418,7 @@ pub struct Renderer {
     last_frame_ms: f64,
     frame_interval_ms: Option<f64>,
     previous_frame: Option<Instant>,
+    fps: metrics::FpsCounter,
     stats: FrameStats,
 }
 
@@ -816,6 +821,7 @@ impl Renderer {
             last_frame_ms: 0.,
             frame_interval_ms: None,
             previous_frame: None,
+            fps: Default::default(),
             stats: Default::default(),
         })
     }
@@ -1149,6 +1155,7 @@ impl Renderer {
         observation: &Observation,
     ) -> Result<(), String> {
         let start = Instant::now();
+        let cpu_start = timing::thread_cpu_seconds();
         if let Some(request) = &capture {
             let cancelled = request
                 .automation_fence
@@ -1174,6 +1181,7 @@ impl Renderer {
             }
         }
         self.collect_completed();
+        let collect_ms = start.elapsed().as_secs_f64() * 1000.;
         if let Ok(error) = self.gpu_errors.try_recv() {
             if let Some(request) = capture {
                 let _ = request.reply.send(Err(error.clone()));
@@ -1191,6 +1199,7 @@ impl Renderer {
             return Ok(());
         }
         self.stats = FrameStats::default();
+        self.stats.collect_ms = collect_ms;
         let acquisition = Instant::now();
         let frame = match self
             .surface
@@ -1433,7 +1442,12 @@ impl Renderer {
                 }
             }
         }
-        let submission = self.queue.submit([encoder.finish()]);
+        let finish = Instant::now();
+        let commands = encoder.finish();
+        self.stats.finish_ms = finish.elapsed().as_secs_f64() * 1000.;
+        let submit = Instant::now();
+        let submission = self.queue.submit([commands]);
+        self.stats.submit_ms = submit.elapsed().as_secs_f64() * 1000.;
         if self.texture_activation_frame.is_none() {
             self.texture_activation_frame = Some(self.frame_id);
         }
@@ -1464,6 +1478,7 @@ impl Renderer {
             .previous_frame
             .map(|old| now.duration_since(old).as_secs_f64() * 1000.);
         self.previous_frame = Some(now);
+        self.fps.frame(now);
         if let Some((buffer, request, width, height, row_bytes, path, metadata)) = new_capture {
             let (tx, mapped) = mpsc::sync_channel(1);
             let wake = self.wake.clone();
@@ -1490,6 +1505,8 @@ impl Renderer {
         }
         self.progress.submitted(submission)?;
         self.last_frame_ms = start.elapsed().as_secs_f64() * 1000.0;
+        self.stats.render_thread_cpu_ms = cpu_start.zip(timing::thread_cpu_seconds())
+            .map(|(start, end)| (end - start).max(0.) * 1000.);
         Ok(())
     }
 
@@ -1612,6 +1629,18 @@ impl Renderer {
 #[cfg(test)]
 mod presentation_error_tests {
     use super::*;
+
+    #[test]
+    fn vsync_uses_fifo_even_when_unsynced_modes_are_available() {
+        use wgpu::PresentMode::{AutoNoVsync, Fifo, Immediate, Mailbox};
+        let variants: &[&[wgpu::PresentMode]] = &[&[], &[Fifo], &[Immediate, Mailbox, Fifo]];
+        for supported in variants {
+            assert_eq!(present_mode(true, supported), Fifo);
+        }
+        assert_eq!(present_mode(false, &[Fifo, Mailbox, Immediate]), Mailbox);
+        assert_eq!(present_mode(false, &[Fifo, Immediate]), Immediate);
+        assert_eq!(present_mode(false, &[Fifo]), AutoNoVsync);
+    }
 
     #[test]
     fn surface_error_classification_recovers_presentation_failures() {
