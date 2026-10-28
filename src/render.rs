@@ -414,6 +414,7 @@ pub struct Renderer {
     last_frame_ms: f64,
     frame_interval_ms: Option<f64>,
     previous_frame: Option<Instant>,
+    fps: metrics::FpsCounter,
     stats: FrameStats,
 }
 
@@ -809,6 +810,7 @@ impl Renderer {
             last_frame_ms: 0.,
             frame_interval_ms: None,
             previous_frame: None,
+            fps: Default::default(),
             stats: Default::default(),
         })
     }
@@ -1457,6 +1459,7 @@ impl Renderer {
             .previous_frame
             .map(|old| now.duration_since(old).as_secs_f64() * 1000.);
         self.previous_frame = Some(now);
+        self.fps.frame(now);
         if let Some((buffer, request, width, height, row_bytes, path, metadata)) = new_capture {
             let (tx, mapped) = mpsc::sync_channel(1);
             let wake = self.wake.clone();
@@ -1605,6 +1608,18 @@ impl Renderer {
 #[cfg(test)]
 mod presentation_error_tests {
     use super::*;
+
+    #[test]
+    fn vsync_uses_fifo_even_when_unsynced_modes_are_available() {
+        use wgpu::PresentMode::{AutoNoVsync, Fifo, Immediate, Mailbox};
+        let variants: &[&[wgpu::PresentMode]] = &[&[], &[Fifo], &[Immediate, Mailbox, Fifo]];
+        for supported in variants {
+            assert_eq!(present_mode(true, supported), Fifo);
+        }
+        assert_eq!(present_mode(false, &[Fifo, Mailbox, Immediate]), Mailbox);
+        assert_eq!(present_mode(false, &[Fifo, Immediate]), Immediate);
+        assert_eq!(present_mode(false, &[Fifo]), AutoNoVsync);
+    }
 
     #[test]
     fn surface_error_classification_recovers_presentation_failures() {

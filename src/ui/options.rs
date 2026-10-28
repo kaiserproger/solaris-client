@@ -49,7 +49,7 @@ const VIDEO: [Row; 6] = [
         "max_fps",
         "Max FPS",
         Kind::Slider,
-        "Caps the frame rate. Far right means unlimited.",
+        "Caps FPS with VSync off. Far right is unlimited.",
     ),
     row(
         "vsync",

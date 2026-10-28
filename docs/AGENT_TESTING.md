@@ -721,3 +721,35 @@ Idle CPU measurements must leave no pending MCP wait action and use a bounded
 profiler interval, recording process CPU time, wall time, RSS and actual tick/
 packet progress separately. A profiler timeout is a measurement window, not a
 sleep-based gameplay readiness claim.
+
+### Native pointer capture and VSync pacing
+
+Gameplay capture follows focused, non-occluded Play with no chat, container or
+dialog owning input. Entering that state requests a locked pointer (confined
+where locking is unsupported); an unsuccessful request is reconsidered on the
+next owner turn rather than consuming the only screen transition. Leaving it
+releases capture immediately. On Wayland, a successful request is not proof
+that the compositor activated it: record `zwp_locked_pointer_v1.locked()` and
+camera motion from real relative input. Winit retains a pending capture across
+pointer entry, so repeatedly recreating a successful Wayland lock is unnecessary.
+
+VSync selects FIFO presentation; the software Max FPS cap applies only with
+VSync disabled. Applying both independently can repeat panel refreshes (for
+example, a 120 FPS timer on a 144 Hz display). Reapplying the same VSync setting
+does not reconfigure the surface. The renderer's `fps` gauge counts submitted
+frames over at least half a second; individual reciprocal submission intervals
+are not a reliable FPS counter when FIFO queues submissions in bursts.
+Presentation-paced and hidden surfaces have no software frame wakeup deadline:
+window/compositor events schedule their redraws, while ticks and pending actions
+keep their own deadlines. This avoids a past `WaitUntil` spinning while a Wayland
+frame callback is pending. Raw-motion-only wakes apply the look immediately but
+do not repeat network/scene owner work before a real deadline or owner event.
+
+For a pacing regression, retain `SOLARIS_CLIENT_FRAME_TRACE=/absolute/path.tsv`,
+the exact executable hash, native display/backend and adapter, window size,
+settings, route and walking interval. Compare `submitted_frame_interval_ms`
+percentiles only within that interval, separately from CPU/GPU work and
+presentation-call time. Submission is not physical display scanout evidence.
+Mouse-look must use the ordinary Session input path, release an automation
+controller on human input, and defer its expensive observation publication to
+the next owner tick/frame rather than rebuilding it at mouse polling frequency.
