@@ -762,11 +762,21 @@ submission row, because readback is asynchronous. CPU phase wall durations are
 not GPU execution durations; queue/acquire/present waits must remain separate.
 
 `tools/pacing_headless.py --binary /absolute/client --out /absolute/.analysis/run`
-uses a private headless sway, native Wayland (Xwayland disabled), RADV on
-`/dev/dri/renderD128`, 1920×1080 at a requested 144 Hz, and FIFO. It clones the
+uses a private headless sway, native Wayland (Xwayland disabled), 1280×720 at a
+requested 144 Hz, and FIFO. Default `--gpu nvidia` selects `/dev/dri/renderD129`;
+`--gpu radeon` selects RADV on `/dev/dri/renderD128`. It clones the
 stopped `.analysis/server/world` for each run, starts the local release server,
-discovers live MCP schemas, warms for 280 ticks and walks with ordinary
-`minecraft_look`/`minecraft_press_inputs` calls. The result retains poses, trace
-bounds, startup logs, capabilities and command transcript. Run repetitions under
-the approved exclusive measurement lane; a private compositor is not evidence
-of physical scanout or a reproduction of the owner's Mutter scheduling.
+discovers live MCP schemas, waits 10 ticks after joining and 12 after looking
+down, then walks with ordinary `minecraft_look`/`minecraft_press_inputs` calls.
+`--warm-ticks` permits a separately labelled steady-state experiment; default
+timing retains the original near-join measurement instead of hiding startup
+work behind a long warmup. The result retains poses, trace
+bounds, startup logs, capabilities and command transcript. A private virtual
+keyboard supplies seat capability so the compositor can send native keyboard
+focus; it emits no key events. All movement stays on MCP, with no uinput.
+Run repetitions under Main's approved `mem-run.sh -p` measurement lane. The
+harness records `pgrep -a solaris-client` at both ends and marks overlapping
+runs discarded. A private compositor is not evidence of physical scanout or a
+reproduction of the owner's Mutter scheduling. The original baseline needs the
+same 8-bit native-Wayland surface-format correction as HEAD on RADV; retain that
+common delta in the executable provenance instead of claiming identical bytes.

@@ -4,6 +4,7 @@
 
 use serde_json::Value;
 use std::{
+    fmt::Write as _,
     fs::File,
     io::{LineWriter, Write},
     time::Instant,
@@ -69,7 +70,9 @@ impl FrameTrace {
             match &render[column] {
                 Value::Number(n) => line.push_str(&n.to_string()),
                 Value::String(s) => line.push_str(s),
-                Value::Object(_) => line.push_str(&render[column].to_string()),
+                Value::Object(_) => {
+                    let _ = write!(line, "{}", render[column]);
+                }
                 _ => line.push('-'),
             }
         }
