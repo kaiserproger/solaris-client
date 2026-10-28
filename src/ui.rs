@@ -32,6 +32,8 @@ mod sample;
 mod screens;
 pub mod shaping;
 mod state;
+#[cfg(test)]
+mod inventory_input_tests;
 mod statistics;
 pub mod text;
 mod theme;

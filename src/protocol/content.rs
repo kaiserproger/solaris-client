@@ -2155,6 +2155,10 @@ impl Content {
         );
     }
     #[cfg(test)]
+    pub(crate) fn mark_test_bundle(&mut self, id: u32) {
+        self.item_interactions.get_mut(&id).unwrap().is_bundle = true;
+    }
+    #[cfg(test)]
     pub(crate) fn insert_test_block_interaction(&mut self, state: u32, replaceable: bool) {
         let facts = BlockInteraction {
             use_item_on: Arc::from("BlockBehaviour"),

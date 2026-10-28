@@ -44,6 +44,55 @@ use winit::{
     window::{CursorGrabMode, Window, WindowId},
 };
 
+fn native_item_key(
+    code: KeyCode,
+    pressed: bool,
+    modifiers: ui::Modifiers,
+    inventory_open: bool,
+) -> Option<InputIntent> {
+    if code == KeyCode::KeyQ && !inventory_open {
+        return Some(InputIntent::Key { key: "drop".into(), pressed });
+    }
+    if !pressed {
+        return None;
+    }
+    if inventory_open {
+        let key = match code {
+            KeyCode::Digit1 => "1",
+            KeyCode::Digit2 => "2",
+            KeyCode::Digit3 => "3",
+            KeyCode::Digit4 => "4",
+            KeyCode::Digit5 => "5",
+            KeyCode::Digit6 => "6",
+            KeyCode::Digit7 => "7",
+            KeyCode::Digit8 => "8",
+            KeyCode::Digit9 => "9",
+            KeyCode::KeyF => "f",
+            KeyCode::KeyQ => "q",
+            _ => return None,
+        };
+        return Some(InputIntent::Ui {
+            intent: ui::UiIntent::Key { key: key.into(), pressed, modifiers },
+        });
+    }
+    let slot = match code {
+        KeyCode::Digit1 => Some(0),
+        KeyCode::Digit2 => Some(1),
+        KeyCode::Digit3 => Some(2),
+        KeyCode::Digit4 => Some(3),
+        KeyCode::Digit5 => Some(4),
+        KeyCode::Digit6 => Some(5),
+        KeyCode::Digit7 => Some(6),
+        KeyCode::Digit8 => Some(7),
+        KeyCode::Digit9 => Some(8),
+        _ => None,
+    };
+    if let Some(slot) = slot {
+        return Some(InputIntent::Hotbar { slot });
+    }
+    None
+}
+
 struct Options {
     automation: bool,
     bind: std::net::SocketAddr,
@@ -1129,6 +1178,12 @@ impl ApplicationHandler for App {
                     }
                     return;
                 }
+                if let Some(intent) = native_item_key(
+                    code, pressed, self.native_modifiers, self.session.screen() == "inventory",
+                ) {
+                    self.manual(intent);
+                    return;
+                }
                 if code == KeyCode::Escape && pressed {
                     self.release("emergency_stop");
                     if self.session.screen() == "inventory" {
@@ -1205,7 +1260,6 @@ impl ApplicationHandler for App {
                     KeyCode::ShiftLeft | KeyCode::ShiftRight => "sneak",
                     KeyCode::ControlLeft | KeyCode::ControlRight => "sprint",
                     KeyCode::KeyE => "inventory",
-                    KeyCode::KeyQ => "drop",
                     _ => "",
                 };
                 if !key.is_empty() {
@@ -1213,23 +1267,6 @@ impl ApplicationHandler for App {
                         key: key.into(),
                         pressed,
                     });
-                }
-                if pressed {
-                    let slot = match code {
-                        KeyCode::Digit1 => Some(0),
-                        KeyCode::Digit2 => Some(1),
-                        KeyCode::Digit3 => Some(2),
-                        KeyCode::Digit4 => Some(3),
-                        KeyCode::Digit5 => Some(4),
-                        KeyCode::Digit6 => Some(5),
-                        KeyCode::Digit7 => Some(6),
-                        KeyCode::Digit8 => Some(7),
-                        KeyCode::Digit9 => Some(8),
-                        _ => None,
-                    };
-                    if let Some(slot) = slot {
-                        self.manual(InputIntent::Hotbar { slot });
-                    }
                 }
             }
             // Dialogs synthesize a complete click on press. Inventory/container

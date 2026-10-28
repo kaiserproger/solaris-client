@@ -490,12 +490,12 @@ fn inventory_captions_clear_slots_and_preview_pin_exists() {
         .expect("menu tree must build");
     let nodes = ui.observed_nodes();
     assert!(
-        !nodes.iter().any(|node| {
-            node["id"]
-                .as_str()
-                .is_some_and(|id| id.starts_with("recipe/") || id == "menu/close")
-        }),
-        "inventory must not expose unfinished book controls or floating Close"
+        nodes.iter().any(|node| node["id"] == "recipe/book"),
+        "inventory must expose the shared recipe book"
+    );
+    assert!(
+        !nodes.iter().any(|node| node["id"] == "menu/close"),
+        "inventory must not expose a floating Close"
     );
     let rect = |id: &str| {
         nodes
