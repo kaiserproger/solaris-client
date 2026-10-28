@@ -584,11 +584,18 @@ impl Renderer {
             let mut config = surface
                 .get_default_config(&adapter, width, height)
                 .ok_or("surface_configuration_unavailable")?;
-            if let Some(format) = surface
-                .get_capabilities(&adapter)
-                .formats
+            // Prefer plain 8-bit non-sRGB; never pick a format the device cannot
+            // render to (RADV on Wayland lists Rgba16Unorm first, which needs
+            // TEXTURE_FORMAT_16BIT_NORM).
+            let formats = surface.get_capabilities(&adapter).formats;
+            if let Some(format) = [wgpu::TextureFormat::Bgra8Unorm, wgpu::TextureFormat::Rgba8Unorm]
                 .into_iter()
-                .find(|format| !format.is_srgb())
+                .find(|format| formats.contains(format))
+                .or_else(|| {
+                    formats.iter().copied().find(|format| {
+                        !format.is_srgb() && device.features().contains(format.required_features())
+                    })
+                })
             {
                 config.format = format;
             }
