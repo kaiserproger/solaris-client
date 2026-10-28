@@ -11,12 +11,17 @@ use std::time::{Duration, Instant};
 /// slowly; the test reports and bounds that.
 #[test]
 fn gpu_columns_match_the_cpu_reference() {
-    let renderer = pollster::block_on(Renderer::new_offscreen(
+    let renderer = match pollster::block_on(Renderer::new_offscreen(
         32,
         32,
         PathBuf::from(".analysis/clientcpu-regression"),
-    ))
-    .unwrap();
+    )) {
+        Ok(renderer) => renderer,
+        Err(error) => {
+            eprintln!("SKIP: offscreen GPU unavailable: {error}");
+            return;
+        }
+    };
     if !renderer.far.generator.supported {
         eprintln!("SKIP: no compute shaders on this adapter");
         return;

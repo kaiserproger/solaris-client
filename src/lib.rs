@@ -175,6 +175,7 @@ struct App {
     shift_held: bool,
     hotbar_wheel: hotbar_wheel::HotbarWheel,
     next_tick: Instant,
+    tick_interval: Duration,
     next_frame: Instant,
     advance_cpu_ms: f64,
     drain_cpu_ms: f64,
@@ -210,6 +211,7 @@ impl App {
             session.apply_client_setting("fullscreen", &json!(true))?;
         }
         session.set_wake(wake.clone());
+        let tick_interval = session.tick_interval();
         let shared = Arc::new(Shared {
             observation: Mutex::new(session.execution_observation()),
             changed: Condvar::new(),
@@ -235,6 +237,7 @@ impl App {
             shift_held: false,
             hotbar_wheel: hotbar_wheel::HotbarWheel::default(),
             next_tick: Instant::now(),
+            tick_interval,
             next_frame: Instant::now(),
             advance_cpu_ms: 0.,
             drain_cpu_ms: 0.,
@@ -598,7 +601,9 @@ impl App {
         };
         let remaining = self.next_tick.saturating_duration_since(Instant::now()).as_secs_f32();
         let prepare_start = Instant::now();
-        self.session.prepare_frame((1. - remaining / 0.05).clamp(0., 1.))?;
+        self.session.prepare_frame(
+            (1. - remaining / self.tick_interval.as_secs_f32()).clamp(0., 1.),
+        )?;
         let prepare_ms = prepare_start.elapsed().as_secs_f64() * 1000.;
         if let Some(renderer) = &mut self.renderer {
             let mut shared = self
@@ -672,16 +677,21 @@ impl App {
             events_drained = true;
         }
         let now = Instant::now();
+        let interval = self.session.tick_interval();
+        if interval != self.tick_interval {
+            self.tick_interval = interval;
+            self.next_tick = now + interval;
+        }
         let mut advanced = 0;
         while now >= self.next_tick && advanced < 4 {
             let tick_start = Instant::now();
             changed |= self.session.tick_after_events(events_drained && advanced == 0);
             self.tick_cpu_ms += tick_start.elapsed().as_secs_f64() * 1000.;
-            self.next_tick += Duration::from_millis(50);
+            self.next_tick += self.tick_interval;
             advanced += 1;
         }
         if now >= self.next_tick {
-            self.next_tick = now + Duration::from_millis(50);
+            self.next_tick = now + self.tick_interval;
         }
         // No task can have changed state after the publication below when
         // the queue is empty; avoid rebuilding the entire observation twice.

@@ -32,7 +32,7 @@ use std::{
     collections::{BTreeMap, BTreeSet, VecDeque},
     sync::{Arc, RwLock, mpsc},
     thread,
-    time::Instant,
+    time::{Duration, Instant},
 };
 type Wake = Arc<dyn Fn() + Send + Sync>;
 struct PredictedBlock {
@@ -231,6 +231,9 @@ impl Session {
         out.camera();
         out.scene.fov_deg = out.fov_deg;
         out
+    }
+    pub(crate) fn tick_interval(&self) -> Duration {
+        Duration::from_secs_f32(self.environment.tick_rate.recip())
     }
     pub fn set_wake(&mut self, wake: Wake) {
         *self.wake.write().expect("session wake lock poisoned") = wake;

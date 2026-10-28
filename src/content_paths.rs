@@ -128,13 +128,13 @@ fn link(source: &Path, destination: &Path) -> Result<(), String> {
 
 pub(crate) fn setup(dist: &Path, assets: &Path, root: &Path) -> Result<(), String> {
     // Validate every source before creating the destination. Never overwrite caches.
-    for directory in ["facts", "data", "resources"] {
+    for directory in ["facts", "entities", "data", "resources"] {
         require(&dist.join(directory), true)?;
     }
     require(&dist.join("assets/asset-index.json"), false)?;
     require(&assets.join("objects"), true)?;
     std::fs::create_dir_all(root.join("assets")).map_err(|e| format!("{}: {e}", root.display()))?;
-    for directory in ["facts", "data", "resources"] {
+    for directory in ["facts", "entities", "data", "resources"] {
         link(&dist.join(directory), &root.join(directory))?;
     }
     // Pin exactly the index paired with the verified dist facts, not an arbitrary

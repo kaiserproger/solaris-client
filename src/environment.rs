@@ -506,7 +506,7 @@ impl Environment {
             127 => {
                 let rate = r.f32()?;
                 let frozen = r.bool()?;
-                if rate <= 0. {
+                if !rate.is_finite() || rate <= 0. {
                     return Err("nonpositive server tick rate".into());
                 }
                 self.tick_rate = rate;

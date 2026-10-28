@@ -231,12 +231,6 @@ impl Session {
         {
             self.environment.publish_world(&mut self.world)?;
             self.server_frozen = self.environment.frozen;
-            if (self.environment.tick_rate - 20.).abs() > 0.001 {
-                return Err(format!(
-                    "unsupported server simulation rate {}",
-                    self.environment.tick_rate
-                ));
-            }
             if id == 128 {
                 self.step_ticks = Reader::new(r.bytes).var()?;
             }
@@ -846,6 +840,27 @@ mod tests {
         session.received_chunks.insert(chunk_key(position), 10);
         session.receive_block(position, 1).unwrap();
         session
+    }
+
+    #[test]
+    fn ticking_state_accepts_server_rate_and_preserves_it_for_interpolation() {
+        let mut session = session_with_received_cube([0, 3, 0]);
+        session
+            .environment
+            .activate_dimension(
+                "minecraft:the_nether",
+                &json!({"min_y":0,"height":16,"has_skylight":false,"has_ceiling":true,"skybox":"none"}),
+                0,
+            )
+            .unwrap();
+        let mut packet = Writer::default();
+        packet.f32(40.);
+        packet.byte(0);
+
+        session.apply(Phase::Play, 127, &packet.0).unwrap();
+
+        assert_eq!(session.tick_interval(), Duration::from_millis(25));
+        assert!(!session.server_frozen);
     }
 
     fn level_event_bytes(event: i32, position: [i32; 3], data: i32, global: bool) -> Vec<u8> {
