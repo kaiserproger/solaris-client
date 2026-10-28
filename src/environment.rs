@@ -447,15 +447,15 @@ impl Environment {
         content: &Content,
         tick: u64,
     ) -> Result<bool> {
-        if !matches!(id, 38 | 113 | 127 | 128) {
+        if !matches!(id, 39 | 115 | 130 | 131) {
             return Ok(false);
         }
-        if id == 38 && !matches!(r.bytes.get(r.offset), Some(1 | 2 | 7 | 8)) {
+        if id == 39 && !matches!(r.bytes.get(r.offset), Some(1 | 2 | 7 | 8)) {
             return Ok(false);
         }
         self.advance(tick, self.partial);
         match id {
-            38 => {
+            39 => {
                 let event = r.u8()?;
                 let v = r.f32()?.clamp(0., 1.);
                 match event {
@@ -466,7 +466,7 @@ impl Environment {
                     _ => unreachable!(),
                 }
             }
-            113 => {
+            115 => {
                 let time = r.i64()?;
                 let count = r.count(1024)?;
                 let mut updates = Vec::with_capacity(count);
@@ -503,7 +503,7 @@ impl Environment {
                         .expect("configured clock checked before commit") = c;
                 }
             }
-            127 => {
+            130 => {
                 let rate = r.f32()?;
                 let frozen = r.bool()?;
                 if !rate.is_finite() || rate <= 0. {
@@ -512,7 +512,7 @@ impl Environment {
                 self.tick_rate = rate;
                 self.frozen = frozen;
             }
-            128 => {
+            131 => {
                 self.steps = r.count(i32::MAX as usize)? as u32;
             }
             _ => unreachable!(),

@@ -311,7 +311,7 @@ mod tests {
         trailing.push(0);
         assert!(
             state
-                .apply(85, &mut Reader::new(&trailing), &content)
+                .apply(87, &mut Reader::new(&trailing), &content)
                 .is_err()
         );
         assert_eq!(
@@ -331,7 +331,7 @@ mod tests {
         );
         assert_eq!(state.scroll, 7);
         state
-            .apply(85, &mut Reader::new(&packet.0), &content)
+            .apply(87, &mut Reader::new(&packet.0), &content)
             .unwrap();
         assert_eq!(
             state.selected_advancement_root(),
@@ -348,7 +348,7 @@ mod tests {
             }
             state.scroll = 9;
             state
-                .apply(85, &mut Reader::new(&packet.0), &content)
+                .apply(87, &mut Reader::new(&packet.0), &content)
                 .unwrap();
             assert_eq!(state.selected_advancement, None);
             assert_eq!(
@@ -382,7 +382,7 @@ mod tests {
         packet.var(0); // no progress
         packet.byte(0); // no toast
         state
-            .apply(130, &mut Reader::new(&packet.0), &content)
+            .apply(133, &mut Reader::new(&packet.0), &content)
             .unwrap();
         assert!(!state.advancements.contains_key("test:child"));
         assert!(!state.advancements.contains_key("test:leaf"));
@@ -406,7 +406,7 @@ mod tests {
         state.scroll = 8;
         // Reset with no replacements clears selection as well as the graph.
         state
-            .apply(130, &mut Reader::new(&[1, 0, 0, 0, 0]), &content)
+            .apply(133, &mut Reader::new(&[1, 0, 0, 0, 0]), &content)
             .unwrap();
         assert!(state.advancements.is_empty());
         assert_eq!(state.selected_advancement_root(), None);
@@ -456,12 +456,12 @@ mod tests {
         malformed.push(0);
         assert!(
             state
-                .apply(130, &mut Reader::new(&malformed), &content)
+                .apply(133, &mut Reader::new(&malformed), &content)
                 .is_err()
         );
         assert!(!state.advancements.contains_key("test:leaf"));
         state
-            .apply(130, &mut Reader::new(&packet.0), &content)
+            .apply(133, &mut Reader::new(&packet.0), &content)
             .unwrap();
         assert_eq!(
             state.advancement_root_for("test:leaf"),
@@ -501,7 +501,7 @@ mod tests {
         let before = state.advancements.len();
         assert!(
             state
-                .apply(130, &mut Reader::new(&[1, 0, 0, 0, 0, 1]), &content)
+                .apply(133, &mut Reader::new(&[1, 0, 0, 0, 0, 1]), &content)
                 .is_err()
         );
         assert_eq!(state.advancements.len(), before);

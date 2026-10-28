@@ -297,12 +297,12 @@ impl UiState {
         // Returning false does not advance the reader, so another owner can consume its own packet.
         if !matches!(
             id,
-            3 | 9 | 14 | 31 | 33 | 51 | 65 | 68 | 85 | 112 | 114 | 115 | 121 | 122 | 130 | 139 | 140
+            3 | 9 | 14 | 31 | 33 | 52 | 66 | 69 | 87 | 114 | 116 | 117 | 124 | 125 | 133 | 142 | 143
         ) {
             return Ok(false);
         }
         match id {
-            139 | 140 => self.apply_dialog_packet(id, r)?,
+            142 | 143 => self.apply_dialog_packet(id, r)?,
             3 => self.statistics.apply(r, content)?,
             9 => {
                 let key = uuid(r)?;
@@ -379,8 +379,8 @@ impl UiState {
                 let component = decorate(message, bound)?;
                 self.push_chat(component, None, None, false)?;
             }
-            51 => self.read_map(r, content)?,
-            65 => {
+            52 => self.read_map(r, content)?,
+            66 => {
                 let global = r.var()?;
                 if global != self.chat_expected_index {
                     return Err("chat_global_index_out_of_order".into());
@@ -487,20 +487,20 @@ impl UiState {
                         .ok_or("chat_sequence_exhausted")?;
                 }
             }
-            68 => {
+            69 => {
                 let _player = r.var()?;
                 self.death = Some(r.nbt()?);
                 self.transition(Screen::Death);
             }
-            85 => self.read_advancement_tab(r)?,
-            112 => {
+            87 => self.read_advancement_tab(r)?,
+            114 => {
                 self.subtitle = Some(r.nbt()?);
             }
-            114 => {
+            116 => {
                 self.title = Some(r.nbt()?);
                 self.title_started = self.tick;
             }
-            115 => {
+            117 => {
                 let times = [r.i32()?, r.i32()?, r.i32()?];
                 for (i, t) in times.into_iter().enumerate() {
                     if t >= 0 {
@@ -508,7 +508,7 @@ impl UiState {
                     }
                 }
             }
-            121 => {
+            124 => {
                 let component = r.nbt()?;
                 let overlay = r.bool()?;
                 if overlay {
@@ -518,11 +518,11 @@ impl UiState {
                     self.push_chat(component, None, None, false)?;
                 }
             }
-            122 => {
+            125 => {
                 self.tab_header = Some(r.nbt()?);
                 self.tab_footer = Some(r.nbt()?);
             }
-            130 => self.read_advancements(r, content)?,
+            133 => self.read_advancements(r, content)?,
             _ => unreachable!(),
         }
         r.done()?;

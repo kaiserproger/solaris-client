@@ -1,4 +1,4 @@
-//! Native protocol-775 remote presentation. Session remains the local physics/health owner.
+//! Native protocol-777 remote presentation. Session remains the local physics/health owner.
 //! Derived model data is explicitly activated; no Java process is used by the client.
 mod analog;
 mod block_components;
@@ -739,7 +739,7 @@ impl Store {
         content: &Content,
         tick: u64,
     ) -> Result<bool> {
-        if id == 69 || id == 70 {
+        if id == 70 || id == 71 {
             self.apply_player_info(id, r)?;
             return Ok(true);
         }
@@ -896,23 +896,30 @@ impl Store {
                 }
                 self.event(json!({"type":"entity_status","entity":target,"status":event,"origin":"server_observed"}));
             }
-            53 | 54 | 56 => {
+            54 | 55 | 57 => {
                 let target = r.var()?;
-                let delta = if id != 56 {
-                    Some([
-                        f64::from(r.i16()?) / 4096.,
-                        f64::from(r.i16()?) / 4096.,
-                        f64::from(r.i16()?) / 4096.,
-                    ])
+                let (delta, ground) = if id == 57 {
+                    (None, r.bool()?)
                 } else {
-                    None
+                    let props = r.var()?;
+                    let steps = props >> 1;
+                    let mut delta = [0.; 3];
+                    let count = if steps == 0 { 1 } else { steps };
+                    for _ in 0..count {
+                        if steps != 0 {
+                            r.var()?;
+                        }
+                        for coordinate in &mut delta {
+                            *coordinate += f64::from(r.i16()?) / 4096.;
+                        }
+                    }
+                    (Some(delta), props & 1 != 0)
                 };
-                let rotation = if id != 53 {
+                let rotation = if id != 54 {
                     Some((degrees(r.u8()?), degrees(r.u8()?)))
                 } else {
                     None
                 };
-                let ground = r.bool()?;
                 r.done()?;
                 if let Some(e) = self.get(target) {
                     let mut transform = e.transform;
@@ -931,12 +938,25 @@ impl Store {
             }
             35 => {
                 let target = r.var()?;
-                let position = [r.f64()?, r.f64()?, r.f64()?];
-                let velocity = [r.f64()?, r.f64()?, r.f64()?];
+                let position = match r.var()? {
+                    0 => [r.f64()?, r.f64()?, r.f64()?],
+                    1 => {
+                        let count = r.count(256)?;
+                        if count == 0 {
+                            return Err("empty entity position path".into());
+                        }
+                        let mut last = [0.; 3];
+                        for _ in 0..count {
+                            last = [r.f64()?, r.f64()?, r.f64()?];
+                            r.var()?;
+                        }
+                        last
+                    }
+                    _ => return Err("unknown entity position path type".into()),
+                };
                 let yaw = r.f32()?;
                 let pitch = r.f32()?;
                 let ground = r.bool()?;
-                r.done()?;
                 let head_yaw = self
                     .get(target)
                     .map(|e| e.transform.head_yaw)
@@ -950,13 +970,13 @@ impl Store {
                         pitch,
                         head_yaw,
                     },
-                    Some(velocity),
+                    None,
                     ground,
                     tick,
                     false,
                 );
             }
-            77 => {
+            78 => {
                 let n = r.count(MAX_ENTITIES)?;
                 let ids = (0..n).map(|_| r.var()).collect::<Result<Vec<_>>>()?;
                 r.done()?;
@@ -965,7 +985,7 @@ impl Store {
                     self.remove(id);
                 }
             }
-            83 => {
+            85 => {
                 let target = r.var()?;
                 let head = degrees(r.u8()?);
                 r.done()?;
@@ -977,7 +997,7 @@ impl Store {
                     self.move_entity(target, t, None, ground, tick, false);
                 }
             }
-            99 => {
+            101 => {
                 let target = r.var()?;
                 let models = self
                     .models
@@ -1035,7 +1055,7 @@ impl Store {
                     self.spatial_padding = self.spatial_padding.max(extent);
                 }
             }
-            100 => {
+            102 => {
                 let target = r.i32()?;
                 let holder = r.i32()?;
                 r.done()?;
@@ -1061,7 +1081,7 @@ impl Store {
                     e.leash_holder_id = if holder == 0 { None } else { Some(holder) };
                 }
             }
-            101 => {
+            103 => {
                 let target = r.var()?;
                 let velocity = read_velocity(r)?;
                 r.done()?;
@@ -1072,7 +1092,7 @@ impl Store {
                     e.revision = revision;
                 }
             }
-            102 => {
+            104 => {
                 let target = r.var()?;
                 let mut updates = Vec::with_capacity(8);
                 let mut seen = 0u16;
@@ -1105,7 +1125,7 @@ impl Store {
                     e.binding = None;
                 }
             }
-            107 => {
+            109 => {
                 let vehicle = r.var()?;
                 let n = r.count(MAX_ENTITIES)?;
                 let ids = (0..n).map(|_| r.var()).collect::<Result<Vec<_>>>()?;
@@ -1165,7 +1185,7 @@ impl Store {
                     }
                 }
             }
-            78 => {
+            79 => {
                 let target = r.var()?;
                 let effect = r.count(65535)? as u32;
                 r.done()?;
@@ -1174,7 +1194,7 @@ impl Store {
                     e.effects.remove(&effect);
                 }
             }
-            132 => {
+            135 => {
                 let target = r.var()?;
                 let effect = r.count(65535)? as u32;
                 let amplifier = r.count(255)? as u32;
@@ -1200,7 +1220,7 @@ impl Store {
                     );
                 }
             }
-            131 => {
+            134 => {
                 let target = r.var()?;
                 let count = r.count(128)?;
                 let mut attrs = BTreeMap::new();
@@ -1268,7 +1288,7 @@ impl Store {
                 }
                 self.event(json!({"type":"entity_damage","entity":target,"damage_type":damage_type,"cause":cause,"direct":direct,"source":source,"origin":"server_observed","health_confirmation_required":true}));
             }
-            42 => {
+            43 => {
                 let target = r.var()?;
                 let yaw = r.f32()?;
                 r.done()?;
@@ -1281,7 +1301,7 @@ impl Store {
                     }
                 }
             }
-            124 => {
+            127 => {
                 let item = r.var()?;
                 let collector = r.var()?;
                 let count = r.count(1_000_000)?;
@@ -1321,7 +1341,7 @@ impl Store {
                 }
                 self.event(json!({"type":"block_entity_event","position":p,"action":action,"parameter":parameter,"block_type_id":block,"origin":"server_observed"}));
             }
-            55 => {
+            56 => {
                 let target = r.var()?;
                 let count = r.count(4096)?;
                 let mut steps = Vec::with_capacity(count);
@@ -1361,7 +1381,7 @@ impl Store {
                     }
                 }
             }
-            125 => {
+            128 => {
                 let target = r.var()?;
                 let mut position = [r.f64()?, r.f64()?, r.f64()?];
                 let mut velocity = [r.f64()?, r.f64()?, r.f64()?];
@@ -1417,7 +1437,7 @@ impl Store {
                     );
                 }
             }
-            135 => {
+            138 => {
                 let target = r.var()?;
                 let power = r.f64()?;
                 r.done()?;

@@ -25,6 +25,7 @@ impl Session {
                     self.player.uuid = Some(Arc::from(uuid));
                     r.string(16)?;
                     for _ in 0..r.count(16)? { r.string(32767)?; r.string(32767)?; if r.bool()? { r.string(32767)?; } }
+                    uuid::Uuid::from_slice(r.take(16)?).map_err(|error| error.to_string())?;
                     r.done()?; self.phase = "configuration".into();
                     eprintln!("session startup: configuration");
                 }
@@ -62,7 +63,7 @@ impl Session {
                     self.entities.configure_registry(&registry, &entries)?;
                     self.registries.insert(registry, entries);
                 }
-                12 => {
+                13 => {
                     let mut features = BTreeSet::new();
                     for _ in 0..r.count(1024)? {
                         let feature = r.string(32767)?;
@@ -71,20 +72,20 @@ impl Session {
                     }
                     r.done()?; self.features = Arc::new(features);
                 }
-                13 => {
+                14 => {
                     let tags = protocol::read_registry_tags(&mut r)?;
                     for (registry, values) in &tags { self.environment.configure_tags(registry, values)?; }
                     self.registry_tags = tags;
                 }
-                14 => { for _ in 0..r.count(1024)? { r.string(32767)?; r.string(32767)?; r.string(32767)?; } r.done()?; }
+                15 => { for _ in 0..r.count(1024)? { r.string(32767)?; r.string(32767)?; r.string(32767)?; } r.done()?; }
                 4 => { r.i64()?; r.done()?; }
                 5 => { r.i32()?; r.done()?; }
                 0 | 6 => {}
                 1 => self.custom_payload(&mut r)?,
-                8 | 10 | 15 | 16 | 17 => { *self.ignored_presentation.entry(id).or_default() += 1; }
+                8 | 10 | 11 | 16 | 17 | 18 => { *self.ignored_presentation.entry(id).or_default() += 1; }
                 9 => return Err("server resource-pack activation unsupported; refusing ambiguous mandatory content".into()),
-                11 => return Err("server transfer unsupported".into()),
-                18 | 19 => return Err("configuration dialog/code-of-conduct requires unsupported human UI".into()),
+                12 => return Err("server transfer unsupported".into()),
+                19 | 20 => return Err("configuration dialog/code-of-conduct requires unsupported human UI".into()),
                 _ => return Err(format!("unknown mandatory Configuration packet {id}")),
             },
             Phase::Play => self.play(id, &mut r)?,
@@ -208,9 +209,9 @@ impl Session {
         }
     }
     fn play(&mut self, id: i32, r: &mut Reader<'_>) -> Result<()> {
-        if id == 60 {
+        if id == 61 {
             let position = protocol::unpack_pos(r.i64()?);
-            let front = r.bool()?;
+            let front = r.var()? == 1;
             r.done()?;
             // Admit the editor before inventory.apply changes screen/fence state.
             // Vanilla ignores an invalid entity without touching the current menu.
@@ -231,7 +232,7 @@ impl Session {
         {
             self.environment.publish_world(&mut self.world)?;
             self.server_frozen = self.environment.frozen;
-            if id == 128 {
+            if id == 131 {
                 self.step_ticks = Reader::new(r.bytes).var()?;
             }
             handled = true;
@@ -240,7 +241,7 @@ impl Session {
             .player
             .apply(id, &mut Reader::new(r.bytes), content, self.client_tick)?
         {
-            if id == 104 || id == 68 {
+            if id == 106 || id == 69 {
                 self.health_version += 1;
             }
             self.player.drain_commands(&mut self.commands);
@@ -275,9 +276,9 @@ impl Session {
             return Ok(());
         }
         match id {
-            0 | 12 | 44 | 80 => {}
+            0 | 12 | 45 => {}
             32 => return Err(format!("Play disconnect: {}", r.nbt()?)),
-            49 => {
+            50 => {
                 self.player.entity_id = r.i32()?;
                 self.entities.own_id = Some(self.player.entity_id);
                 r.bool()?;
@@ -292,6 +293,7 @@ impl Session {
                 r.bool()?;
                 self.spawn_info(r)?;
                 r.bool()?;
+                r.bool()?;
                 r.done()?;
                 self.initialize_player_attributes()?;
                 if let Some(uuid) = self.player.uuid.as_deref() {
@@ -299,7 +301,7 @@ impl Session {
                         .set_local_player(self.player.entity_id, uuid)?;
                 }
             }
-            82 => {
+            84 => {
                 self.spawn_info(r)?;
                 let keep = r.u8()?;
                 r.done()?;
@@ -311,7 +313,7 @@ impl Session {
                 self.inventory.close();
                 self.keys.clear();
             }
-            45 => {
+            46 => {
                 if self.world.height <= 0 {
                     return Err("chunk before dimension registry activated".into());
                 }
@@ -375,14 +377,14 @@ impl Session {
                 }
                 self.ingest_far_chunk(position);
             }
-            48 => {
+            49 => {
                 let position = [r.var()?, r.var()?];
                 self.world.update_light(position, r)?;
                 if let Some(terrain) = &mut self.terrain {
                     terrain.invalidate_chunk(&self.world, position)?;
                 }
             }
-            37 => {
+            38 => {
                 let packed = r.i64()?;
                 let position = [packed as i32, (packed >> 32) as i32];
                 r.done()?;
@@ -406,7 +408,7 @@ impl Session {
                 r.done()?;
                 self.receive_block(position, state)?;
             }
-            84 => {
+            86 => {
                 let packed = r.i64()?;
                 let sx = (packed >> 42) as i32;
                 let sy = ((packed << 44) >> 44) as i32;
@@ -431,7 +433,7 @@ impl Session {
                 w.f32(4.);
                 self.send(11, w)?;
             }
-            38 => {
+            39 => {
                 let event = r.u8()?;
                 let value = r.f32()?;
                 r.done()?;
@@ -442,8 +444,8 @@ impl Session {
                     self.event(json!({"type":"game_event","event":event,"value":value,"origin":"server_observed"}));
                 }
             }
-            // 26.1.2 ClientboundLevelEvent: raw i32, BlockPos, raw i32, bool.
-            46 => {
+            // 26.3 ClientboundLevelEvent: raw i32, BlockPos, raw i32, bool.
+            47 => {
                 let event = r.i32()?;
                 let position = protocol::unpack_pos(r.i64()?);
                 let data = r.i32()?;
@@ -457,7 +459,7 @@ impl Session {
                     "presentation_supported":presented}),
                 );
             }
-            117 => {
+            119 => {
                 let sound = self.read_sound(r)?;
                 let source = r.count(16)?;
                 let position = [
@@ -481,7 +483,7 @@ impl Session {
                 }
                 self.event(json!({"type":"sound","sound":sound,"source":source,"position":position,"origin":"server_observed"}));
             }
-            116 => {
+            118 => {
                 let sound = self.read_sound(r)?;
                 let source = r.count(16)?;
                 let entity = r.var()?;
@@ -511,13 +513,13 @@ impl Session {
                     );
                 }
             }
-            119 => {
+            121 => {
                 if let Some(audio) = &self.audio {
                     audio.stop();
                 }
                 self.event(json!({"type":"sound_stop","policy":"all_voices_stopped_bounded_C02"}));
             }
-            118 => {
+            120 => {
                 self.phase = "configuration".into();
                 self.loader.reset();
                 self.far.disconnect();
@@ -548,8 +550,8 @@ impl Session {
                     audio.stop();
                 }
             }
-            81 => return Err("Play resource-pack activation unsupported".into()),
-            129 => return Err("server transfer unsupported".into()),
+            82 => return Err("Play resource-pack activation unsupported".into()),
+            132 => return Err("server transfer unsupported".into()),
             21 => {
                 let key = r.string(32767)?;
                 r.done()?;
@@ -559,12 +561,12 @@ impl Session {
                 self.send(21, w)?;
             }
             24 => self.custom_payload(r)?,
-            120 => {
+            122 => {
                 r.string(32767)?;
                 r.array(5120)?;
                 r.done()?;
             }
-            134 => {
+            137 => {
                 let tags = protocol::read_registry_tags(&mut Reader::new(r.bytes))?;
                 for (registry, values) in &tags {
                     self.environment.configure_tags(registry, values)?;
@@ -589,9 +591,9 @@ impl Session {
             // rendered: particle presentation is unsupported (local use/block
             // predictions already emit unsupported_local_particle_presentation).
             2 | 3 | 9 | 10 | 13 | 14 | 15 | 16 | 23 | 26 | 27 | 28 | 29 | 30 | 31 | 33 | 34
-            | 43 | 71 | 74 | 75 | 76 | 79 | 83 | 85 | 86 | 87 | 88 | 89 | 90 | 91 | 92 | 94
-            | 95 | 97 | 98 | 99 | 100 | 102 | 106 | 109 | 110 | 111 | 112 | 114 | 115 | 121
-            | 122 | 123 | 125 | 126 | 130 | 133 | 135 | 136 | 137 | 138 | 139 | 140 => {
+            | 44 | 72 | 75 | 76 | 77 | 80 | 85 | 87 | 88 | 89 | 90 | 91 | 92 | 93 | 94 | 96
+            | 97 | 99 | 100 | 101 | 102 | 104 | 108 | 111 | 112 | 113 | 114 | 116 | 117 | 124
+            | 125 | 126 | 128 | 129 | 133 | 136 | 138 | 139 | 140 | 141 | 142 | 143 => {
                 *self.ignored_presentation.entry(id).or_default() += 1;
             }
             _ => return Err(format!("unknown mandatory Play packet {id}")),
@@ -602,8 +604,8 @@ impl Session {
         let holder = r.count(65536)? as i32;
         let dimension = r.string(32767)?;
         let seed = r.i64()?;
-        let mode = r.u8()?;
-        r.u8()?;
+        let mode = r.var()? as u8;
+        r.var()?;
         r.bool()?;
         let flat = r.bool()?;
         if r.bool()? {
@@ -880,7 +882,7 @@ mod tests {
         session
             .apply(
                 Phase::Play,
-                46,
+                47,
                 &level_event_bytes(2001, position, 1, false),
             )
             .unwrap();
@@ -935,7 +937,7 @@ mod tests {
             let body = level_event_bytes(0x01020304, position, -17, global);
             assert_eq!(body.len(), 17);
             assert_eq!(&body[..4], &[1, 2, 3, 4]);
-            session.apply(Phase::Play, 46, &body).unwrap();
+            session.apply(Phase::Play, 47, &body).unwrap();
             let event = json!({"type":"level_event","event":0x01020304,"position":position,
                 "data":-17,"global":global,"origin":"server_observed",
                 "packet_sequence":"10","presentation_supported":false});
@@ -947,7 +949,7 @@ mod tests {
                     .last(),
                 Some(&event)
             );
-            assert_eq!(session.ignored_presentation.get(&46), None);
+            assert_eq!(session.ignored_presentation.get(&47), None);
         }
     }
 
@@ -959,17 +961,17 @@ mod tests {
         let before_events = session.events.len();
         let before_version = session.state_version();
         for length in 0..body.len() {
-            assert!(session.apply(Phase::Play, 46, &body[..length]).is_err());
+            assert!(session.apply(Phase::Play, 47, &body[..length]).is_err());
             assert_eq!(session.events.len(), before_events);
             assert_eq!(session.state_version(), before_version);
         }
         let mut trailing = body;
         trailing.push(0);
-        assert!(session.apply(Phase::Play, 46, &trailing).is_err());
+        assert!(session.apply(Phase::Play, 47, &trailing).is_err());
         assert_eq!(session.events.len(), before_events);
         assert_eq!(session.state_version(), before_version);
-        let error = session.apply(Phase::Play, 141, &[]).unwrap_err();
-        assert_eq!(error, "unknown mandatory Play packet 141");
+        let error = session.apply(Phase::Play, 144, &[]).unwrap_err();
+        assert_eq!(error, "unknown mandatory Play packet 144");
         assert_eq!(session.events.len(), before_events);
     }
 
@@ -1079,7 +1081,7 @@ mod tests {
     fn open_sign_bytes(position: [i32; 3], front: bool) -> Vec<u8> {
         let mut writer = Writer::default();
         writer.i64(protocol::pack_pos(position));
-        writer.byte(u8::from(front));
+        writer.var(i32::from(front));
         writer.0
     }
 
@@ -1097,7 +1099,7 @@ mod tests {
                 assert_eq!(session.entities.block_entity_name(position), Some(kind));
                 assert_eq!(session.entities.block_entities[&position].state, Some(1));
                 session
-                    .apply(Phase::Play, 60, &open_sign_bytes(position, front))
+                    .apply(Phase::Play, 61, &open_sign_bytes(position, front))
                     .unwrap();
                 let data = session.entities.block_entity_data(position).unwrap();
                 for side in ["front_text", "back_text"] {
@@ -1168,7 +1170,7 @@ mod tests {
             )
             .unwrap();
         session
-            .apply(Phase::Play, 60, &open_sign_bytes(position, false))
+            .apply(Phase::Play, 61, &open_sign_bytes(position, false))
             .unwrap();
         assert_eq!(
             session.ui.as_ref().unwrap().title_field("sign/line/0"),
@@ -1179,7 +1181,7 @@ mod tests {
             Some(&[10, 0][..])
         );
         session
-            .apply(Phase::Play, 60, &open_sign_bytes(position, true))
+            .apply(Phase::Play, 61, &open_sign_bytes(position, true))
             .unwrap();
         let ui = session.ui.as_mut().unwrap();
         ui.synchronize(&session.inventory, session.content.as_ref().unwrap())
@@ -1193,7 +1195,7 @@ mod tests {
         let mut session = sign_session(position, "minecraft:sign");
         session.receive_block(position, 0).unwrap();
         session
-            .apply(Phase::Play, 60, &open_sign_bytes(position, true))
+            .apply(Phase::Play, 61, &open_sign_bytes(position, true))
             .unwrap();
         assert_eq!(session.inventory.sign_editor, None);
         assert!(!session.inventory.screen_open);
@@ -1285,7 +1287,7 @@ mod tests {
                     json!(["", "", "", ""])
                 );
                 session
-                    .apply(Phase::Play, 60, &open_sign_bytes(position, front))
+                    .apply(Phase::Play, 61, &open_sign_bytes(position, front))
                     .unwrap();
                 let ui = session.ui.as_mut().unwrap();
                 ui.synchronize(&session.inventory, session.content.as_ref().unwrap())
@@ -1332,7 +1334,7 @@ mod tests {
         session.reconcile_ack(8).unwrap();
         assert_eq!(session.entities.block_entities[&position].state, Some(1));
         session
-            .apply(Phase::Play, 60, &open_sign_bytes(position, true))
+            .apply(Phase::Play, 61, &open_sign_bytes(position, true))
             .unwrap();
         assert_eq!(
             session.ui.as_ref().unwrap().title_field("sign/line/0"),
@@ -1378,7 +1380,7 @@ mod tests {
                 "predicted front"
             );
             session
-                .apply(Phase::Play, 60, &open_sign_bytes(position, true))
+                .apply(Phase::Play, 61, &open_sign_bytes(position, true))
                 .unwrap();
             assert_eq!(
                 session.ui.as_ref().unwrap().title_field("sign/line/0"),
@@ -1452,7 +1454,7 @@ mod tests {
         menu.var(7);
         menu.var(0); // Generic 9x1 menu.
         nbt::write(&Tag::string("Review menu"), &mut menu).unwrap();
-        session.apply(Phase::Play, 59, &menu.0).unwrap();
+        session.apply(Phase::Play, 60, &menu.0).unwrap();
         session
             .ui
             .as_mut()
@@ -1466,7 +1468,7 @@ mod tests {
         let entity_revision = session.entities.revision;
         session.keys.insert("forward".into());
         session
-            .apply(Phase::Play, 60, &open_sign_bytes(position, true))
+            .apply(Phase::Play, 61, &open_sign_bytes(position, true))
             .unwrap();
         session
             .ui
@@ -1691,7 +1693,7 @@ mod tests {
         for _ in 0..6 {
             packet.var(0); // four empty light masks and two empty array lists
         }
-        session.apply(Phase::Play, 45, &packet.0).unwrap();
+        session.apply(Phase::Play, 46, &packet.0).unwrap();
         let position = [-1, 3, -1];
         assert_eq!(session.world.block(position), Some(1));
         assert_eq!(

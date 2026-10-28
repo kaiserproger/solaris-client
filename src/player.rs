@@ -233,7 +233,7 @@ pub struct Player {
     sequence: i32,
     ack_sequence: i32,
     effect_revision: u64,
-    pending_teleport: Option<i32>,
+    pending_teleport: Option<(i32, [f64; 3], f32, f32)>,
     pending_vehicle_correction: Option<(Handle, [f64; 3], f32, f32)>,
     world_game_time: Option<i64>,
     fast_lava: bool,
@@ -615,7 +615,7 @@ impl Player {
                     return Err("future_prediction_acknowledgement".into());
                 }
             }
-            72 => {
+            73 => {
                 let teleport = r.var()?;
                 let position = [r.f64()?, r.f64()?, r.f64()?];
                 let velocity = [r.f64()?, r.f64()?, r.f64()?];
@@ -624,20 +624,20 @@ impl Player {
                 let flags = r.i32()?;
                 r.done()?;
                 self.correct(position, velocity, yaw, pitch, flags)?;
-                self.pending_teleport = Some(teleport);
+                self.pending_teleport = Some((teleport, self.position, self.yaw, self.pitch));
             }
-            73 => {
+            74 => {
                 self.yaw = r.f32()?;
                 self.pitch = r.f32()?.clamp(-90., 90.);
                 self.pose_revision = self.pose_revision.wrapping_add(1);
             }
-            57 => {
+            58 => {
                 let position = [r.f64()?, r.f64()?, r.f64()?];
                 let yaw = r.f32()?;
                 let pitch = r.f32()?;
                 self.correct_vehicle(position, yaw, pitch)?;
             }
-            64 => {
+            65 => {
                 let flags = r.u8()?;
                 self.abilities.invulnerable = flags & 1 != 0;
                 self.abilities.flying = flags & 2 != 0;
@@ -649,14 +649,14 @@ impl Player {
                     return Err("negative_ability_speed".into());
                 }
             }
-            101 | 131 | 132 | 78 => {
+            103 | 134 | 135 | 79 => {
                 if r.var()? != self.entity_id {
                     r.offset = start;
                     return Ok(false);
                 }
                 match id {
-                    101 => self.velocity = read_velocity(r)?,
-                    131 => {
+                    103 => self.velocity = read_velocity(r)?,
+                    134 => {
                         let count = r.count(128)?;
                         for _ in 0..count {
                             let index = r.count(65536)? as i32;
@@ -694,7 +694,7 @@ impl Player {
                             );
                         }
                     }
-                    132 => {
+                    135 => {
                         let index = r.count(65536)? as i32;
                         let name = content
                             .registry_name("minecraft:mob_effect", index)?
@@ -725,7 +725,7 @@ impl Player {
                             },
                         );
                     }
-                    78 => {
+                    79 => {
                         let index = r.count(65536)? as i32;
                         let name = content.registry_name("minecraft:mob_effect", index)?;
                         self.effects.remove(name);
@@ -745,12 +745,12 @@ impl Player {
                     self.cooldowns.insert(group, tick.saturating_add(duration));
                 }
             }
-            103 => {
+            105 => {
                 self.experience_progress = r.f32()?;
                 self.experience_level = r.var()?;
                 self.experience_total = r.var()?;
             }
-            104 => {
+            106 => {
                 self.health = Some(r.f32()?);
                 self.food = Some(r.var()?);
                 self.saturation = Some(r.f32()?);
@@ -774,7 +774,7 @@ impl Player {
                 // LivingEntity.handleDamageEvent restarts hurtTime without changing hurtDir.
                 self.hurt_tick = Some(tick);
             }
-            42 => {
+            43 => {
                 if r.var()? != self.entity_id {
                     r.offset = start;
                     return Ok(false);
@@ -784,7 +784,7 @@ impl Player {
                 self.hurt_direction = direction;
                 self.hurt_tick = Some(tick);
             }
-            68 => {
+            69 => {
                 if r.var()? != self.entity_id {
                     r.offset = start;
                     return Ok(false);
@@ -811,7 +811,7 @@ impl Player {
                 }
                 return Ok(true);
             }
-            93 => {
+            95 => {
                 self.camera_entity = Some(r.var()?);
             }
             _ => return Ok(false),
@@ -889,9 +889,14 @@ impl Player {
         Ok(())
     }
     pub fn drain_commands(&mut self, out: &mut Vec<PacketCommand>) {
-        if let Some(teleport) = self.pending_teleport.take() {
+        if let Some((teleport, position, yaw, pitch)) = self.pending_teleport.take() {
             let mut w = Writer::default();
             w.var(teleport);
+            for coordinate in position {
+                w.f64(coordinate);
+            }
+            w.f32(yaw);
+            w.f32(pitch);
             out.push(PacketCommand::new(0, w));
             out.push(PacketCommand::new(44, Writer::default()));
             self.full_movement(out);
@@ -1211,7 +1216,7 @@ mod tests {
         packet.var(7);
         packet.f32(90.);
         assert!(player
-            .apply(42, &mut Reader::new(&packet.0), &content, 100)
+            .apply(43, &mut Reader::new(&packet.0), &content, 100)
             .unwrap());
         assert_eq!(player.hurt_tick, Some(100));
         assert_eq!(player.hurt_direction, 90.);
@@ -1220,18 +1225,32 @@ mod tests {
         other.var(8);
         other.f32(-45.);
         let mut reader = Reader::new(&other.0);
-        assert!(!player.apply(42, &mut reader, &content, 101).unwrap());
+        assert!(!player.apply(43, &mut reader, &content, 101).unwrap());
         assert_eq!(reader.offset, 0);
         assert_eq!(player.hurt_tick, Some(100));
         packet.0.push(0);
         assert!(player
-            .apply(42, &mut Reader::new(&packet.0), &content, 102)
+            .apply(43, &mut Reader::new(&packet.0), &content, 102)
             .is_err());
         assert_eq!(player.hurt_tick, Some(100));
         packet.0.pop();
         assert!(player
-            .apply(42, &mut Reader::new(&packet.0), &content, 107)
+            .apply(43, &mut Reader::new(&packet.0), &content, 107)
             .unwrap());
         assert_eq!(player.hurt_tick, Some(107));
+    }
+    #[test]
+    fn teleport_acknowledgement_echoes_corrected_pose_in_26_3_layout() {
+        let mut player = Player::new();
+        player.pending_teleport = Some((17, [1.5, 64., -2.25], 90., -30.));
+        let mut commands = Vec::new();
+        player.drain_commands(&mut commands);
+        let acknowledgement = &commands[0];
+        assert_eq!(acknowledgement.id, 0);
+        let mut reader = Reader::new(&acknowledgement.payload.0);
+        assert_eq!(reader.var().unwrap(), 17);
+        assert_eq!([reader.f64().unwrap(), reader.f64().unwrap(), reader.f64().unwrap()], [1.5, 64., -2.25]);
+        assert_eq!((reader.f32().unwrap(), reader.f32().unwrap()), (90., -30.));
+        reader.done().unwrap();
     }
 }

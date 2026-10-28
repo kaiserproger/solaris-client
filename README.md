@@ -1,6 +1,6 @@
 # Solaris native client
 
-A Rust/wgpu client for Minecraft Java Edition **26.1.2**, with a small launcher that sets everything up for you. This is an **offline/test-identity preview**: there is no Microsoft login yet and it is not full vanilla parity. It is built to play on Solaris servers.
+A Rust/wgpu client for Minecraft Java Edition **26.3**, with a small launcher that sets everything up for you. This is an **offline/test-identity preview**: there is no Microsoft login yet and it is not full vanilla parity. It is built to play on Solaris servers.
 
 ## Install and play
 
@@ -19,7 +19,7 @@ The download is not bundled with the launcher: no Mojang files are ever shipped 
 
 | What | From | Size |
 |---|---|---|
-| Minecraft 26.1.2 client jar (textures, models, fonts, lang) | Mojang (`piston-meta.mojang.com`, SHA-1 verified) | ~38 MB |
+| Minecraft 26.3 client jar (textures, models, fonts, lang) | Mojang (`piston-meta.mojang.com`, SHA-1 verified) | ~40 MB |
 | Game assets (sounds, languages) | Mojang (`resources.download.minecraft.net`, SHA-1 verified) | ~440 MB |
 | Solaris data tables (block/item facts, collision shapes) | Solaris static server (SHA-256 **pinned inside the launcher**) | ~1 MB |
 | Singleplayer server data (registries, tags, loot tables, worldgen, reports): first singleplayer Play only | Solaris static server (SHA-256 **pinned inside the launcher**) | ~3 MB |
@@ -38,7 +38,7 @@ The native launcher opens at 820×530 logical pixels, resizes down to 640×460, 
 
 ### Connect to the Solaris test server
 
-The launcher ships with a server entry `Solaris test` = `135.106.208.217:25565` (Minecraft Java 26.1.2, offline mode). Select it, choose a username (3–16 Latin letters, digits or `_`, as vanilla offline names) and press PLAY. Use **+ Add server** to add others (`host` or `host:port`).
+The launcher ships with a server entry `Solaris test` = `135.106.208.217:25565` (Minecraft Java 26.3, offline mode). Select it, choose a username (3–16 Latin letters, digits or `_`, as vanilla offline names) and press PLAY. Use **+ Add server** to add others (`host` or `host:port`).
 
 Without the launcher: `solaris-client --server 135.106.208.217:25565 --username YourName`.
 
@@ -71,8 +71,8 @@ The data folder is `$XDG_DATA_HOME/solaris-client` (default `~/.local/share/sola
 facts/ data/vanilla/                  Solaris data tables (entity metadata and models ship inside the client)
 resources/assets/                     textures/models/fonts unpacked from your client.jar
 assets/asset-index.json, objects/     Mojang asset index and sound/language objects
-mojang/versions/26.1.2/               official version json and client.jar
-servers/content/26.1.2/               singleplayer only: server content cache, installed on its first Play
+mojang/versions/26.3/               official version json and client.jar
+servers/content/26.3/               singleplayer only: server content cache, installed on its first Play
 servers/                              singleplayer: plugin copy, optional solaris-v2
 worlds/<name>/                        singleplayer worlds (world data, server.toml, ops.json, logs/server.log)
 far-terrain/<server>/overworld/       far terrain tiles (heights and colours) per server
@@ -122,9 +122,9 @@ CI (`.github/workflows/release.yml`) builds Linux and Windows archives plus an a
 The launcher installs two bundles, each pinned by name and SHA-256 in `launcher/src/pins.rs`: the facts bundle on every install and the content bundle on the first singleplayer Play. Each script merges its entry into `target/publish/solaris-content.json`, keeping the other entries; `publish_content.sh` takes the release from `GAME_VERSION` in `launcher/src/paths.rs`:
 
 ```sh
-tools/publish_facts.sh <rev>      # target/publish/solaris-facts-<version>-r<rev>.tar.zst
+tools/publish_facts.sh <rev>      # builds target/publish/solaris-facts-26.3-r<rev>.tar.zst + solaris-content.json
 CONTENT=<cache> SOLARIS_V2=<solaris-v2> tools/publish_content.sh <rev>
-                                  # target/publish/solaris-content-<version>-r<rev>.tar.zst
+                                  # target/publish/solaris-content-26.3-r<rev>.tar.zst
 ```
 
 Upload the archive(s) and `solaris-content.json` to `http://135.106.208.217:8080/static/`, then set `FACTS_*`/`CONTENT_*` in `launcher/src/pins.rs` to the printed values and release a new launcher. The facts bundle holds only pure data tables (block/item/interaction facts, collision shapes, registry and item-default reports). The content bundle is the complete cache `solaris-v2 content import` derives (`version.json`, `data/`, `reports/`, e.g. the Solaris checkout's `data/vanilla`); the script runs `solaris-v2 content verify` on it before packing. Textures, models, fonts and sounds are never published (they come from Mojang's own servers to the user's machine), and entity models/metadata are Solaris-authored data inside the client binary.

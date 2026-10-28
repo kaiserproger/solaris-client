@@ -706,7 +706,7 @@ impl InventoryStore {
                     }
                 }
             }
-            59 => {
+            60 => {
                 let container = r.var()?;
                 if container <= 0 {
                     return Err("open screen container ID must be positive".into());
@@ -730,9 +730,9 @@ impl InventoryStore {
                 self.screen_open = true;
                 self.screen_instance += 1;
             }
-            60 => {
+            61 => {
                 let pos = crate::protocol::unpack_pos(r.i64()?);
-                let front = r.bool()?;
+                let front = r.var()? == 1;
                 r.done()?;
                 self.sign_editor = Some((pos, front));
                 self.screen_open = true;

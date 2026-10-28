@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 const INPUTS: &[(&str, &str)] = &[
     (
         "COLLISION_SHAPES",
-        "facts/block_collision_shapes_26_1_2.bin",
+        "facts/block_collision_shapes_26_3.bin",
     ),
     ("TERRAIN_FACTS", "facts/terrain-facts.json"),
     (

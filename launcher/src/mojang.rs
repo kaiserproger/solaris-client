@@ -117,7 +117,7 @@ mod tests {
 
     #[test]
     fn parses_release_and_dedups_assets() {
-        let json = br#"{"id":"26.1.2","downloads":{"client":{"url":"u","sha1":"a","size":1},"server":{"url":"s","sha1":"b","size":2}},"assetIndex":{"id":"30","url":"i","sha1":"c","size":3}}"#;
+        let json = br#"{"id":"26.3","downloads":{"client":{"url":"u","sha1":"a","size":1},"server":{"url":"s","sha1":"b","size":2}},"assetIndex":{"id":"34","url":"i","sha1":"c","size":3}}"#;
         let release = parse_release(json).unwrap();
         assert_eq!(release.asset_index.size, 3);
         let layout = Layout::new("/tmp/x".into());

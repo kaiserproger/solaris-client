@@ -1,6 +1,6 @@
 # Playing Solaris with the native client
 
-Target: Minecraft Java Edition 26.1.2-compatible Solaris server. Offline/test
+Target: Minecraft Java Edition 26.3-compatible Solaris server. Offline/test
 identity only (`offline-test` profile); official Microsoft auth is NOT
 implemented (see Checklist row `connect-auth` in
 `.analysis/native-ui-20261008/RESULT.md`).

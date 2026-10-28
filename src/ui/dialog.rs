@@ -723,15 +723,15 @@ fn field_id(key: &str) -> String {
 // ---------------------------------------------------------------------------------------------
 
 impl UiState {
-    /// `show_dialog` (140) / `clear_dialog` (139). Malformed dialogs fail the packet like the
+    /// `show_dialog` (143) / `clear_dialog` (142). Malformed dialogs fail the packet like the
     /// vanilla decoder; unsupported dialog types are ignored and reported through observation.
     pub(crate) fn apply_dialog_packet(&mut self, id: i32, r: &mut Reader<'_>) -> Result<()> {
         match id {
-            139 => {
+            142 => {
                 r.done()?;
                 self.clear_server_dialog();
             }
-            140 => {
+            143 => {
                 let holder = r.var()?;
                 if holder != 0 {
                     // Registry dialogs need the configuration `dialog` registry; not decoded here.
