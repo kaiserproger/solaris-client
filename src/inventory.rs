@@ -14,6 +14,8 @@ mod persistent;
 mod receive;
 #[cfg(test)]
 mod wire_263_tests;
+#[cfg(test)]
+mod beacon_tests;
 pub use actions::MenuButton;
 pub use menu_data::{DisplayStack, ItemCost, Recipe, StonecutterRecipe, Trade, Trades};
 pub mod nbt;
@@ -725,6 +727,15 @@ impl InventoryStore {
                 }
                 let mut received = menu.clone();
                 received.data.clear();
+                if kind == MenuKind::Beacon {
+                    // The client-side beacon menu starts with its own empty payment
+                    // inventory and shares the existing player inventory slots.
+                    menu.slots[0] = Some(Stack::default());
+                    for index in 1..37 {
+                        let player_slot = menu.player_slot_index(index).expect("beacon player slot");
+                        menu.slots[index] = self.player.slots[player_slot].clone();
+                    }
+                }
                 self.active = Some(menu);
                 self.received_active = Some(received);
                 self.drag = actions::QuickCraft::default();
@@ -793,7 +804,9 @@ impl InventoryStore {
             };
             if first + 36 <= menu.slots.len() {
                 for i in 0..36 {
-                    player.slots[9 + i] = menu.slots[first + i].clone();
+                    if let Some(stack) = &menu.slots[first + i] {
+                        player.slots[9 + i] = Some(stack.clone());
+                    }
                 }
             }
         }

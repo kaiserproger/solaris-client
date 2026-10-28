@@ -56,3 +56,15 @@ protocol-specific inline painting presentation is separately regression-tested.
 This driver-qualified green result does not establish every backend or physical
 display scanout. Windowed lifecycle evidence uses an isolated Xvfb/lavapipe
 surface and is labeled accordingly.
+
+## CLIENT-INV-001 — Shift-double-click bulk quick move (open)
+
+The RC.1 inventory-input review found that Shift-click quick-moves the hovered
+stack, but Shift-double-click does not bulk-move the other matching stacks from
+the same container. This is distinct from s6-03's plain double-click collection
+onto the cursor (`PICKUP_ALL`). The local 26.3
+`AbstractContainerScreen.mouseReleased` bytecode iterates matching slots for
+the Shift variant and emits `QUICK_MOVE`. The client pointer path still only
+emits the individual Shift-clicks. No fix or live verification is claimed for
+this inherited shortcut gap.
+

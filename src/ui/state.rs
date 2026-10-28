@@ -17,6 +17,7 @@ use serde_json::{json, Value};
 use std::{
     collections::{BTreeMap, BTreeSet, VecDeque},
     sync::Arc,
+    time::{Duration, Instant},
 };
 const NODE_LIMIT: usize = 512;
 const TEXT_LIMIT: usize = 65536;
@@ -438,6 +439,8 @@ pub struct UiState {
     pub(crate) drag_slots: Vec<i16>,
     pub(crate) drag_carrying: bool,
     pub(crate) drag_fence: Option<UiContext>,
+    last_slot_click: Option<(i16, u8, Instant)>,
+    collect_on_release: bool,
     pub(crate) release_pending: bool,
     pub(crate) chat: VecDeque<super::packets::ChatLine>,
     pub(crate) maps: BTreeMap<i32, super::packets::MapState>,
@@ -596,6 +599,8 @@ impl UiState {
             beacon_source: [None, None],
             bundle_scroll: [0.; 2],
             bundle_hover: None,
+            last_slot_click: None,
+            collect_on_release: false,
             selected_slot: 0,
             selected_name_tick: u64::MAX,
             debug_lines: Vec::new(),
@@ -1133,6 +1138,8 @@ impl UiState {
         self.drag_slots.clear();
         self.drag_carrying = false;
         self.drag_fence = None;
+        self.last_slot_click = None;
+        self.collect_on_release = false;
         self.clipboard_fence = None;
         for f in self.fields.values_mut() {
             f.composition.clear();
@@ -1984,6 +1991,8 @@ impl UiState {
                 self.update_bundle_hover(bundle, inventory, effects);
                 match phase {
                     PointerPhase::Down => {
+                        let previous_click = self.last_slot_click.take();
+                        self.collect_on_release = false;
                         self.drag = button;
                         self.drag_slots.clear();
                         self.drag_carrying = inventory.cursor.as_ref().is_some_and(|s| !s.empty());
@@ -2010,6 +2019,15 @@ impl UiState {
                                     Some(PointerButton::Middle) => 2,
                                     _ => 0,
                                 };
+                                let now = Instant::now();
+                                self.collect_on_release = button == 0
+                                    && !modifiers.shift
+                                    && self.drag_carrying
+                                    && previous_click.is_some_and(|(old_slot, old_button, time)| {
+                                        old_slot == slot && old_button == button
+                                            && now.duration_since(time) < Duration::from_millis(250)
+                                    });
+                                self.last_slot_click = Some((slot, button, now));
                                 let mode = if modifiers.shift {
                                     ClickMode::QuickMove
                                 } else if button == 2 {
@@ -2142,7 +2160,13 @@ impl UiState {
                                         context: fence,
                                         slot: self.drag_slots[0],
                                         button: b,
-                                        mode: ClickMode::Pickup,
+                                        mode: if self.collect_on_release
+                                            && matches!(target, Some((_, NodeAction::Slot(slot), true)) if slot == self.drag_slots[0])
+                                        {
+                                            ClickMode::PickupAll
+                                        } else {
+                                            ClickMode::Pickup
+                                        },
                                     },
                                     inventory,
                                     content,
@@ -2175,6 +2199,7 @@ impl UiState {
                         self.drag = None;
                         self.drag_slots.clear();
                         self.drag_fence = None;
+                        self.collect_on_release = false;
                     }
                 }
             }
@@ -2645,6 +2670,11 @@ impl UiState {
                     "q" | "Q" => (u8::from(m.control), ClickMode::Throw),
                     _ => return Ok(()),
                 };
+                if mode == ClickMode::Swap
+                    && inventory.cursor.as_ref().is_some_and(|stack| !stack.empty())
+                {
+                    return Ok(());
+                }
                 self.target(&id)?;
                 match action {
                     NodeAction::Slot(slot) => {

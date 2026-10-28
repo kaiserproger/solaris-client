@@ -1002,3 +1002,31 @@ For a versioned launcher bundle, extract it into a private directory and pass
 `--client-root` plus its `--client-data` directory. Set
 `SOLARIS_CLIENT_COLLISION_SHAPES` to that bundle's versioned facts file; do not
 modify the owner's default profile or relabel an older collision cache.
+
+## RC.1 inventory input and beacon regression scope
+
+The `ui::inventory_input_tests` gates drive physical-coordinate pointer edges
+and the native item-key router through the semantic UI executor into the real
+inventory prediction/`container_click` encoder. They cover double-click
+`PICKUP_ALL`, hovered-slot number/offhand `SWAP`, Q/Ctrl-Q `THROW`, and the
+survival inventory's shared recipe-book control/settings packet. The
+`inventory::beacon_tests` gates cover received open/data/slot/content packets,
+the payment/player-inventory semantic slots, and power confirmation packets.
+An initially empty beacon payment slot is constructor prediction, not a
+server-observed stack; later authoritative updates override it.
+
+`inventory::actions::policies::bundle_gesture_tests` covers the existing bundle
+prediction and hashed click encoding. In the local 26.3 bytecode, primary click
+inserts and secondary click extracts when the other stack is empty; a secondary
+click with both stacks occupied is an ordinary swap. These client tests already
+passed before the inventory-input fixes. The reported s7-01 authoritative
+bundle swap is owned by the server repair, not hidden by a client workaround.
+
+Run the focused resource-free scope with
+`cargo test -p solaris-client --lib inventory -- --nocapture` under the required
+memory/build envelope. Local failing-first and final receipts are retained in
+`/run/media/kaiserroman/games/solaris-work/qa-armada/fixes/client-inventory-fixes/`.
+These are headless input/state/wire tests, not real-window acceptance.
+The original s6-02/03/04/05, s7-01 and s22-12 visual repros remain pending on the
+integrated client/server build; `CLIENT-LINT-001` remains quarantined.
+

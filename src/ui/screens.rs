@@ -422,7 +422,7 @@ impl UiState {
         }
         let menu = inventory.menu();
         let layout = Layout::menu(menu)?;
-        let has_recipe = menu.kind != MenuKind::Inventory && menu.kind.recipe_book().is_some();
+        let has_recipe = self.screen != Screen::Creative && menu.kind.recipe_book().is_some();
         let compact_recipe = has_recipe && self.recipe_open && self.width < layout.width + 180.;
         let x = if has_recipe && self.recipe_open && !compact_recipe {
             (self.width - layout.width - 180.) / 2. + 180.
@@ -568,8 +568,6 @@ impl UiState {
                 true,
             )?;
         }
-        // The player inventory keeps the vanilla frame clean until its recipe
-        // book presentation is complete; typed recipe actions remain available.
         if has_recipe {
             self.button(
                 "recipe/book",

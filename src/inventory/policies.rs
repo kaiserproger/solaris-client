@@ -1372,3 +1372,7 @@ mod fraction_tests {
         assert_eq!(add_fraction(weight, (1, 71)), None);
     }
 }
+
+#[cfg(test)]
+#[path = "bundle_gesture_tests.rs"]
+mod bundle_gesture_tests;
