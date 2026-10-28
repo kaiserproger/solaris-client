@@ -70,6 +70,21 @@ regression sends 80,000 distinct block changes over TCP, requires the keepalive
 echo within one second with the consumer stopped, then applies every queued
 block through `Session::process_events` in one call.
 
+The client-only army repro on the unchanged `f169778d…` server survived the pad
+fills, more than five minutes of gameplay, and the scenario's planned restart:
+`.analysis/validation/20261028T061227-army-qa-tewy__6s` in the
+`settlements-show` worktree. Client binary SHA is `51b978431d2d9938224fc7a0025fa81f87a03e7c62335e5112c81aa6493b1ef7`.
+Both pad-air predicates matched; there was no keepalive timeout or broken pipe.
+The full army gate remains **FAIL**, specifically `soldiers_kill_zombies`
+(`causal_kill=False`, `engaged=False`); the other seven army behavior predicates
+passed. This is connection/burst evidence, not full army acceptance.
+The opt-in frame trace recorded a maximum render-frame wall time of **40.34 ms**
+in the pad burst, owner-advance work of **18.02 ms**, and submitted-frame interval
+of **520.10 ms**. These are diagnostic measurements under concurrent host load,
+not a controlled performance pass; the long interval is not the measured drain
+duration. Raw trace and scoped-window definition are retained in the client-net
+worktree's `.analysis/army-frame-trace.tsv` and `army-frame-summary.json`.
+
 A missing biome sample never ends the session: after a long `/tp` the camera sits among chunks that have not arrived, and the environment blend simply drops unloaded samples (none loaded = the dimension's biome-less attributes; unloaded camera chunk or sky light = no rain fog) until the chunk arrives, as the vanilla client does. `environment biome sample unloaded` was the pre-fix terminal error for `/tp @s 518 130 64.5` from x 118; the fixed client survived 118→518→900→118 teleports on the local server (`.analysis/tpbiome/`).
 
 ### Native10 bounded Loader resources and navigation
