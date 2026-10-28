@@ -2,20 +2,20 @@
 //! when its result is already installed, so Play after a clean install does
 //! not touch the network.
 use crate::{
-    jdk, mojang,
+    mojang,
     net::{self, Check, Job},
-    paths::{self, Layout, GAME_VERSION},
+    paths::{self, GAME_VERSION, Layout},
     pins,
     progress::{Cancelled, Reporter},
 };
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{Context, Result, anyhow, bail};
 use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
     fs,
     io::{Read, Write},
-    path::Path,
+    path::{Path, PathBuf},
 };
 
 const STAGES: usize = 5;
@@ -59,22 +59,42 @@ pub struct Options {
     pub manifest_url: String,
 }
 
+/// One bundle kind and the exact archive this launcher release accepts for it.
+struct Pin {
+    kind: &'static str,
+    name: &'static str,
+    sha256: &'static str,
+}
+
+/// Client data tables (`facts/`, `data/vanilla/reports/`), installed by every Play.
+const FACTS: Pin = Pin {
+    kind: "facts",
+    name: pins::FACTS_NAME,
+    sha256: pins::FACTS_SHA256,
+};
+
+/// Singleplayer only: the complete server content cache that
+/// `solaris-v2 content import` derives, the local server's `vanilla_data_dir`.
+const CONTENT: Pin = Pin {
+    kind: "content",
+    name: pins::CONTENT_NAME,
+    sha256: pins::CONTENT_SHA256,
+};
+
 #[derive(Debug)]
 struct Bundle {
-    name: String,
     url: String,
-    sha256: String,
     size: u64,
 }
 
-fn fetch_bundles(client: &Client, manifest_url: &str) -> Result<Vec<Bundle>> {
+fn fetch_bundle(client: &Client, manifest_url: &str, pin: &Pin) -> Result<Bundle> {
     let bytes = net::fetch_bytes(client, manifest_url, None)
         .with_context(|| format!("cannot reach the Solaris content manifest at {manifest_url}"))?;
-    parse_bundles(&bytes)
+    parse_bundle(&bytes, pin)
 }
 
 /// Pure manifest handling, separate from the network fetch for testing.
-fn parse_bundles(bytes: &[u8]) -> Result<Vec<Bundle>> {
+fn parse_bundle(bytes: &[u8], pin: &Pin) -> Result<Bundle> {
     let manifest: Value = serde_json::from_slice(bytes).context("parsing content manifest")?;
     if manifest["game_version"] != GAME_VERSION {
         bail!(
@@ -82,43 +102,75 @@ fn parse_bundles(bytes: &[u8]) -> Result<Vec<Bundle>> {
             manifest["game_version"]
         );
     }
-    let mut bundles = Vec::new();
-    for entry in manifest["bundles"].as_array().context("manifest.bundles")? {
-        if entry["kind"] != "facts" {
-            continue;
-        }
-        let text = |key: &str| {
-            entry[key]
-                .as_str()
-                .map(str::to_owned)
-                .ok_or_else(|| anyhow!("manifest bundle missing {key}"))
-        };
-        let name = text("name")?;
-        let sha256 = text("sha256")?;
-        // The manifest travels over plain HTTP: only the pinned archive is accepted.
-        if name != pins::FACTS_NAME {
-            continue;
-        }
-        if !sha256.eq_ignore_ascii_case(pins::FACTS_SHA256) {
-            bail!(
-                "refusing content bundle {name}: manifest sha256 {sha256} does not match the hash pinned in this launcher ({})",
-                pins::FACTS_SHA256
-            );
-        }
-        bundles.push(Bundle {
-            name,
-            url: text("url")?,
-            sha256: pins::FACTS_SHA256.to_owned(),
-            size: entry["size"].as_u64().context("manifest bundle size")?,
-        });
-    }
-    if bundles.is_empty() {
+    // The manifest travels over plain HTTP: only the pinned archive is accepted.
+    let entry = manifest["bundles"]
+        .as_array()
+        .context("manifest.bundles")?
+        .iter()
+        .find(|entry| entry["kind"] == pin.kind && entry["name"] == pin.name)
+        .ok_or_else(|| {
+            anyhow!(
+                "content manifest does not list the {} bundle {} this launcher is pinned to; update the launcher",
+                pin.kind,
+                pin.name
+            )
+        })?;
+    let sha256 = entry["sha256"]
+        .as_str()
+        .context("manifest bundle missing sha256")?;
+    if !sha256.eq_ignore_ascii_case(pin.sha256) {
         bail!(
-            "content manifest does not list the bundle {} this launcher is pinned to; update the launcher",
-            pins::FACTS_NAME
+            "refusing content bundle {}: manifest sha256 {sha256} does not match the hash pinned in this launcher ({})",
+            pin.name,
+            pin.sha256
         );
     }
-    Ok(bundles)
+    Ok(Bundle {
+        url: entry["url"]
+            .as_str()
+            .context("manifest bundle missing url")?
+            .to_owned(),
+        size: entry["size"].as_u64().context("manifest bundle size")?,
+    })
+}
+
+fn is_installed(installed: &Installed, pin: &Pin) -> bool {
+    installed
+        .bundles
+        .get(pin.name)
+        .is_some_and(|sha256| sha256 == pin.sha256)
+}
+
+/// Download the pinned archive (hash-checked, resumable) and unpack it into a
+/// fresh staging directory on the data root's filesystem.
+fn download_and_unpack(
+    client: &Client,
+    layout: &Layout,
+    manifest_url: &str,
+    pin: &Pin,
+    rep: &Reporter,
+) -> Result<PathBuf> {
+    let bundle = fetch_bundle(client, manifest_url, pin)?;
+    let archive = layout.cache_dir().join(format!("{}.tar.zst", pin.name));
+    rep.set_total(bundle.size);
+    net::download(
+        client,
+        &Job {
+            url: bundle.url,
+            dest: archive.clone(),
+            check: Check::Sha256(pin.sha256.to_owned()),
+            size: bundle.size,
+        },
+        rep,
+    )?;
+    let staging = layout.join(".staging-bundle");
+    let _ = fs::remove_dir_all(&staging);
+    fs::create_dir_all(&staging)?;
+    let decoder = zstd::stream::read::Decoder::new(fs::File::open(&archive)?)?;
+    tar::Archive::new(decoder)
+        .unpack(&staging)
+        .with_context(|| format!("unpacking {}", pin.name))?;
+    Ok(staging)
 }
 
 fn replace_dir(from: &Path, to: &Path) -> Result<()> {
@@ -131,15 +183,8 @@ fn replace_dir(from: &Path, to: &Path) -> Result<()> {
     fs::rename(from, to).with_context(|| format!("installing {}", to.display()))
 }
 
-fn install_bundle(layout: &Layout, archive: &Path, rep: &Reporter) -> Result<()> {
-    let staging = layout.join(".staging-bundle");
-    let _ = fs::remove_dir_all(&staging);
-    fs::create_dir_all(&staging)?;
-    let decoder = zstd::stream::read::Decoder::new(fs::File::open(archive)?)?;
-    tar::Archive::new(decoder)
-        .unpack(&staging)
-        .context("unpacking Solaris data bundle")?;
-    for entry in fs::read_dir(&staging)? {
+fn install_facts(layout: &Layout, staging: &Path, rep: &Reporter) -> Result<()> {
+    for entry in fs::read_dir(staging)? {
         let entry = entry?;
         let name = entry.file_name().to_string_lossy().into_owned();
         match name.as_str() {
@@ -154,7 +199,6 @@ fn install_bundle(layout: &Layout, archive: &Path, rep: &Reporter) -> Result<()>
             other => rep.log(format!("ignoring unexpected bundle entry {other}")),
         }
     }
-    let _ = fs::remove_dir_all(&staging);
     Ok(())
 }
 
@@ -207,31 +251,18 @@ pub fn run(layout: &Layout, options: &Options, force: bool, rep: &Reporter) -> R
     let release = mojang::resolve(&client, layout, rep)?;
 
     rep.stage(2, STAGES, "Downloading Solaris game data");
-    let bundles = fetch_bundles(&client, &options.manifest_url)?;
-    for bundle in &bundles {
-        let present = installed.bundles.get(&bundle.name) == Some(&bundle.sha256)
-            && layout.join("facts").is_dir()
-            && layout.join("data/vanilla/reports").is_dir();
-        if present && !force {
-            rep.log(format!("{} already installed", bundle.name));
-            continue;
-        }
-        let archive = layout.cache_dir().join(format!("{}.tar.zst", bundle.name));
-        rep.set_total(bundle.size);
-        net::download(
-            &client,
-            &Job {
-                url: bundle.url.clone(),
-                dest: archive.clone(),
-                check: Check::Sha256(bundle.sha256.clone()),
-                size: bundle.size,
-            },
-            rep,
-        )?;
-        install_bundle(layout, &archive, rep)?;
+    let present = is_installed(&installed, &FACTS)
+        && layout.join("facts").is_dir()
+        && layout.join("data/vanilla/reports").is_dir();
+    if present && !force {
+        rep.log(format!("{} already installed", FACTS.name));
+    } else {
+        let staging = download_and_unpack(&client, layout, &options.manifest_url, &FACTS, rep)?;
+        install_facts(layout, &staging, rep)?;
+        let _ = fs::remove_dir_all(&staging);
         installed
             .bundles
-            .insert(bundle.name.clone(), bundle.sha256.clone());
+            .insert(FACTS.name.into(), FACTS.sha256.into());
         installed.game_version = GAME_VERSION.into();
         installed.save(layout)?;
     }
@@ -273,25 +304,34 @@ pub fn run(layout: &Layout, options: &Options, force: bool, rep: &Reporter) -> R
     Ok(())
 }
 
-/// Singleplayer only, run lazily on its first use (`solaris-launcher --singleplayer-runtime`,
-/// started by the client): the Minecraft server jar and a Temurin JDK. The local server's
-/// content import derives datapack data from that jar with Java extractors, and that data
-/// cannot be published, so it has to be derived on the player's machine. Multiplayer never
-/// needs either.
-pub fn ensure_singleplayer_runtime(layout: &Layout, rep: &Reporter) -> Result<()> {
-    fs::create_dir_all(&layout.root)?;
+/// Singleplayer only (`solaris-launcher --singleplayer-runtime`, started by the client before
+/// a local world): the local server's content cache, installed from the pinned content bundle
+/// as its `vanilla_data_dir`. Multiplayer never needs it. Returns without touching the
+/// network when the pinned bundle is already installed, so the client can call this on
+/// every local start and a launcher with a new pin replaces a stale cache.
+pub fn ensure_singleplayer_runtime(
+    layout: &Layout,
+    options: &Options,
+    rep: &Reporter,
+) -> Result<()> {
+    let mut installed = Installed::load(layout);
+    let target = layout.server_content();
+    if is_installed(&installed, &CONTENT) && target.join("version.json").is_file() {
+        return Ok(());
+    }
+    rep.stage(1, 1, "Downloading singleplayer server data");
     let client = net::client()?;
-    rep.stage(
-        1,
-        2,
-        "Downloading Minecraft server (singleplayer data import)",
-    );
-    let release = mojang::resolve(&client, layout, rep)?;
-    rep.set_total(release.server.size);
-    net::download(&client, &release.server.job(layout.server_jar()), rep)?;
-    rep.stage(2, 2, "Downloading Java toolchain (Temurin JDK)");
-    jdk::ensure(&client, layout, rep)?;
-    rep.log("Singleplayer runtime ready");
+    let staging = download_and_unpack(&client, layout, &options.manifest_url, &CONTENT, rep)?;
+    replace_dir(&staging.join("content"), &target)?;
+    let _ = fs::remove_dir_all(&staging);
+    // Left over from the JDK-based content import this bundle replaces.
+    let _ = fs::remove_dir_all(layout.join("jdk"));
+    let _ = fs::remove_file(layout.version_dir().join("server.jar"));
+    installed
+        .bundles
+        .insert(CONTENT.name.into(), CONTENT.sha256.into());
+    installed.save(layout)?;
+    rep.log("Singleplayer server data ready");
     Ok(())
 }
 
@@ -299,41 +339,59 @@ pub fn ensure_singleplayer_runtime(layout: &Layout, rep: &Reporter) -> Result<()
 mod tests {
     use super::*;
 
-    fn manifest(name: &str, sha: &str) -> Vec<u8> {
+    fn manifest(kind: &str, name: &str, sha: &str) -> Vec<u8> {
         format!(
-            r#"{{"game_version":"26.3","bundles":[{{"name":"{name}","kind":"facts","url":"http://h/x","sha256":"{sha}","size":5}}]}}"#
+            r#"{{"game_version":"{GAME_VERSION}","bundles":[{{"name":"{name}","kind":"{kind}","url":"http://h/x","sha256":"{sha}","size":5}}]}}"#
         )
         .into_bytes()
     }
 
     #[test]
-    fn pinned_bundle_is_accepted() {
-        let bundles = parse_bundles(&manifest(pins::FACTS_NAME, pins::FACTS_SHA256)).unwrap();
-        assert_eq!(bundles.len(), 1);
-        assert_eq!(bundles[0].sha256, pins::FACTS_SHA256);
+    fn pinned_bundles_are_accepted() {
+        for pin in [&FACTS, &CONTENT] {
+            let bundle = parse_bundle(&manifest(pin.kind, pin.name, pin.sha256), pin).unwrap();
+            assert_eq!((bundle.url.as_str(), bundle.size), ("http://h/x", 5));
+        }
     }
 
     #[test]
     fn manifest_hash_that_differs_from_the_pin_is_refused() {
         let wrong = "1".repeat(64);
-        let error = parse_bundles(&manifest(pins::FACTS_NAME, &wrong)).unwrap_err();
-        assert!(error.to_string().contains("pinned"), "{error}");
+        for pin in [&FACTS, &CONTENT] {
+            let error = parse_bundle(&manifest(pin.kind, pin.name, &wrong), pin).unwrap_err();
+            assert!(error.to_string().contains("pinned"), "{error}");
+        }
     }
 
     #[test]
     fn unpinned_bundle_name_is_never_installed() {
-        assert!(parse_bundles(&manifest("solaris-facts-26.3-r99", pins::FACTS_SHA256)).is_err());
+        for pin in [&FACTS, &CONTENT] {
+            let name = format!("{}-r99", pin.name);
+            assert!(parse_bundle(&manifest(pin.kind, &name, pin.sha256), pin).is_err());
+        }
+    }
+
+    #[test]
+    fn pinned_name_under_another_kind_is_refused() {
+        assert!(parse_bundle(&manifest("facts", CONTENT.name, CONTENT.sha256), &CONTENT).is_err());
     }
 
     #[test]
     fn wrong_game_version_is_refused() {
         let text = br#"{"game_version":"1.0","bundles":[]}"#;
-        assert!(parse_bundles(text).is_err());
+        assert!(parse_bundle(text, &FACTS).is_err());
     }
 
     #[test]
-    fn pin_is_well_formed() {
-        assert_eq!(pins::FACTS_SHA256.len(), 64);
-        assert!(pins::FACTS_SHA256.bytes().all(|b| b.is_ascii_hexdigit()));
+    fn pins_are_well_formed() {
+        for pin in [&FACTS, &CONTENT] {
+            assert_eq!(pin.sha256.len(), 64);
+            assert!(pin.sha256.bytes().all(|b| b.is_ascii_hexdigit()));
+            assert!(
+                pin.name.contains(GAME_VERSION),
+                "{} is not for {GAME_VERSION}",
+                pin.name
+            );
+        }
     }
 }

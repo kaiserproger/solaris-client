@@ -41,7 +41,6 @@ impl FileRef {
 
 pub struct Release {
     pub client: FileRef,
-    pub server: FileRef,
     pub asset_index: FileRef,
 }
 
@@ -52,7 +51,6 @@ fn parse_release(text: &[u8]) -> Result<Release> {
     }
     Ok(Release {
         client: FileRef::parse(&json["downloads"]["client"], "downloads.client")?,
-        server: FileRef::parse(&json["downloads"]["server"], "downloads.server")?,
         asset_index: FileRef::parse(&json["assetIndex"], "assetIndex")?,
     })
 }
@@ -121,7 +119,7 @@ mod tests {
     fn parses_release_and_dedups_assets() {
         let json = br#"{"id":"26.3","downloads":{"client":{"url":"u","sha1":"a","size":1},"server":{"url":"s","sha1":"b","size":2}},"assetIndex":{"id":"34","url":"i","sha1":"c","size":3}}"#;
         let release = parse_release(json).unwrap();
-        assert_eq!(release.server.size, 2);
+        assert_eq!(release.asset_index.size, 3);
         let layout = Layout::new("/tmp/x".into());
         let index = br#"{"objects":{"a":{"hash":"abcdef","size":1},"b":{"hash":"abcdef","size":1},"c":{"hash":"012345","size":2}}}"#;
         let jobs = asset_jobs(&layout, index).unwrap();
