@@ -37,6 +37,10 @@ pub(crate) struct FrameTrace {
     out: LineWriter<File>,
     start: Instant,
     last_frame: Option<String>,
+    previous_record_ms: f64,
+    skipped_draws: u64,
+    skipped_draw_ms: f64,
+    skipped_advance_ms: f64,
 }
 
 impl FrameTrace {
@@ -49,14 +53,27 @@ impl FrameTrace {
                 return None;
             }
         };
-        let _ = writeln!(out, "t_ms\tframe_id\t{}\tlook_events", COLUMNS.join("\t"));
-        Some(Self { out, start: Instant::now(), last_frame: None })
+        let _ = writeln!(out, "t_ms\tframe_id\t{}\tlook_events\tprevious_trace_record_ms\tskipped_draw_attempts\tskipped_draw_ms\tskipped_advance_ms", COLUMNS.join("\t"));
+        Some(Self {
+            out, start: Instant::now(), last_frame: None, previous_record_ms: 0.,
+            skipped_draws: 0, skipped_draw_ms: 0., skipped_advance_ms: 0.,
+        })
     }
 
     /// Records `render` once per submitted frame; skipped draws repeat the id.
     pub(crate) fn record(&mut self, render: &Value, look_events: u32) {
+        let record_start = Instant::now();
         let frame = render["submitted_frame_id"].as_str();
-        if frame.is_none() || frame == self.last_frame.as_deref() {
+        if frame.is_none() {
+            return;
+        }
+        if frame == self.last_frame.as_deref() {
+            // App resets owner timings after every draw attempt, including a
+            // renderer refusal at the in-flight limit. Retain that lost work
+            // until the next submission instead of silently dropping it.
+            self.skipped_draws += 1;
+            self.skipped_draw_ms += render["cpu_client_draw_ms"].as_f64().unwrap_or(0.);
+            self.skipped_advance_ms += render["cpu_client_advance_ms"].as_f64().unwrap_or(0.);
             return;
         }
         self.last_frame = frame.map(str::to_owned);
@@ -76,7 +93,14 @@ impl FrameTrace {
                 _ => line.push('-'),
             }
         }
-        let _ = writeln!(self.out, "{line}\t{look_events}");
+        let _ = writeln!(self.out, "{line}\t{look_events}\t{}\t{}\t{}\t{}",
+            self.previous_record_ms, self.skipped_draws, self.skipped_draw_ms, self.skipped_advance_ms);
+        // A synchronous trace write is outside cpu_client_draw_ms and belongs
+        // to the NEXT submission interval, not the row it just wrote.
+        self.previous_record_ms = record_start.elapsed().as_secs_f64() * 1000.;
+        self.skipped_draws = 0;
+        self.skipped_draw_ms = 0.;
+        self.skipped_advance_ms = 0.;
     }
 }
 
@@ -92,26 +116,42 @@ mod tests {
             out: LineWriter::new(File::create(&path).unwrap()),
             start: Instant::now(),
             last_frame: None,
+            previous_record_ms: 0.,
+            skipped_draws: 0,
+            skipped_draw_ms: 0.,
+            skipped_advance_ms: 0.,
         };
         let gpu = json!({"frame_id":"39","passes_ms":{"opaque":2.5},"total_ms":2.5});
-        let render = json!({
+        let mut render = json!({
             "submitted_frame_id":"42",
             "gpu_timestamps":gpu,
             "queue_submit_ms":51.0,
-            "render_thread_cpu_ms":3.0
+            "render_thread_cpu_ms":3.0,
+            "cpu_client_draw_ms":7.0,
+            "cpu_client_advance_ms":11.0
         });
         trace.record(&render, 2);
         trace.record(&render, 4);
+        trace.previous_record_ms = 321.;
+        render["submitted_frame_id"] = json!("43");
+        trace.record(&render, 1);
+        render["submitted_frame_id"] = json!("44");
+        trace.record(&render, 1);
         drop(trace);
         let text = std::fs::read_to_string(&path).unwrap();
         std::fs::remove_file(path).unwrap();
-        assert_eq!(text.lines().count(), 1);
-        let cells: Vec<_> = text.trim_end().split('\t').collect();
-        assert_eq!(cells.len(), COLUMNS.len() + 3);
+        let lines: Vec<_> = text.lines().collect();
+        assert_eq!(lines.len(), 3);
+        let cells: Vec<_> = lines[0].split('\t').collect();
+        assert_eq!(cells.len(), COLUMNS.len() + 7);
         let cell = |name| cells[2 + COLUMNS.iter().position(|column| *column == name).unwrap()];
         assert_eq!(serde_json::from_str::<Value>(cell("gpu_timestamps")).unwrap(), gpu);
         assert_eq!(cell("queue_submit_ms"), "51.0");
         assert_eq!(cell("render_thread_cpu_ms"), "3.0");
         assert_eq!(cells[1], "42");
+        let second: Vec<_> = lines[1].split('\t').collect();
+        assert_eq!(&second[COLUMNS.len() + 3..], &["321", "1", "7", "11"]);
+        let third: Vec<_> = lines[2].split('\t').collect();
+        assert_eq!(&third[COLUMNS.len() + 4..], &["0", "0", "0"]);
     }
 }

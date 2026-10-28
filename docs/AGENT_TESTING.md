@@ -760,6 +760,12 @@ renderer thread CPU. `gpu_timestamps` is a single JSON cell containing completed
 GPU pass durations and its own frame ID: join by that ID, not by the enclosing
 submission row, because readback is asynchronous. CPU phase wall durations are
 not GPU execution durations; queue/acquire/present waits must remain separate.
+`previous_trace_record_ms` measures serialization and synchronous trace I/O from
+the preceding recorded frame; that observer cost falls in the current interval.
+`skipped_draw_attempts`, `skipped_draw_ms` and `skipped_advance_ms` preserve work
+from draw attempts that did not submit a new frame (for example, GPU in-flight
+backpressure). App owner timings reset after each attempt, not only submissions;
+without these fields deduplication would discard that work.
 
 `tools/pacing_headless.py --binary /absolute/client --out /absolute/.analysis/run`
 uses a private headless sway, native Wayland (Xwayland disabled), 1280×720 at a
