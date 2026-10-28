@@ -5,7 +5,7 @@ use std::{
     net::{Shutdown, TcpStream, ToSocketAddrs},
     sync::{
         atomic::{AtomicBool, AtomicU8, AtomicUsize, Ordering},
-        mpsc::{self, Receiver, SyncSender},
+        mpsc::{self, Receiver, Sender},
         Arc,
     },
     thread,
@@ -30,6 +30,20 @@ pub enum Event {
     Packet(Phase, i32, Vec<u8>),
     Error(String),
 }
+impl Event {
+    fn queued_bytes(&self) -> usize {
+        // Charge the payload's allocation, the enum, and conservative channel/
+        // allocator overhead even for tiny packets. Status JSON is bounded by
+        // its 32767-byte input; charge a full frame for its parsed tree.
+        let payload = match self {
+            Self::Packet(_, _, body) => body.capacity(),
+            Self::Status(_) => MAX_FRAME,
+            Self::Error(error) => error.capacity(),
+        };
+        payload + std::mem::size_of::<Self>() + 64
+    }
+}
+const MAX_INBOUND_BACKLOG_BYTES: usize = 64 * 1024 * 1024;
 /// Outbound packets the session may queue ahead of the I/O owner. The session
 /// emits a few packets per tick and the owner drains continuously, so reaching
 /// this means the writer is genuinely stalled (TCP backpressure, the same
@@ -38,9 +52,30 @@ const MAX_OUTBOUND_BACKLOG: usize = 8192;
 struct ConnectionState {
     cancelled: AtomicBool,
     outbound_backlog: AtomicUsize,
+    inbound_bytes: AtomicUsize,
+    inbound_events: AtomicUsize,
+    /// Disconnect/transfer ends this stream; never wait behind obsolete world data.
+    urgent: Mutex<Option<Event>>,
     terminal_error: Mutex<Option<String>>,
     /// Latest setting; only the I/O owner chooses the phase-specific packet ID.
     view_distance: AtomicU8,
+}
+impl ConnectionState {
+    fn publish(&self, events: &Sender<Event>, event: Event) -> Result<bool> {
+        let bytes = event.queued_bytes();
+        let previous = self.inbound_bytes.fetch_add(bytes, Ordering::AcqRel);
+        if previous + bytes > MAX_INBOUND_BACKLOG_BYTES {
+            self.inbound_bytes.fetch_sub(bytes, Ordering::AcqRel);
+            return Err("inbound event backlog exceeded 64 MiB: session consumer stalled".into());
+        }
+        let pending = self.inbound_events.fetch_add(1, Ordering::AcqRel);
+        events.send(event).map_err(|_| {
+            self.inbound_bytes.fetch_sub(bytes, Ordering::AcqRel);
+            self.inbound_events.fetch_sub(1, Ordering::AcqRel);
+            "session gone".to_string()
+        })?;
+        Ok(pending == 0)
+    }
 }
 pub struct Network {
     incoming: Receiver<Event>,
@@ -57,11 +92,14 @@ impl Network {
         view_distance: u8,
         wake: Arc<dyn Fn() + Send + Sync>,
     ) -> Result<Self> {
-        let (send, incoming) = mpsc::sync_channel(16);
+        let (send, incoming) = mpsc::channel();
         let (outgoing, receive) = mpsc::channel();
         let state = Arc::new(ConnectionState {
             cancelled: AtomicBool::new(false),
             outbound_backlog: AtomicUsize::new(0),
+            inbound_bytes: AtomicUsize::new(0),
+            inbound_events: AtomicUsize::new(0),
+            urgent: Mutex::new(None),
             terminal_error: Mutex::new(None),
             view_distance: AtomicU8::new(view_distance),
         });
@@ -114,13 +152,25 @@ impl Network {
         })
     }
     pub fn try_recv(&self) -> Result<Event, mpsc::TryRecvError> {
+        if let Some(event) = self.state.urgent.lock().take() {
+            return Ok(event);
+        }
         match self.incoming.try_recv() {
-            Ok(event) => Ok(event),
+            Ok(event) => {
+                self.state.inbound_bytes.fetch_sub(event.queued_bytes(), Ordering::AcqRel);
+                self.state.inbound_events.fetch_sub(1, Ordering::AcqRel);
+                Ok(event)
+            }
             Err(error) => match self.state.terminal_error.lock().take() {
                 Some(error) => Ok(Event::Error(error)),
                 None => Err(error),
             },
         }
+    }
+    /// A frame drains this snapshot, not an endless stream from a busy peer.
+    pub(crate) fn pending_events(&self) -> usize {
+        self.state.inbound_events.load(Ordering::Acquire)
+            + usize::from(self.state.urgent.lock().is_some())
     }
     pub fn send(&self, id: i32, body: Vec<u8>) -> Result<()> {
         // Never fails because of a transient burst; only a stalled writer is fatal.
@@ -205,7 +255,7 @@ fn run(
     addr: std::net::SocketAddr,
     endpoint: String,
     username: String,
-    events: &SyncSender<Event>,
+    events: &Sender<Event>,
     commands: Receiver<(i32, Vec<u8>)>,
     state: &ConnectionState,
     wake: &(dyn Fn() + Send + Sync),
@@ -240,7 +290,7 @@ fn run(
             if v["version"]["protocol"].as_i64() != Some(775) {
                 return Err(format!("target protocol mismatch: {}", v["version"]));
             }
-            events.send(Event::Status(v)).map_err(|_| "session gone")?;
+            state.publish(events, Event::Status(v))?;
             wake();
             break;
         }
@@ -318,10 +368,18 @@ fn run(
                     _ => {}
                 }
             }
-            events
-                .send(Event::Packet(original, id, body))
-                .map_err(|_| "session gone")?;
-            wake();
+            let terminal = matches!(
+                (original, id),
+                (Phase::Login, 0) | (Phase::Configuration, 2 | 11) | (Phase::Play, 32 | 129)
+            );
+            if terminal {
+                *state.urgent.lock() = Some(Event::Packet(original, id, body));
+                wake();
+                return Ok(());
+            }
+            if state.publish(events, Event::Packet(original, id, body))? {
+                wake();
+            }
         }
         match socket.read(&mut tmp) {
             Ok(0) => return Err("server closed connection".into()),
@@ -572,6 +630,83 @@ mod tests {
         .unwrap();
         for _ in 0..1000 {
             network.send(0x1e, vec![0; 8]).unwrap();
+        }
+    }
+
+    #[test]
+    fn inbound_byte_limit_releases_capacity_and_never_blocks() {
+        let (send, incoming) = mpsc::channel();
+        let (outgoing, _) = mpsc::channel();
+        let network = Network {
+            incoming,
+            outgoing,
+            state: Arc::new(ConnectionState {
+                cancelled: AtomicBool::new(false),
+                outbound_backlog: AtomicUsize::new(0),
+                inbound_bytes: AtomicUsize::new(0),
+                inbound_events: AtomicUsize::new(0),
+                urgent: Mutex::new(None),
+                terminal_error: Mutex::new(None),
+                view_distance: AtomicU8::new(8),
+            }),
+            socket: None,
+            worker: None,
+        };
+        for index in 0..7 {
+            assert_eq!(
+                network.state.publish(&send, Event::Packet(Phase::Play, 8, vec![0; MAX_FRAME])).unwrap(),
+                index == 0,
+                "wake only the transition from an empty queue"
+            );
+        }
+        let bytes = network.state.inbound_bytes.load(Ordering::Acquire);
+        assert!(network.state.publish(&send, Event::Packet(Phase::Play, 8, vec![0; MAX_FRAME])).unwrap_err().contains("inbound event backlog exceeded"));
+        assert_eq!(network.state.inbound_bytes.load(Ordering::Acquire), bytes);
+        assert_eq!(network.pending_events(), 7);
+        assert!(network.try_recv().is_ok());
+        assert!(network.state.publish(&send, Event::Packet(Phase::Play, 8, vec![0; MAX_FRAME])).is_ok());
+        for _ in 0..7 { assert!(network.try_recv().is_ok()); }
+        assert_eq!(network.pending_events(), 0);
+        assert_eq!(network.state.inbound_bytes.load(Ordering::Acquire), 0);
+    }
+
+    #[test]
+    fn disconnect_and_transfer_bypass_world_backlog() {
+        for (phase, id) in [(Phase::Configuration, 2), (Phase::Configuration, 11), (Phase::Play, 32), (Phase::Play, 129)] {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let address = listener.local_addr().unwrap();
+            let peer = thread::spawn(move || {
+                let (mut login, _) = listener.accept().unwrap();
+                let (mut status, _) = listener.accept().unwrap();
+                login.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+                read_packet(&mut status);
+                read_packet(&mut status);
+                let mut response = Writer::default();
+                response.string(r#"{"version":{"protocol":775}}"#);
+                write(&mut status, 0, &response.0, None).unwrap();
+                read_packet(&mut login);
+                read_packet(&mut login);
+                let mut success = Writer(vec![0; 16]);
+                success.string("UrgentTest");
+                success.var(0);
+                write(&mut login, 2, &success.0, None).unwrap();
+                assert_eq!(read_packet(&mut login).0, 3);
+                assert_eq!(read_packet(&mut login).0, 0);
+                for token in 0i64..32 {
+                    write(&mut login, 4, &token.to_be_bytes(), None).unwrap();
+                    assert_eq!(read_packet(&mut login).0, 4);
+                }
+                if phase == Phase::Play {
+                    write(&mut login, 3, &[], None).unwrap();
+                    assert_eq!(read_packet(&mut login).0, 3);
+                }
+                write(&mut login, id, &[1, 2, 3], None).unwrap();
+            });
+            let mut network = Network::connect(address.to_string(), "UrgentTest".into(), 8, Arc::new(|| {})).unwrap();
+            peer.join().unwrap();
+            network.worker.take().unwrap().join().unwrap();
+            assert!(matches!(network.try_recv(), Ok(Event::Packet(received, packet_id, body))
+                if received == phase && packet_id == id && body == [1, 2, 3]));
         }
     }
 }

@@ -798,7 +798,12 @@ impl Session {
             self.changed_state();
             changed = true;
         }
-        for index in 0..128 {
+        // Drain the entry snapshot, then probe once for a terminal error.
+        // Concurrent arrivals belong to the next frame, so a continuous peer
+        // cannot create an endless loop. Terrain coalesces dirty sections until
+        // the single refresh_scene below.
+        let pending = self.network.as_ref().map_or(0, Network::pending_events);
+        for _ in 0..=pending {
             let event = match self.network.as_ref().map(Network::try_recv) {
                 Some(Ok(event)) => event,
                 Some(Err(mpsc::TryRecvError::Disconnected)) => {
@@ -832,9 +837,9 @@ impl Session {
                 }
             }
             self.changed_state();
-            if index == 127 {
-                (self.wake_callback())();
-            }
+        }
+        if self.network.as_ref().is_some_and(|network| network.pending_events() != 0) {
+            (self.wake_callback())();
         }
         if self.phase == "play"
             || self

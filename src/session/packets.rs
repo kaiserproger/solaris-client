@@ -282,6 +282,7 @@ impl Session {
         }
         match id {
             0 | 12 | 44 | 80 => {}
+            61 => { r.i32()?; r.done()?; } // Pong is sent immediately by the socket owner.
             32 => return Err(format!("Play disconnect: {}", r.nbt()?)),
             49 => {
                 self.player.entity_id = r.i32()?;
@@ -846,6 +847,96 @@ mod tests {
         session.received_chunks.insert(chunk_key(position), 10);
         session.receive_block(position, 1).unwrap();
         session
+    }
+
+    #[test]
+    fn block_burst_answers_keepalive_before_consumption_and_drains_in_one_frame() {
+        use std::{io::{Read, Write}, net::{TcpListener, TcpStream}, sync::mpsc, thread, time::{Duration, Instant}};
+        fn packet(socket: &mut TcpStream) -> (i32, Vec<u8>) {
+            let mut header = Vec::new();
+            loop {
+                let mut byte = [0];
+                socket.read_exact(&mut byte).unwrap();
+                header.push(byte[0]);
+                if byte[0] & 128 == 0 { break; }
+                assert!(header.len() < 5);
+            }
+            let mut body = vec![0; Reader::new(&header).count(1024).unwrap()];
+            socket.read_exact(&mut body).unwrap();
+            let mut r = Reader::new(&body);
+            let id = r.var().unwrap();
+            (id, body[r.offset..].to_vec())
+        }
+        fn send(socket: &mut TcpStream, id: i32, body: &[u8]) {
+            socket.write_all(&protocol::frame(id, body, None).unwrap()).unwrap();
+        }
+        const COUNT: i32 = 80_000;
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let (answered, answer) = mpsc::channel();
+        let (finish, finished) = mpsc::channel();
+        let peer = thread::spawn(move || {
+            let (mut login, _) = listener.accept().unwrap();
+            let (mut status, _) = listener.accept().unwrap();
+            login.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+            login.set_write_timeout(Some(Duration::from_secs(5))).unwrap();
+            packet(&mut status);
+            packet(&mut status);
+            let mut response = Writer::default();
+            response.string(r#"{"version":{"protocol":775}}"#);
+            send(&mut status, 0, &response.0);
+            packet(&mut login);
+            packet(&mut login);
+            let mut success = Writer(vec![0; 16]);
+            success.string("BurstTest");
+            success.var(0);
+            send(&mut login, 2, &success.0);
+            assert_eq!(packet(&mut login).0, 3);
+            assert_eq!(packet(&mut login).0, 0);
+            send(&mut login, 3, &[]);
+            assert_eq!(packet(&mut login).0, 3);
+            let mut burst = Vec::new();
+            for i in 0..COUNT {
+                let position = [i / 256, (i / 16) % 16, i % 16];
+                burst.extend(protocol::frame(8, &block_update_bytes(position, 1), None).unwrap());
+            }
+            burst.extend(protocol::frame(44, &123i64.to_be_bytes(), None).unwrap());
+            burst.extend(protocol::frame(61, &456i32.to_be_bytes(), None).unwrap());
+            let start = Instant::now();
+            login.write_all(&burst).unwrap();
+            assert_eq!(packet(&mut login), (28, 123i64.to_be_bytes().to_vec()));
+            assert_eq!(packet(&mut login), (45, 456i32.to_be_bytes().to_vec()));
+            answered.send(start.elapsed()).unwrap();
+            finished.recv().unwrap();
+        });
+        let mut session = session_with_received_cube([0, 0, 0]);
+        let template = session.world.chunk([0, 0]).unwrap().clone();
+        for x in 1..=COUNT / 4096 {
+            session.world.insert([x, 0], template.clone()).unwrap();
+        }
+        session.network = Some(Network::connect(address.to_string(), "BurstTest".into(), 8, Arc::new(|| {})).unwrap());
+        // No consumer runs until the peer observes the echo: a full world-event
+        // queue must never stop the socket owner from reading the keepalive.
+        let elapsed = answer.recv_timeout(Duration::from_secs(1));
+        assert!(elapsed.is_ok(), "keepalive starved behind 80k block events: {elapsed:?}");
+        assert!(elapsed.unwrap() < Duration::from_secs(1));
+        // The fixture installed content already; start at the wire Configuration
+        // boundary without running content activation a second time.
+        for _ in 0..3 {
+            assert!(session.network.as_ref().unwrap().try_recv().is_ok());
+        }
+        session.phase = "disconnected".into(); // skip scene rendering, not packet application
+        let before = session.packet_sequence;
+        session.process_events();
+        assert!(session.error.is_none(), "{:?}", session.error);
+        assert_eq!(session.packet_counts.get(&8), Some(&(COUNT as u64)));
+        for i in 0..COUNT {
+            let position = [i / 256, (i / 16) % 16, i % 16];
+            assert_eq!(session.world.block(position), Some(1), "{position:?}");
+            assert!(session.received_block_revision(position) > before);
+        }
+        finish.send(()).unwrap();
+        peer.join().unwrap();
     }
 
     fn level_event_bytes(event: i32, position: [i32; 3], data: i32, global: bool) -> Vec<u8> {
