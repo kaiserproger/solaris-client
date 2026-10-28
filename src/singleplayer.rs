@@ -757,6 +757,14 @@ impl Server {
         if self.stopped {
             return None;
         }
+        while let Ok(event) = self.events.try_recv() {
+            if matches!(event, Event::Closed) {
+                self.closed += 1;
+            }
+        }
+        if self.closed < 2 {
+            return None;
+        }
         match self.child.try_wait() {
             Ok(Some(status)) => {
                 self.stopped = true;
