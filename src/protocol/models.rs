@@ -444,19 +444,23 @@ fn nearest_direction(normal: Vec3) -> u8 {
         })
         .unwrap() as u8
 }
+fn coordinate(value: &Value) -> Result<f32> {
+    value
+        .as_f64()
+        .filter(|v| v.is_finite() && (-2048. ..=2048.).contains(v))
+        .map(|v| v as f32)
+        .ok_or("model coordinate bound".into())
+}
 fn vector(value: &Value) -> Result<Vec3> {
     let a = value
         .as_array()
         .filter(|a| a.len() == 3)
         .ok_or("model vector must have 3 coordinates")?;
-    let mut out = [0.; 3];
-    for i in 0..3 {
-        out[i] = a[i]
-            .as_f64()
-            .filter(|v| v.is_finite() && (-2048. ..=2048.).contains(v))
-            .ok_or("model coordinate bound")? as f32;
-    }
-    Ok(Vec3::from_array(out))
+    Ok(Vec3::new(
+        coordinate(&a[0])?,
+        coordinate(&a[1])?,
+        coordinate(&a[2])?,
+    ))
 }
 fn quarter(value: &Value) -> Result<f32> {
     let n = value.as_i64().unwrap_or(0);
@@ -545,13 +549,7 @@ fn bake_elements(model: &Value, descriptor: &Value, tint: TintKind) -> Result<Ve
             let r = &element["rotation"];
             origin = vector(&r["origin"])? / 16.;
             if let Some(axis) = r["axis"].as_str() {
-                let angle = r["angle"]
-                    .as_f64()
-                    .filter(|a| a.is_finite())
-                    .ok_or("element angle")? as f32;
-                if ![-45., -22.5, 0., 22.5, 45.].contains(&angle) {
-                    return Err("single-axis element angle bound".into());
-                }
+                let angle = coordinate(&r["angle"]).map_err(|_| "element angle")?;
                 er = match axis {
                     "x" => Mat3::from_rotation_x(angle.to_radians()),
                     "y" => Mat3::from_rotation_y(angle.to_radians()),
@@ -559,7 +557,11 @@ fn bake_elements(model: &Value, descriptor: &Value, tint: TintKind) -> Result<Ve
                     _ => return Err("element rotation axis".into()),
                 };
             } else {
-                let angles = vector(&r["angles"])?;
+                let angles = if r["angles"].is_null() {
+                    Vec3::new(coordinate(&r["x"])?, coordinate(&r["y"])?, coordinate(&r["z"])?)
+                } else {
+                    vector(&r["angles"])?
+                };
                 er = Mat3::from_rotation_x(angles.x.to_radians())
                     * Mat3::from_rotation_y(angles.y.to_radians())
                     * Mat3::from_rotation_z(angles.z.to_radians());
@@ -987,6 +989,22 @@ mod tests {
         let top = qs.iter().find(|q| q.quad.face == 1).unwrap();
         assert!(top.quad.positions.iter().any(|p| p[0] < 0.));
         assert!(top.quad.positions.iter().all(|p| (p[1] - 0.5).abs() < 1e-6));
+    }
+    #[test]
+    fn hanging_sign_element_rotations_bake() {
+        let mut v = slab();
+        v["elements"][0]["rotation"] =
+            serde_json::json!({"origin":[8,0,8],"axis":"y","angle":-67.5});
+        assert!(bake_elements(&v, &serde_json::json!({}), TintKind::None).is_ok());
+        v["elements"][0]["rotation"]["angle"] = serde_json::json!(-90);
+        assert!(bake_elements(&v, &serde_json::json!({}), TintKind::None).is_ok());
+        v["elements"][0]["rotation"] = serde_json::json!({"origin":[8,0,8],"axis":"y","angle":0.0001});
+        assert!(bake_elements(&v, &serde_json::json!({}), TintKind::None).is_ok());
+        v["elements"][0]["rotation"]["angle"] = serde_json::json!(-112.5);
+        assert!(bake_elements(&v, &serde_json::json!({}), TintKind::None).is_ok());
+        v["elements"][0]["rotation"] =
+            serde_json::json!({"origin":[8,0,8],"x":180,"y":-67.5,"z":-180});
+        assert!(bake_elements(&v, &serde_json::json!({}), TintKind::None).is_ok());
     }
     #[test]
     fn cyclic_texture_is_rejected() {

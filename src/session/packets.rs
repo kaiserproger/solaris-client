@@ -82,7 +82,14 @@ impl Session {
                 5 => { r.i32()?; r.done()?; }
                 0 | 6 => {}
                 1 => self.custom_payload(&mut r)?,
-                8 | 10 | 11 | 16 | 17 | 18 => { *self.ignored_presentation.entry(id).or_default() += 1; }
+                8 | 11 | 16 | 17 | 18 => { *self.ignored_presentation.entry(id).or_default() += 1; }
+                10 => {
+                    for _ in 0..r.count(1024)? {
+                        r.string(32767)?;
+                    }
+                    r.done()?;
+                    *self.ignored_presentation.entry(id).or_default() += 1;
+                }
                 9 => return Err("server resource-pack activation unsupported; refusing ambiguous mandatory content".into()),
                 12 => return Err("server transfer unsupported".into()),
                 19 | 20 => return Err("configuration dialog/code-of-conduct requires unsupported human UI".into()),

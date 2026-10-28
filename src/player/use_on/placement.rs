@@ -18,16 +18,16 @@ struct PlacementContext {
     nearest: u8,
 }
 
-fn transformer_owner(component: Option<&Value>) -> Option<&'static str> {
+fn transformer_action(component: Option<&Value>) -> Option<&'static str> {
     match component.and_then(Value::as_str) {
-        Some("minecraft:axe") => Some("AxeItem"),
-        Some("minecraft:hoe") => Some("HoeItem"),
-        Some("minecraft:shovel") => Some("ShovelItem"),
+        Some("minecraft:axe") => Some("BlockTransformerAxe"),
+        Some("minecraft:hoe") => Some("BlockTransformerHoe"),
+        Some("minecraft:shovel") => Some("BlockTransformerShovel"),
         _ => None,
     }
 }
 
-fn source_tool_owner(
+fn source_tool_action(
     item: &crate::inventory::Stack,
     content: &Content,
 ) -> Result<Option<&'static str>> {
@@ -36,15 +36,15 @@ fn source_tool_owner(
         .component("minecraft:block_transformer")
         .or_else(|| defaults.get("minecraft:block_transformer"));
     if transformer.is_some() {
-        return Ok(transformer_owner(transformer));
+        return Ok(transformer_action(transformer));
     }
-    for (tag, owner) in [
-        ("minecraft:axes", "AxeItem"),
-        ("minecraft:hoes", "HoeItem"),
-        ("minecraft:shovels", "ShovelItem"),
+    for (tag, action) in [
+        ("minecraft:axes", "BlockTransformerAxe"),
+        ("minecraft:hoes", "BlockTransformerHoe"),
+        ("minecraft:shovels", "BlockTransformerShovel"),
     ] {
         if content.registry_tag_contains("minecraft:item", tag, item.id as i32)? {
-            return Ok(Some(owner));
+            return Ok(Some(action));
         }
     }
     Ok(None)
@@ -55,18 +55,18 @@ mod transformer_tests {
     use super::*;
 
     #[test]
-    fn block_transformers_select_legacy_tool_predictions() {
+    fn block_transformers_select_tool_predictions() {
         assert_eq!(
-            transformer_owner(Some(&serde_json::json!("minecraft:axe"))),
-            Some("AxeItem")
+            transformer_action(Some(&serde_json::json!("minecraft:axe"))),
+            Some("BlockTransformerAxe")
         );
         assert_eq!(
-            transformer_owner(Some(&serde_json::json!("minecraft:hoe"))),
-            Some("HoeItem")
+            transformer_action(Some(&serde_json::json!("minecraft:hoe"))),
+            Some("BlockTransformerHoe")
         );
         assert_eq!(
-            transformer_owner(Some(&serde_json::json!("minecraft:shovel"))),
-            Some("ShovelItem")
+            transformer_action(Some(&serde_json::json!("minecraft:shovel"))),
+            Some("BlockTransformerShovel")
         );
     }
 }
@@ -2346,7 +2346,7 @@ impl Player {
             return Ok(Outcome::Fail);
         }
         let state = self.use_block(world, hit.position)?;
-        let owner = source_tool_owner(item, content)?.unwrap_or_else(|| short_class(owner));
+        let owner = source_tool_action(item, content)?.unwrap_or_else(|| short_class(owner));
         match owner {
             "Item" | "LeadItem" | "PlaceOnWaterBlockItem" => Ok(Outcome::Pass),
             "DebugStickItem" | "SpawnEggItem" => Ok(Outcome::CLIENT),
@@ -2449,7 +2449,7 @@ impl Player {
             } else {
                 Outcome::Pass
             }),
-            "HoeItem" => {
+            "BlockTransformerHoe" => {
                 let tillable = match content.name(state) {
                     Some("minecraft:rooted_dirt") => true,
                     Some(
@@ -2478,8 +2478,8 @@ impl Player {
                 )?;
                 Ok(Outcome::CLIENT) // Hoe mutations/durability are ServerLevel-only.
             }
-            "ShovelItem" => self.source_shovel_on(state, hit, world, content),
-            "AxeItem" => {
+            "BlockTransformerShovel" => self.source_shovel_on(state, hit, world, content),
+            "BlockTransformerAxe" => {
                 if hand == 0
                     && super::super::interaction::held(inventory, 1)
                         .is_some_and(|s| s.component("minecraft:blocks_attacks").is_some())

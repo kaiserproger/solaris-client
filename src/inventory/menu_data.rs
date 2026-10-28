@@ -330,7 +330,7 @@ pub(super) fn slot_display(
             });
         }
         "minecraft:tag" => {
-            f.insert("tag".into(), json!(r.string(32767)?));
+            f.insert("tag".into(), item_holder_set(r, content)?);
         }
         "minecraft:with_any_potion" => {
             f.insert(
@@ -391,6 +391,23 @@ pub(super) fn slot_display(
     }
     Ok(Value::Object(f))
 }
+fn item_holder_set(r: &mut Reader<'_>, content: &Content) -> Result<Value> {
+    let length = r.count(1_000_000)?;
+    if length == 0 {
+        return Ok(json!(format!("#{}", r.string(32767)?)));
+    }
+    let mut items = Vec::with_capacity(length - 1);
+    for _ in 1..length {
+        let id = r.count(1_000_000)? as u32;
+        items.push(json!(
+            content
+                .item_names
+                .get(&id)
+                .ok_or("slot display item holder ID")?
+        ));
+    }
+    Ok(Value::Array(items))
+}
 pub(super) fn resolve_items(value: &Value, content: &Content) -> Result<Vec<u32>> {
     match value {
         Value::String(tag) if tag.starts_with('#') => content
@@ -413,5 +430,31 @@ pub(super) fn resolve_items(value: &Value, content: &Content) -> Result<Vec<u32>
             Ok(items)
         }
         _ => Err("invalid item holder set".into()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tag_slot_display_decodes_26_3_named_item_holder_set() {
+        let content = Content::test_cube();
+        let mut bytes = vec![0, 20];
+        bytes.extend(b"minecraft:birch_logs");
+        let tag = item_holder_set(&mut Reader::new(&bytes), &content).unwrap();
+        assert_eq!(tag, json!("#minecraft:birch_logs"));
+    }
+
+    #[test]
+    fn tag_slot_display_decodes_26_3_direct_item_holder_set() {
+        let mut content = Content::test_cube();
+        content.item_names.insert(4, "minecraft:birch_log".into());
+        content.item_names.insert(7, "minecraft:stripped_birch_log".into());
+        let tag = item_holder_set(&mut Reader::new(&[3, 4, 7]), &content).unwrap();
+        assert_eq!(
+            tag,
+            json!(["minecraft:birch_log", "minecraft:stripped_birch_log"])
+        );
     }
 }

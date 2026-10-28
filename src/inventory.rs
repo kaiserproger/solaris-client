@@ -744,7 +744,7 @@ impl InventoryStore {
                 self.received_cursor = Some(cursor.clone());
                 self.cursor = Some(cursor);
             }
-            105 => {
+            107 => {
                 self.selected_slot = r.count(8)? as u8;
                 r.done()?;
             }
@@ -1200,5 +1200,13 @@ mod tests {
         let b = a.clone();
         Arc::make_mut(&mut a.components).insert("minecraft:damage".into(), json!(3));
         assert!(!a.same_item(&b));
+    }
+
+    #[test]
+    fn set_held_slot_uses_26_3_play_id() {
+        let mut store = InventoryStore::default();
+        assert!(store.apply(107, &mut Reader::new(&[3]), &Content::test_cube()).unwrap());
+        assert_eq!(store.selected_slot, 3);
+        assert!(!store.apply(105, &mut Reader::new(&[3]), &Content::test_cube()).unwrap());
     }
 }
