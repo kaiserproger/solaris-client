@@ -277,24 +277,16 @@ impl Chunk {
         Ok(([x, z], out))
     }
     pub fn light(&mut self, r: &mut Reader<'_>) -> Result<()> {
-        let sky = r.longs(16)?;
-        let block = r.longs(16)?;
-        let empty_sky = r.longs(16)?;
-        let empty_block = r.longs(16)?;
+        let sky = bit_set(r)?;
+        let block = bit_set(r)?;
+        let empty_sky = bit_set(r)?;
+        let empty_block = bit_set(r)?;
         for (maps, mask, empty) in [
             (&mut self.sky, sky, empty_sky),
             (&mut self.block, block, empty_block),
         ] {
             let count = r.count(1024)?;
-            let bits: Vec<_> = mask
-                .iter()
-                .enumerate()
-                .flat_map(|(i, v)| {
-                    (0..64)
-                        .filter(move |b| v & (1u64 << b) != 0)
-                        .map(move |b| i * 64 + b)
-                })
-                .collect();
+            let bits = set_bits(&mask);
             if count != bits.len() {
                 return Err("light mask and arrays disagree".into());
             }
@@ -305,17 +297,29 @@ impl Chunk {
                 }
                 maps.insert(bit, Arc::new(bytes.to_vec()));
             }
-            for (i, v) in empty.iter().enumerate() {
-                for b in 0..64 {
-                    if v & (1u64 << b) != 0 {
-                        maps.insert(i * 64 + b, Arc::new(vec![0; 2048]));
-                    }
-                }
+            for bit in set_bits(&empty) {
+                maps.insert(bit, Arc::new(vec![0; 2048]));
             }
         }
         Ok(())
     }
 }
+fn bit_set(r: &mut Reader<'_>) -> Result<Vec<u8>> {
+    Ok(r.array(1024)?.to_vec())
+}
+
+fn set_bits(bytes: &[u8]) -> Vec<usize> {
+    bytes
+        .iter()
+        .enumerate()
+        .flat_map(|(i, byte)| {
+            (0..8)
+                .filter(move |bit| byte & (1 << bit) != 0)
+                .map(move |bit| i * 8 + bit)
+        })
+        .collect()
+}
+
 #[derive(Default)]
 pub struct World {
     chunks: BTreeMap<[i32; 2], Arc<Chunk>>,
@@ -635,6 +639,17 @@ mod tests {
             surface_heightmap: Arc::new(SurfaceHeightmap::new(16).unwrap()),
             surface_heightmap_received: false,
         }
+    }
+
+    #[test]
+    fn light_bit_set_decodes_26_3_little_endian_bytes() {
+        let bit_one = bit_set(&mut Reader::new(&[1, 2])).unwrap();
+        assert_eq!(bit_one, [2]);
+        assert_eq!(set_bits(&bit_one), [1]);
+
+        let empty = bit_set(&mut Reader::new(&[0])).unwrap();
+        assert!(empty.is_empty());
+        assert!(set_bits(&empty).is_empty());
     }
 
     #[test]
