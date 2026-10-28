@@ -3356,7 +3356,6 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "eframe",
- "flate2",
  "png",
  "reqwest",
  "serde",
