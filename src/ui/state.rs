@@ -128,6 +128,7 @@ pub enum UiCommand {
     ChatAck {
         offset: i32,
     },
+    CommandSuggestion { id: i32, command: String },
     Chat {
         message: String,
         command: bool,
@@ -298,6 +299,11 @@ pub(crate) enum NodeAction {
     Quit,
     AddServer,
     SaveServer,
+    SelectServer(usize),
+    EditServer,
+    DeleteServer,
+    ConfirmDeleteServer,
+    CancelDeleteServer,
     JoinServer(usize),
     ServerPage(i32),
     World(usize),
@@ -461,6 +467,7 @@ pub struct UiState {
     pub(crate) packet_commands: VecDeque<UiCommand>,
     pub(crate) chat_receipts: VecDeque<super::packets::ChatReceipt>,
     pub(crate) last_seen: super::chat_tracking::LastSeenTracker,
+    pub(crate) command_completion: super::commands::CommandState,
     pub(crate) chat_expected_index: i32,
     pub(crate) chat_sequence: u64,
     pub(crate) beacon_selection: [Option<i32>; 2],
@@ -476,6 +483,9 @@ pub struct UiState {
     pub(crate) settings_parent: Screen,
     pub(crate) servers: Vec<super::menus::SavedServer>,
     pub(crate) adding_server: bool,
+    pub(crate) selected_server: Option<usize>,
+    pub(crate) editing_server: Option<usize>,
+    pub(crate) deleting_server: bool,
     pub(crate) worlds: Vec<crate::singleplayer::World>,
     pub(crate) selected_world: Option<usize>,
     pub(crate) worlds_error: Option<String>,
@@ -579,6 +589,7 @@ impl UiState {
             packet_commands: VecDeque::new(),
             chat_receipts: VecDeque::new(),
             last_seen: super::chat_tracking::LastSeenTracker::default(),
+            command_completion: super::commands::CommandState::default(),
             chat_expected_index: 0,
             chat_sequence: 0,
             beacon_selection: [None, None],
@@ -594,6 +605,9 @@ impl UiState {
             settings_parent: Screen::Pause,
             servers: Vec::new(),
             adding_server: false,
+            selected_server: None,
+            editing_server: None,
+            deleting_server: false,
             worlds: Vec::new(),
             selected_world: None,
             worlds_error: None,
@@ -1167,6 +1181,13 @@ impl UiState {
             .insert(text)?;
         self.invalidate();
         Ok(())
+    }
+    /// Focus routing must not depend on font availability or an IME caret layout.
+    pub(crate) fn text_field_focused(&self) -> bool {
+        self.focus.as_deref().is_some_and(|id| {
+            self.fields.contains_key(id)
+                && self.nodes.iter().any(|n| n.id == id && n.visible && n.enabled)
+        })
     }
     pub fn ime_state(&self) -> ImeState {
         let Some(id) = &self.focus else {
@@ -2434,6 +2455,11 @@ impl UiState {
             return Ok(());
         }
         if key == "Tab" {
+            if self.screen == Screen::Chat && self.pending_link.is_none()
+                && self.focus.as_deref() == Some("chat/input")
+            {
+                return self.complete_chat(m.shift, e);
+            }
             let ids: Vec<_> = self
                 .nodes
                 .iter()
@@ -2770,11 +2796,71 @@ impl UiState {
             | NodeAction::DeleteWorld => self.activate_world_action(a, e)?,
             NodeAction::AddServer => {
                 self.adding_server = true;
+                self.editing_server = None;
+                self.fields.remove("server/name");
                 self.title_error = None;
                 self.transition(Screen::DirectConnect);
                 self.focus = Some("title/server".into());
             }
-            NodeAction::SaveServer => self.save_server()?,
+            NodeAction::SaveServer => {
+                if let Err(error) = self.save_server() {
+                    self.title_error = Some(error);
+                    self.invalidate();
+                }
+            }
+            NodeAction::SelectServer(index) => {
+                if index >= self.servers.len() {
+                    return Err("server_not_found".into());
+                }
+                self.selected_server = Some(index);
+                self.focus = Some(format!("server/{index}"));
+                self.invalidate();
+            }
+            NodeAction::EditServer => {
+                let index = self.selected_server.ok_or("no_server_selected")?;
+                let server = self.servers.get(index).ok_or("server_not_found")?.clone();
+                self.field("server/name", server.name, 64, false)?;
+                self.field("title/server", server.address, 253, false)?;
+                self.adding_server = true;
+                self.editing_server = Some(index);
+                self.title_error = None;
+                self.transition(Screen::DirectConnect);
+                self.focus = Some("server/name".into());
+            }
+            NodeAction::DeleteServer => {
+                self.selected_server.and_then(|i| self.servers.get(i)).ok_or("no_server_selected")?;
+                self.deleting_server = true;
+                self.title_error = None;
+                self.invalidate();
+            }
+            NodeAction::CancelDeleteServer => {
+                self.deleting_server = false;
+                self.title_error = None;
+                self.invalidate();
+            }
+            NodeAction::ConfirmDeleteServer => {
+                if !self.deleting_server {
+                    return Err("server_delete_confirmation_required".into());
+                }
+                let index = self.selected_server.ok_or("no_server_selected")?;
+                let mut servers = self.servers.clone();
+                if index >= servers.len() {
+                    return Err("server_not_found".into());
+                }
+                servers.remove(index);
+                let result = crate::local_config::servers_path().ok_or_else(|| "Cannot locate local server list".to_owned())
+                    .and_then(|path| super::menus::write_servers(&path, &servers));
+                match result {
+                    Ok(()) => {
+                        self.servers = servers;
+                        self.selected_server = if self.servers.is_empty() { None } else { Some(index.min(self.servers.len() - 1)) };
+                        self.deleting_server = false;
+                        self.title_error = None;
+                    }
+                    Err(error) => self.title_error = Some(error),
+                }
+                self.invalidate();
+            }
             NodeAction::JoinServer(index) => {
                 let address = self
                     .servers
@@ -2782,10 +2868,7 @@ impl UiState {
                     .ok_or("server_not_found")?
                     .address
                     .clone();
-                self.fields
-                    .get_mut("title/server")
-                    .ok_or("server_field_missing")?
-                    .text = address;
+                self.field("title/server", address, 253, false)?;
                 self.adding_server = false;
                 self.transition(Screen::DirectConnect);
                 self.activate(NodeAction::Connect, m, inventory, content, e)?;
@@ -2809,6 +2892,7 @@ impl UiState {
                 }
                 if s == Screen::DirectConnect {
                     self.adding_server = false;
+                    self.editing_server = None;
                     self.title_error = None;
                 }
                 if s == Screen::Singleplayer {

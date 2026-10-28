@@ -2155,6 +2155,15 @@ impl Content {
         );
     }
     #[cfg(test)]
+    pub(crate) fn insert_test_item_block(&mut self, id: u32, state: u32) {
+        self.item_interactions.get_mut(&id).unwrap().block = Some(state);
+    }
+    #[cfg(test)]
+    pub(crate) fn insert_test_block_features(&mut self, state: u32) {
+        let name = self.names[self.info(state).unwrap().block].clone();
+        self.required_features.blocks.insert(name, Arc::from([]));
+    }
+    #[cfg(test)]
     pub(crate) fn insert_test_block_interaction(&mut self, state: u32, replaceable: bool) {
         let facts = BlockInteraction {
             use_item_on: Arc::from("BlockBehaviour"),

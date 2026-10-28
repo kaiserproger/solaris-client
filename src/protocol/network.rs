@@ -289,7 +289,11 @@ fn run(
             r.done()?;
             let v: serde_json::Value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
             if v["version"]["protocol"].as_i64() != Some(777) {
-                return Err(format!("target protocol mismatch: {}", v["version"]));
+                let version = &v["version"];
+                let name = version["name"].as_str().unwrap_or("unknown version");
+                let protocol = version["protocol"].as_i64()
+                    .map_or_else(|| "unknown protocol".to_owned(), |n| format!("protocol {n}"));
+                return Err(format!("Incompatible server version: {name} ({protocol}). This client supports Minecraft {} (protocol 777).", crate::singleplayer::GAME_VERSION));
             }
             state.publish(events, Event::Status(v))?;
             wake();
@@ -513,6 +517,30 @@ mod tests {
                 "view-distance byte must echo the configured radius"
             );
         }
+    }
+
+    #[test]
+    fn wrong_version_reports_readable_client_and_server_versions() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let peer = thread::spawn(move || {
+            let (_login, _) = listener.accept().unwrap();
+            let (mut status, _) = listener.accept().unwrap();
+            read_packet(&mut status);
+            read_packet(&mut status);
+            let mut response = Writer::default();
+            response.string(r#"{"version":{"name":"1.21.4","protocol":769}}"#);
+            write(&mut status, 0, &response.0, None).unwrap();
+        });
+        let mut network = Network::connect(
+            address.to_string(), "VersionTest".into(), 8, Arc::new(|| {}),
+        ).unwrap();
+        peer.join().unwrap();
+        network.worker.take().unwrap().join().unwrap();
+        let Ok(Event::Error(error)) = network.try_recv() else { panic!("missing version error") };
+        assert!(error.contains("26.3"), "{error}");
+        assert!(error.contains("1.21.4"), "{error}");
+        assert!(!error.contains("{\""), "{error}");
     }
 
     #[test]

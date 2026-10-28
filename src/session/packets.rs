@@ -248,6 +248,9 @@ impl Session {
             .apply(id, &mut Reader::new(r.bytes), content, self.client_tick)?
         {
             self.environment.publish_world(&mut self.world)?;
+            if id == cb::SET_TIME {
+                self.player.update_world_time(self.environment.game_time(), self.client_tick);
+            }
             self.server_frozen = self.environment.frozen;
             if id == cb::TICKING_STEP {
                 self.step_ticks = Reader::new(r.bytes).var()?;
@@ -733,6 +736,15 @@ impl Session {
     }
     fn receive_block(&mut self, position: [i32; 3], state: u32) -> Result<()> {
         let content = self.content.as_ref().ok_or("content unavailable")?;
+        content.info(state)?;
+        if let Some(prediction) = self.predicted_blocks.get_mut(&position) {
+            // ClientLevel.setServerVerifiedBlockState retains the local block
+            // until endPredictionsUpTo acknowledges this prediction sequence.
+            prediction.received = state;
+            self.received_blocks.insert(position, self.packet_sequence);
+            self.event(json!({"type":"block_update","position":position,"state_id":state,"origin":"server_observed","packet_sequence":self.packet_sequence.to_string()}));
+            return Ok(());
+        }
         let old = self.world.block(position);
         let now = (self.client_tick as f64 + f64::from(self.presentation_partial)) * 0.05;
         let new_block = content.info(state)?.block;
@@ -745,7 +757,6 @@ impl Session {
             .set(position, state, |id| content.block_is_air(id))?;
         self.entities
             .ensure_block_entity(position, state, content, self.client_tick)?;
-        self.predicted_blocks.remove(&position);
         self.received_blocks.insert(position, self.packet_sequence);
         // Stale crack entries die with the block they referenced.
         self.destruction.retain(|_, (pos, _)| *pos != position);
@@ -823,6 +834,48 @@ fn chunk_key(p: [i32; 3]) -> [i32; 2] {
 mod tests {
     use super::*;
     use crate::protocol::world::{Palette, Section, SurfaceHeightmap};
+
+    #[test]
+    fn disconnect_packet_context_keeps_component_readable() {
+        use crate::protocol::nbt::Nbt;
+        let mut content = Content::test_cube();
+        content.creative_tabs_report = Arc::from(br#"{"tabs":[]}"#.as_slice());
+        for (phase, id) in [
+            (Phase::Login, login::clientbound::LOGIN_DISCONNECT),
+            (Phase::Configuration, configuration::clientbound::DISCONNECT),
+            (Phase::Play, cb::DISCONNECT),
+        ] {
+            let mut session = Session::new_mode("disconnect-test".into(), false);
+            session.content = Some(Content::test_cube());
+            let mut packet = Writer::default();
+            if phase == Phase::Login {
+                packet.string(r#"{"text":"Kicked","extra":[{"text":": maintenance"}]}"#);
+            } else {
+                Nbt::Compound(vec![
+                    ("text".into(), Nbt::String("Kicked".into())),
+                    ("extra".into(), Nbt::List(10, vec![Nbt::Compound(vec![
+                        ("text".into(), Nbt::String(": maintenance".into())),
+                    ])])),
+                ]).write_root(&mut packet).unwrap();
+            }
+            let error = session.apply(phase, id, &packet.0).unwrap_err();
+            let mut ui = UiState::new_state(&content).unwrap();
+            ui.show_disconnected(format!("{phase:?} packet 0x{id:02x} sequence 1: {error}"));
+            assert_eq!(ui.title_error_text().as_deref(), Some("Kicked: maintenance"), "{phase:?}");
+        }
+    }
+
+    #[test]
+    fn disconnect_translation_fallback_and_unrelated_diagnostics() {
+        let mut content = Content::test_cube();
+        content.creative_tabs_report = Arc::from(br#"{"tabs":[]}"#.as_slice());
+        let mut ui = UiState::new_state(&content).unwrap();
+        ui.show_disconnected(r#"Play packet 0x20 sequence 7: Play disconnect: {"translate":"missing.kick.key","fallback":"Banned: %s","with":[{"text":"rules"}],"extra":[{"text":"!"}]}"#.into());
+        assert_eq!(ui.title_error_text().as_deref(), Some("Banned: rules!"));
+        let diagnostic = "Play packet 0x01 sequence 8: malformed data: {\"text\":\"do not strip\"}";
+        ui.show_disconnected(diagnostic.into());
+        assert_eq!(ui.title_error_text().as_deref(), Some(diagnostic));
+    }
 
     fn session_with_received_cube(position: [i32; 3]) -> Session {
         let mut session = Session::new_mode("received-prediction-test".into(), false);

@@ -210,6 +210,7 @@ impl UiState {
         self.last_seen = super::chat_tracking::LastSeenTracker::default();
         self.chat_receipts.clear();
         self.packet_commands.clear();
+        self.command_completion = super::commands::CommandState::default();
         self.maps.clear();
         self.bosses.clear();
         self.advancements.clear();
@@ -295,6 +296,9 @@ impl UiState {
         &self.network_hud.waypoints
     }
     pub fn apply(&mut self, id: i32, r: &mut Reader<'_>, content: &Content) -> Result<bool> {
+        if self.apply_command_packet(id, r, content)? {
+            return Ok(true);
+        }
         // Returning false does not advance the reader, so another owner can consume its own packet.
         if !matches!(
             id,
@@ -529,6 +533,11 @@ impl UiState {
         r.done()?;
         self.invalidate();
         Ok(true)
+    }
+    pub(crate) fn local_message(&mut self, message: &str) -> Result<()> {
+        self.push_chat(json!({"text": message}), None, None, false)?;
+        self.invalidate();
+        Ok(())
     }
     fn push_chat(
         &mut self,

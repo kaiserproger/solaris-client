@@ -356,6 +356,24 @@ impl Content {
         self.placement.states[state as usize].is_solid = solid;
     }
     #[cfg(test)]
+    pub(crate) fn insert_test_item_placement_metadata(&mut self, id: u32, metadata: Value) {
+        self.placement.items.insert(id, metadata);
+    }
+    #[cfg(test)]
+    pub(crate) fn insert_test_placement_state(&mut self, state: u32, fact: Value) {
+        let fact = serde_json::from_value(fact).unwrap();
+        let index = state as usize;
+        if index == self.placement.states.len() {
+            self.placement.states.push(fact);
+        } else {
+            self.placement.states[index] = fact;
+        }
+    }
+    #[cfg(test)]
+    pub(crate) fn insert_test_fluid_legacy_state(&mut self, name: &str, state: u32) {
+        self.placement.fluid_legacy.insert(name.into(), state);
+    }
+    #[cfg(test)]
     pub(crate) fn insert_test_entity_dimensions(&mut self, name: &str, dimensions: [f32; 2]) {
         self.placement
             .entity_dimensions

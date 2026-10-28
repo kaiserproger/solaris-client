@@ -1120,7 +1120,7 @@ impl Player {
             .or_else(|| world.block(position))
             .ok_or_else(|| "unloaded_use_neighborhood".to_owned())
     }
-    fn predict_block(
+    pub(super) fn predict_block(
         &mut self,
         world: &World,
         position: [i32; 3],

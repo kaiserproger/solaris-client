@@ -320,8 +320,8 @@ impl Session {
         } else {
             json!({"phase":"dispatched","origin":"ordinary_player_action"})
         };
-        self.flush_commands()?;
         self.consume_player_effects()?;
+        self.flush_commands()?;
         self.revision += 1;
         Ok(Some(value))
     }
@@ -365,8 +365,8 @@ impl Session {
             self.client_tick,
             &mut self.commands,
         )?;
-        self.flush_commands()?;
         self.consume_player_effects()?;
+        self.flush_commands()?;
         self.revision += 1;
         Ok(
             json!({"result":result,"consumes_action":result.starts_with("Success["),"hit_x":point[0],"hit_y":point[1],"hit_z":point[2]}),
@@ -591,6 +591,10 @@ impl Session {
                 self.content.as_ref().ok_or("content unavailable")?,
             )?),
             UiCommand::ChatAck { offset } => self.commands.push(ui_packets::chat_ack(offset)),
+            UiCommand::CommandSuggestion { id, command } => {
+                if self.phase != "play" { return Err("command_suggestion_requires_play".into()); }
+                self.commands.push(ui_packets::command_suggestion(id, &command)?);
+            }
             UiCommand::Chat { message, command } => self.send_chat(&message, command)?,
             UiCommand::Sign { pos, front, lines } => {
                 self.commands.push(ui_packets::sign(pos, front, &lines)?);
@@ -1064,6 +1068,7 @@ fn normalize_key(key: &str) -> Option<&'static str> {
         "swap_offhand" | "f" => Some("swap_offhand"),
         "f5" | "perspective" => Some("perspective"),
         "pick" | "mouse_middle" => Some("pick"),
+        "player_list" => Some("player_list"),
         // Dialog-screen UI keys (death/pause overlays): cancel/confirm/focus-next.
         "escape" | "ui_cancel" => Some("ui_cancel"),
         "enter" | "ui_confirm" => Some("ui_confirm"),
@@ -1516,4 +1521,126 @@ mod render_distance_wire_tests {
         );
     }
 
+}
+
+#[cfg(test)]
+mod chat_completion_tests {
+    use super::*;
+    use crate::protocol::{packet_ids::play::clientbound as cb, Writer};
+    use crate::ui::Modifiers;
+
+    #[test]
+    fn rc1_chat_tab_completes_advertised_literal_and_cycles() {
+        let mut session = Session::new_mode("chat-completion".into(), false);
+        let mut content = Content::test_cube();
+        content.creative_tabs_report = Arc::from(br#"{"tabs":[]}"#.as_slice());
+        session.ui = Some(UiState::new_state(&content).unwrap());
+        session.content = Some(content);
+        session.phase = "play".into();
+
+        // Root with two literal children, as encoded by the 26.3 commands packet.
+        let mut packet = Writer::default();
+        packet.var(3);
+        packet.byte(0); packet.var(2); packet.var(1); packet.var(2);
+        packet.byte(1); packet.var(0); packet.string("help");
+        packet.byte(1); packet.var(0); packet.string("hello");
+        packet.var(0);
+        session.apply(Phase::Play, cb::COMMANDS, &packet.0).unwrap();
+
+        let ui = session.ui.as_mut().unwrap();
+        let content = session.content.as_ref().unwrap();
+        ui.execute(UiIntent::OpenChat { command: true }, &mut session.inventory, content).unwrap();
+        ui.rebuild_for_test(&session.inventory, content).unwrap();
+        ui.execute(UiIntent::Text { text: "he".into() }, &mut session.inventory, content).unwrap();
+        let tab = || UiIntent::Key { key: "Tab".into(), pressed: true, modifiers: Modifiers::default() };
+        ui.execute(tab(), &mut session.inventory, content).unwrap();
+        let first = ui.fields["chat/input"].text.clone();
+        assert!(first == "/help" || first == "/hello", "{first}");
+        ui.execute(tab(), &mut session.inventory, content).unwrap();
+        let second = &ui.fields["chat/input"].text;
+        assert!(second == "/help" || second == "/hello", "{second}");
+        assert_ne!(&first, second);
+        ui.execute(UiIntent::Key { key: "Tab".into(), pressed: true, modifiers: Modifiers { shift: true, ..Modifiers::default() } }, &mut session.inventory, content).unwrap();
+        assert_eq!(ui.fields["chat/input"].text, first);
+    }
+
+    #[test]
+    fn rc1_chat_argument_suggestions_correlate_and_replace_utf16_range() {
+        use crate::protocol::{Reader, packet_ids::play::serverbound as sb};
+        let mut session = Session::new_mode("chat-suggestions".into(), false);
+        let mut content = Content::test_cube();
+        content.creative_tabs_report = Arc::from(br#"{"tabs":[]}"#.as_slice());
+        session.ui = Some(UiState::new_state(&content).unwrap());
+        session.content = Some(content);
+        session.phase = "play".into();
+        let mut tree = Writer::default();
+        tree.var(3);
+        tree.byte(0); tree.var(1); tree.var(1);
+        tree.byte(1); tree.var(1); tree.var(2); tree.string("msg");
+        tree.byte(18); tree.var(0); tree.string("target");
+        tree.var(5); tree.var(0); tree.string("minecraft:ask_server");
+        tree.var(0);
+        session.apply(Phase::Play, cb::COMMANDS, &tree.0).unwrap();
+        let ui = session.ui.as_mut().unwrap();
+        let content = session.content.as_ref().unwrap();
+        ui.execute(UiIntent::OpenChat { command: true }, &mut session.inventory, content).unwrap();
+        ui.rebuild_for_test(&session.inventory, content).unwrap();
+        ui.execute(UiIntent::Text { text: "msg 😀a tail".into() }, &mut session.inventory, content).unwrap();
+        let field = ui.fields.get_mut("chat/input").unwrap();
+        let cursor = "/msg 😀a".len();
+        field.select(cursor, cursor).unwrap();
+        let tab = || UiIntent::Key { key: "Tab".into(), pressed: true, modifiers: Modifiers::default() };
+        let effects = ui.execute(tab(), &mut session.inventory, content).unwrap();
+        for command in effects.commands { session.execute_ui_command(command).unwrap(); }
+        assert_eq!(session.commands.len(), 1);
+        assert_eq!(session.commands[0].id, sb::COMMAND_SUGGESTION);
+        let mut reader = Reader::new(&session.commands[0].payload.0);
+        let id = reader.var().unwrap();
+        assert_eq!(reader.string(32500).unwrap(), "/msg 😀a");
+        reader.done().unwrap();
+        session.commands.clear(); // Simulate the outbound packet having been sent.
+        let response = |id| {
+            let mut w = Writer::default();
+            w.var(id); w.var(5); w.var(3); w.var(2);
+            w.string("Alice"); w.byte(0); w.string("Alex"); w.byte(0);
+            w.0
+        };
+        session.apply(Phase::Play, cb::COMMAND_SUGGESTIONS, &response(id.wrapping_add(1))).unwrap();
+        assert_eq!(session.ui.as_ref().unwrap().fields["chat/input"].text, "/msg 😀a tail");
+        session.apply(Phase::Play, cb::COMMAND_SUGGESTIONS, &response(id)).unwrap();
+        let ui = session.ui.as_mut().unwrap();
+        assert_eq!(ui.fields["chat/input"].text, "/msg Alice tail");
+        ui.execute(tab(), &mut session.inventory, session.content.as_ref().unwrap()).unwrap();
+        assert_eq!(ui.fields["chat/input"].text, "/msg Alex tail");
+        ui.execute(UiIntent::Key { key: "Tab".into(), pressed: true, modifiers: Modifiers { shift: true, ..Modifiers::default() } }, &mut session.inventory, session.content.as_ref().unwrap()).unwrap();
+        assert_eq!(ui.fields["chat/input"].text, "/msg Alice tail");
+        let field = ui.fields.get_mut("chat/input").unwrap();
+        field.select(5, 10).unwrap();
+        ui.execute(UiIntent::Text { text: "q".into() }, &mut session.inventory, session.content.as_ref().unwrap()).unwrap();
+        let effects = ui.execute(tab(), &mut session.inventory, session.content.as_ref().unwrap()).unwrap();
+        for command in effects.commands { session.execute_ui_command(command).unwrap(); }
+        let mut reader = Reader::new(&session.commands.last().unwrap().payload.0);
+        let new_id = reader.var().unwrap();
+        assert_ne!(new_id, id);
+        session.commands.clear();
+        let ui = session.ui.as_mut().unwrap();
+        ui.execute(UiIntent::Text { text: "x".into() }, &mut session.inventory, session.content.as_ref().unwrap()).unwrap();
+        session.apply(Phase::Play, cb::COMMAND_SUGGESTIONS, &response(new_id)).unwrap();
+        assert_eq!(session.ui.as_ref().unwrap().fields["chat/input"].text, "/msg qx tail");
+        let ui = session.ui.as_mut().unwrap();
+        let effects = ui.execute(
+            UiIntent::Key { key: "Tab".into(), pressed: true, modifiers: Modifiers { shift: true, ..Modifiers::default() } },
+            &mut session.inventory, session.content.as_ref().unwrap()
+        ).unwrap();
+        for command in effects.commands { session.execute_ui_command(command).unwrap(); }
+        let mut reader = Reader::new(&session.commands.last().unwrap().payload.0);
+        let reverse_id = reader.var().unwrap();
+        session.commands.clear();
+        let mut reverse_response = Writer::default();
+        reverse_response.var(reverse_id); reverse_response.var(5); reverse_response.var(2); reverse_response.var(2);
+        reverse_response.string("Alice"); reverse_response.byte(0);
+        reverse_response.string("Alex"); reverse_response.byte(0);
+        session.apply(Phase::Play, cb::COMMAND_SUGGESTIONS, &reverse_response.0).unwrap();
+        assert_eq!(session.ui.as_ref().unwrap().fields["chat/input"].text, "/msg Alex tail");
+    }
 }

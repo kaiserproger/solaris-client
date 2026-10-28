@@ -78,6 +78,19 @@ The session implements bounded version-specific offline status/login/compression
 
 Single block updates remesh only their chunk and affected horizontal boundary neighbors, then aggregate the bounded cache into the current GPU scene. A global two-million-vertex limit now fails explicitly rather than silently clipping geometry. This fixes the measured ordinary-edit owner freeze; it does **not** establish C03 streaming/GPU arenas or P10 latency targets. Historical output capture covered dirt/grass, stone and supported oak hit sounds. Local mining now queues hit sounds every fourth destroy tick and one break sound on completion; grounded horizontal travel queues distance-cadenced step sounds. These requests and existing placement sounds resolve the verified per-state Source sound metadata through the native sample mixer, never a guessed stone fallback. Enqueued voices are not new audible-output evidence; broader material/variant audio remains C04 work.
 
+Ordinary completed, instant and creative mining predict the replacement block
+locally with the same action sequence as the destroy packet, before outbound
+commands are flushed. The replacement is the original fluid's legacy block
+(air when empty, water when waterlogged), matching the pinned 26.3
+`MultiPlayerGameMode.destroyBlock`. Placement uses the same pending block map.
+A server block update changes the separately observed state but does not
+replace a pending local prediction until `BLOCK_CHANGED_ACK` reaches that
+sequence; an older acknowledgement leaves it pending. Accepted actions keep
+the confirmed state; rejected or unconfirmed actions restore the latest known
+server state and collision. The real-session `prediction_tests` regressions
+exercise these paths without a graphical seat; visual mining/placement checks
+remain a separate acceptance gate.
+
 Opaque face shading samples the outward neighbor's received sky/block light, including chunk boundaries and the received layer above/below the dimension. A light update invalidates adjacent cached meshes as well as its own chunk. Missing light remains unknown rather than invented full brightness. Terminal transport errors are retained independently of the bounded packet queue; after queued packets drain, the original error is delivered exactly once, and closed streams fail the session instead of looking connected indefinitely.
 
 Outbound packets queue without a small fixed bound: a burst never ends a session (`outbound queue unavailable: sending on a full channel` was the pre-fix failure when a locked server flooded teleports). The I/O owner drains the queue between every received packet; only a genuinely stalled writer (backlog above 8192 packets, or the 2 s write timeout) is a terminal error.
@@ -157,6 +170,11 @@ bundle from a local manifest. The default public manifest returned 26.1.2
 during that run, so first-run download from the default URL remains blocked
 until the correct manifest and bundle are published. Receipt:
 `../release/.analysis/validation/20261028T121655-title-connect-l31143cr/result.json`.
+
+The fake singleplayer checkpoint-shutdown regression installs its TERM trap
+before printing the readiness marker. Readiness must include teardown-handler
+installation: otherwise immediate `Session::disconnect` can terminate the
+fixture before its checkpoint handler exists, falsely failing the save gate.
 
 The 2026-10-28 local rc.1 acceptance used the canonical release-tree
 `tools.harness run native-lifecycle --release --client native --windowed
@@ -316,6 +334,39 @@ follow `BakedSheetGlyph.render`'s top-left/bottom-left/bottom-right/top-right or
 the former reversed winding culled sign text after its vanilla negative-Y scale.
 These assertions are not windowed pixel evidence.
 The real native signs scenario must be rerun against the rebuilt executable.
+The rc.1 `s4_04_received_sign_both_sides_render` regression additionally decodes
+both saved sides and checks their outward-facing glyph geometry. It already
+passes on the `7cd21ceb` baseline; a server that does not broadcast changed
+block-entity NBT cannot be repaired by changing client text rendering.
+
+**rc.1 HUD, command completion and mounted-camera regressions**
+
+The physical Tab key now holds the online-player overlay in Game, while chat
+Tab uses the received command tree and the command-suggestion request/response
+path. Packet-driven semantic tests cover listed/unlisted players, display-name
+updates, removal, header/footer, key release and release-all. Command tests cover
+literal completion/cycling, server argument requests, response transaction IDs,
+UTF-16 replacement ranges, retained suffixes and stale responses after edits.
+Connection cleanup discards the previous server's command tree and completions.
+
+The mounted-player path receives the environment owner's game time both on time
+packets and each game tick. Previously the seat calculation reported
+`world_time_not_received` and left the local camera at its pre-boarding position.
+The boat packet regression covers boarding, vehicle corrections, dismount and
+reboarding through the session tick, including the pinned client seat/eye height.
+
+The map regression feeds both inventory-slot packet routes followed by a map
+pixel patch; the boss regression feeds add/remove operations for distinct UUIDs
+and connection cleanup. Both pass on the unchanged client baseline. Server
+inventory fan-out and boss remove emission remain separate authorities, not
+client predictions or heuristics.
+
+These are headless packet/session/geometry proofs, **not graphical acceptance**.
+The original QA sign, Tab, chat, map, boat and dragon scenarios still require a
+real-window rerun on the integrated client/server build. Local red/green and lint
+receipts for this slice are in
+`/run/media/kaiserroman/games/solaris-work/qa-armada/fixes/client-hud-fixes*`.
+
 The four edit buffers expose unique exact-selector labels `Sign line 1` through
 `Sign line 4`; focused regressions drive exact-input/focus/text/submit and close.
 

@@ -1199,6 +1199,15 @@ mod tests {
 
     #[test]
     fn p1_review_native_sign_pass_renders_received_text_and_keeps_entity_geometry() {
+        sign_received_geometry(false);
+    }
+
+    #[test]
+    fn s4_04_received_sign_both_sides_render() {
+        sign_received_geometry(true);
+    }
+
+    fn sign_received_geometry(both_sides: bool) {
         use crate::inventory::{nbt, Tag};
         use crate::protocol::{Reader, Writer};
         for (kind, name, key, texture_name) in [
@@ -1319,7 +1328,11 @@ mod tests {
                 let initial_vertices = geometry.vertices.len();
                 let initial_body_indices =
                     geometry.indices[EntityMaterial::EntityCutout as usize].len();
-                let messages = ["P1 PARITY", "", "", ""]
+                let messages = if both_sides {
+                    ["FRONT", "Solaris", "Line 3", "Line 4"]
+                } else {
+                    ["P1 PARITY", "", "", ""]
+                }
                     .into_iter()
                     .map(|line| {
                         if compound {
@@ -1329,12 +1342,12 @@ mod tests {
                         }
                     })
                     .collect();
-                let received = Tag::record([
+                let mut fields = vec![
                     (
                         "front_text",
                         Tag::record([
                             ("messages", Tag::List(messages)),
-                            ("color", Tag::string("red")),
+                            ("color", Tag::string(if both_sides { "white" } else { "red" })),
                             ("has_glowing_text", Tag::Byte(1)),
                         ]),
                     ),
@@ -1342,7 +1355,23 @@ mod tests {
                     ("x", Tag::Int(position[0])),
                     ("y", Tag::Int(position[1])),
                     ("z", Tag::Int(position[2])),
-                ]);
+                ];
+                if both_sides {
+                    fields.push((
+                        "back_text",
+                        Tag::record([
+                            ("messages", Tag::List(
+                                ["BACK", "Solaris", "Line 3", "Line 4"]
+                                    .into_iter()
+                                    .map(Tag::string)
+                                    .collect(),
+                            )),
+                            ("color", Tag::string("white")),
+                            ("has_glowing_text", Tag::Byte(1)),
+                        ]),
+                    ));
+                }
+                let received = Tag::record(fields);
                 let mut packet = Writer::default();
                 packet.i64(crate::protocol::pack_pos(position));
                 packet.var(7);
@@ -1356,10 +1385,16 @@ mod tests {
                     font.language
                         .plain(&data["front_text"]["messages"][0])
                         .unwrap(),
-                    "P1 PARITY"
+                    if both_sides { "FRONT" } else { "P1 PARITY" }
                 );
-                assert!(data.get("back_text").is_none());
+                if both_sides {
+                    assert_eq!(font.language.plain(&data["back_text"]["messages"][0]).unwrap(), "BACK");
+                } else {
+                    assert!(data.get("back_text").is_none());
+                }
                 assert_eq!(store.block_entities[&position].state, Some(1));
+                let initial_text_indices =
+                    geometry.indices[EntityMaterial::TextPolygonOffset as usize].len();
                 let submitted = store
                     .append_static_block_geometry(
                         &content,
@@ -1385,7 +1420,7 @@ mod tests {
                     geometry.indices[EntityMaterial::EntityCutout as usize].len(),
                     initial_body_indices + 6
                 );
-                let text = &geometry.indices[EntityMaterial::TextPolygonOffset as usize];
+                let text = &geometry.indices[EntityMaterial::TextPolygonOffset as usize][initial_text_indices..];
                 assert!(!text.is_empty());
                 assert!(text
                     .iter()
@@ -1395,17 +1430,28 @@ mod tests {
                 } else {
                     0.5
                 };
+                let mut front_triangles = 0;
+                let mut back_triangles = 0;
                 for triangle in text.chunks_exact(3) {
                     let [a, b, c]: [u32; 3] = triangle.try_into().unwrap();
                     let point =
                         |index: u32| Vec3::from_array(geometry.vertices[index as usize].position);
                     let [a, b, c] = [point(a), point(b), point(c)];
-                    // At rotation8/north-facing attachment, glyphs sit outside
-                    // the board's north face and their source winding faces north.
-                    assert!([a, b, c]
-                        .iter()
-                        .all(|point| { point.z < board_z && point.z > board_z - 0.1 }));
-                    assert!((b - a).cross(c - a).z < 0.);
+                    let normal = (b - a).cross(c - a).z;
+                    if a.z < board_z {
+                        assert!([a, b, c].iter().all(|p| p.z < board_z && p.z > board_z - 0.1));
+                        assert!(normal < 0.);
+                        front_triangles += 1;
+                    } else {
+                        assert!(both_sides);
+                        assert!([a, b, c].iter().all(|p| p.z > board_z && p.z < board_z + 0.1));
+                        assert!(normal > 0.);
+                        back_triangles += 1;
+                    }
+                }
+                assert!(front_triangles > 0);
+                if both_sides {
+                    assert!(back_triangles > 0);
                 }
             }
             let mut pending = DynamicGeometry::default();

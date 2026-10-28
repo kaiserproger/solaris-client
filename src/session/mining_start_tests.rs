@@ -13,7 +13,7 @@ use crate::{
 use std::net::TcpListener;
 
 /// Player eye at (4.5, 5.62, 4.5) standing in an all-air chunk.
-fn session() -> Session {
+pub(super) fn session() -> Session {
     let mut session = Session::new_mode("mining-start-test".into(), false);
     let palette = |size| Palette {
         bits: 0,
@@ -55,6 +55,11 @@ fn session() -> Session {
         motion: BTreeMap::new(),
     }));
     session.content = Some(Content::test_cube());
+    let content = session.content.as_mut().unwrap();
+    content.insert_test_fluid_legacy_state("minecraft:empty", 0);
+    for state in 0..=1 {
+        content.insert_test_placement_metadata(state, json!({"block_entity_type":null}));
+    }
     session.phase = "play".into();
     session.player.position = [4.5, 4., 4.5];
     session.player.pose_known = true;
@@ -136,7 +141,7 @@ fn spectator_and_adventure_name_the_game_mode() {
 }
 
 /// A loopback peer is enough: commands only need a live outbound queue.
-fn connect(session: &mut Session) -> TcpListener {
+pub(super) fn connect(session: &mut Session) -> TcpListener {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let address = listener.local_addr().unwrap().to_string();
     session.network = Some(Network::connect(address, "Miner".into(), 8, Arc::new(|| {})).unwrap());

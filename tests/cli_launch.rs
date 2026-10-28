@@ -24,6 +24,8 @@ fn launch_and_legacy_help_work_without_content() {
             String::from_utf8_lossy(&output.stderr)
         );
         let help = String::from_utf8(output.stdout).unwrap();
+        assert!(help.contains("Minecraft Java 26.3"), "{help}");
+        assert!(!help.contains("26.1.2"), "{help}");
         for flag in [
             "--server",
             "--data-dir",

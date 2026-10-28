@@ -11,6 +11,14 @@ mod mining_start_tests;
 mod observation;
 mod packets;
 mod ui_packets;
+#[cfg(test)]
+mod hud_packet_tests;
+#[cfg(test)]
+mod vehicle_packet_tests;
+#[cfg(test)]
+mod block_break_prediction_tests;
+#[cfg(test)]
+mod placement_prediction_tests;
 
 use crate::{
     api::{Command, InputIntent, Observation, Scene, Vertex},
@@ -308,6 +316,9 @@ impl Session {
         self.ui
             .as_ref()
             .is_some_and(|ui| ui.screen() == crate::ui::Screen::Chat)
+    }
+    pub(crate) fn text_field_focused(&self) -> bool {
+        self.ui.as_ref().is_some_and(UiState::text_field_focused)
     }
     pub fn context_epochs(&self) -> (u64, u64) {
         (self.connection_epoch, self.dimension_epoch)
@@ -900,6 +911,7 @@ impl Session {
         let result = (|| {
             let mut start = Instant::now();
             self.environment.tick(self.client_tick);
+            self.player.update_world_time(self.environment.game_time(), self.client_tick);
             self.environment.publish_world(&mut self.world)?;
             self.tick_detail_ms[1] += start.elapsed().as_secs_f64() * 1000.;
             start = Instant::now();
@@ -965,8 +977,8 @@ impl Session {
             }
             self.tick_detail_ms[8] += start.elapsed().as_secs_f64() * 1000.;
             start = Instant::now();
-            self.flush_commands()?;
             self.consume_player_effects()?;
+            self.flush_commands()?;
             self.animate_atlas(previous)?;
             self.tick_detail_ms[9] += start.elapsed().as_secs_f64() * 1000.;
             self.revision += 1;

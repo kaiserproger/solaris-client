@@ -36,9 +36,35 @@ if [[ ! -x "$BIN" ]]; then
   echo "install-desktop: warning: $BIN is not executable" >&2
 fi
 
+# The Desktop Entry specification forbids '=' in the executable path, even quoted.
+if [[ "$BIN" == *=* ]]; then
+  echo "install-desktop: executable path contains '=' (not representable in Desktop Entry Exec): $BIN" >&2
+  exit 1
+fi
+
 mkdir -p "$APPS_DIR" "$ICONS_DIR"
-ESC_BIN="${BIN//&/\\&}"
-sed "s|^Exec=.*|Exec=${ESC_BIN}|" "$DESKTOP_SRC" > "$APPS_DIR/$APP_NAME.desktop"
+# Exec is a desktop-entry string, not a shell command. First quote the
+# executable and escape Exec's special characters, then apply string escaping.
+escaped_bin=""
+for ((i = 0; i < ${#BIN}; i++)); do
+  char=${BIN:i:1}
+  case "$char" in
+    '\') escaped_bin+='\\\\' ;;
+    '"'|'$'|'`') escaped_bin+="\\\\$char" ;;
+    '%') escaped_bin+='%%' ;;
+    $'\n') escaped_bin+='\n' ;;
+    $'\r') escaped_bin+='\r' ;;
+    $'\t') escaped_bin+='\t' ;;
+    *) escaped_bin+="$char" ;;
+  esac
+done
+while IFS= read -r line || [[ -n "$line" ]]; do
+  if [[ "$line" == Exec=* ]]; then
+    printf 'Exec="%s"\n' "$escaped_bin"
+  else
+    printf '%s\n' "$line"
+  fi
+done < "$DESKTOP_SRC" > "$APPS_DIR/$APP_NAME.desktop"
 cp "$ICON_SRC" "$ICONS_DIR/$APP_NAME.png"
 refresh_db
 echo "Installed $APPS_DIR/$APP_NAME.desktop (Exec=$BIN)"

@@ -431,6 +431,32 @@ impl Session {
                 })
                 .unwrap_or(0.);
             let hunger = self.player.effects.contains_key("minecraft:hunger");
+            let player_list_visible = self.phase == "play"
+                && ui.screen() == crate::ui::Screen::Game
+                && self.keys.contains("player_list");
+            let players = if player_list_visible {
+                let board = &ui.network_hud.scoreboard;
+                let mut profiles: Vec<_> = self.entities.player_profiles().filter(|p| p.listed).collect();
+                // 26.3 PlayerTabOverlay static comparator, javap -c -p: negated
+                // order, spectator last, team name, then compareToIgnoreCase.
+                profiles.sort_by(|a, b| {
+                    a.list_order.wrapping_neg().cmp(&b.list_order.wrapping_neg())
+                        .then_with(|| (a.game_mode == 3).cmp(&(b.game_mode == 3)))
+                        .then_with(|| board.membership.get(&a.name).map_or("", String::as_str)
+                            .encode_utf16().cmp(board.membership.get(&b.name).map_or("", String::as_str).encode_utf16()))
+                        .then_with(|| crate::ui::UiState::compare_player_names(&a.name, &b.name))
+                });
+                profiles.into_iter().take(80).map(|p| crate::ui::PlayerListEntry {
+                    id: p.uuid.clone(),
+                    name: p.display_name.clone().unwrap_or_else(|| {
+                        board.formatted_name(&p.name, None).as_ref().clone()
+                    }),
+                    latency: p.latency,
+                    game_mode: p.game_mode,
+                }).collect()
+            } else {
+                Vec::new()
+            };
             ui.set_presentation(UiPresentation {
                 hud: HudState {
                     health: self.player.health,
@@ -449,6 +475,8 @@ impl Session {
                     level: Some(self.player.experience_level),
                     player_tick: Some(self.client_tick as i32),
                     attack: Some(self.player.attack_strength(0.)),
+                    players,
+                    player_list_visible,
                     ..Default::default()
                 },
                 loading,
@@ -910,6 +938,104 @@ mod debug_tests {
         assert!(bare.iter().all(|l| !l.starts_with("draws:")), "{bare:?}");
         assert!(bare.iter().any(|l| l.starts_with("XYZ: ")), "{bare:?}");
         assert!(bare.len() <= 16, "{bare:?}");
+    }
+    #[test]
+    fn rc1_tab_roster_packet_visibility_and_release() {
+        use crate::protocol::{packet_ids::play::clientbound as cb, network::Phase, Writer};
+        use crate::api::InputIntent;
+
+        let mut session = Session::new_mode("tab-test".into(), false);
+        let mut content = crate::protocol::content::Content::test_cube();
+        content.creative_tabs_report = std::sync::Arc::from(br#"{"tabs":[]}"#.as_slice());
+        // Authored empty-provider font exercises real missing-glyph layout without
+        // depending on Mojang assets (the same fixture as render_nameplates).
+        content.insert_test_font("minecraft:default", &serde_json::json!({"providers":[]}));
+        content.insert_test_resource("assets/minecraft/lang/en_us.json", b"{}");
+        session.ui = Some(crate::ui::UiState::new(&content).unwrap());
+        session.content = Some(content);
+        session.phase = "play".into();
+        let mut add = Writer::default();
+        add.byte(0x09); // add player, update listed
+        add.var(2);
+        for (id, name) in [(1u8, "WWWWWWWWWWWWWWWW"), (2, "Alice")] {
+            add.0.extend([id; 16]);
+            add.string(name);
+            add.var(0);
+            add.byte(1);
+        }
+        session.apply(Phase::Play, cb::PLAYER_INFO_UPDATE, &add.0).unwrap();
+        let mut header = Writer::default();
+        for text in ["Roster header\nSecond line", "Roster footer\nSecond line"] {
+            header.byte(8); // network NBT string component
+            header.0.extend((text.len() as u16).to_be_bytes());
+            header.0.extend(text.as_bytes());
+        }
+        session.apply(Phase::Play, cb::TAB_LIST, &header.0).unwrap();
+        session.sync_ui_state(true).unwrap();
+        assert!(!session.ui.as_ref().unwrap().hud.player_list_visible);
+        session.input(InputIntent::Key { key: "player_list".into(), pressed: true }).unwrap();
+        session.sync_ui_state(true).unwrap();
+        let ui = session.ui.as_mut().unwrap();
+        assert!(ui.hud.player_list_visible);
+        assert_eq!(ui.hud.players.len(), 2);
+        ui.rebuild_for_test(&session.inventory, session.content.as_ref().unwrap()).unwrap();
+        let nodes = &ui.nodes;
+        let header = nodes.iter().find(|n| n.id == "tab/header").unwrap();
+        let footer = nodes.iter().find(|n| n.id == "tab/footer").unwrap();
+        assert_eq!(header.label, "Roster header\nSecond line");
+        assert_eq!(footer.label, "Roster footer\nSecond line");
+        let names: Vec<_> = nodes.iter().filter(|n| n.id.starts_with("tab/player/")).map(|n| n.label.as_str()).collect();
+        assert_eq!(names, ["Alice 0ms", "WWWWWWWWWWWWWWWW 0ms"]);
+        let long = nodes.iter().find(|n| n.label == "WWWWWWWWWWWWWWWW 0ms").unwrap();
+        let natural_width = ui.text.layout(long.component.as_ref().unwrap(), f32::MAX).unwrap().width;
+        assert!(long.bounds[2] >= natural_width);
+        assert!((long.bounds[0] + long.bounds[2] / 2. - ui.width / 2.).abs() < 0.01);
+        let alice = nodes.iter().find(|n| n.label == "Alice 0ms").unwrap();
+        assert!(alice.bounds[1] + alice.bounds[3] <= long.bounds[1]);
+        assert!(header.bounds[1] + header.bounds[3] + 2. <= alice.bounds[1]);
+        assert!(long.bounds[1] + long.bounds[3] + 2. <= footer.bounds[1]);
+        assert!(header.bounds[3] > 12. && footer.bounds[3] > 12.);
+        // Local 26.3 d263 ClientboundPlayerInfoUpdatePacket.java:135-140:
+        // UPDATE_LISTED=3, UPDATE_DISPLAY_NAME=5 (nullable component).
+        let mut update = Writer::default();
+        update.byte(0x28);
+        update.var(1);
+        update.0.extend([1u8; 16]);
+        update.byte(0);
+        update.byte(1);
+        update.byte(8);
+        update.0.extend(5u16.to_be_bytes());
+        update.0.extend(b"Alias");
+        session.apply(Phase::Play, cb::PLAYER_INFO_UPDATE, &update.0).unwrap();
+        session.sync_ui_state(true).unwrap();
+        assert_eq!(session.ui.as_ref().unwrap().hud.players.len(), 1);
+        let mut relist = Writer::default();
+        relist.byte(0x08);
+        relist.var(1);
+        relist.0.extend([1u8; 16]);
+        relist.byte(1);
+        session.apply(Phase::Play, cb::PLAYER_INFO_UPDATE, &relist.0).unwrap();
+        session.sync_ui_state(true).unwrap();
+        let ui = session.ui.as_mut().unwrap();
+        ui.rebuild_for_test(&session.inventory, session.content.as_ref().unwrap()).unwrap();
+        assert!(ui.nodes.iter().any(|n| n.id.starts_with("tab/player/") && n.label == "Alias 0ms"));
+        session.input(InputIntent::Key { key: "player_list".into(), pressed: false }).unwrap();
+        session.sync_ui_state(true).unwrap();
+        assert!(!session.ui.as_ref().unwrap().hud.player_list_visible);
+        session.input(InputIntent::Key { key: "player_list".into(), pressed: true }).unwrap();
+        session.input(InputIntent::ReleaseAll).unwrap();
+        session.sync_ui_state(true).unwrap();
+        assert!(!session.ui.as_ref().unwrap().hud.player_list_visible);
+        let ui = session.ui.as_mut().unwrap();
+        ui.rebuild_for_test(&session.inventory, session.content.as_ref().unwrap()).unwrap();
+        assert!(!ui.nodes.iter().any(|n| n.id.starts_with("tab/")));
+        session.input(InputIntent::Key { key: "player_list".into(), pressed: true }).unwrap();
+        let mut remove = Writer::default();
+        remove.var(1);
+        remove.0.extend([2u8; 16]);
+        session.apply(Phase::Play, cb::PLAYER_INFO_REMOVE, &remove.0).unwrap();
+        session.sync_ui_state(true).unwrap();
+        assert_eq!(session.ui.as_ref().unwrap().hud.players.len(), 1);
     }
     #[test]
     fn play_observation_waits_for_received_spawn_world() {
