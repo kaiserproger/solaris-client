@@ -769,6 +769,10 @@ the trace rather than blocking rendering or silently claiming complete evidence.
 Close the client normally to drain the writer; a valid trace ends with
 `# trace_complete` and `dropped_rows=0` separated by a tab. Forced termination
 can leave an incomplete trace, which must not be used for percentile claims.
+Normal event-loop exit destroys the renderer and joins its GPU completion
+worker before releasing the native window/display, then drains the trace.
+This ordering also covers inactive EGL backends in a Vulkan-selected instance;
+destroying them after the Wayland connection caused a native shutdown SIGSEGV.
 `skipped_draw_attempts`, `skipped_draw_ms` and `skipped_advance_ms` preserve work
 from draw attempts that did not submit a new frame (for example, GPU in-flight
 backpressure). App owner timings reset after each attempt, not only submissions;

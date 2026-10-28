@@ -1321,6 +1321,12 @@ impl ApplicationHandler for App {
         self.release("exiting");
         let _ = self.session.command(Command::Disconnect);
         self.automation.take();
+        // run_app consumes the event loop. Destroy GPU instances (including
+        // the completion worker's EGL backend) before its Wayland display,
+        // while the window still owns valid native handles.
+        self.renderer.take();
+        self.window.take();
+        self.frame_trace.take();
     }
 }
 
