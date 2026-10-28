@@ -599,11 +599,10 @@ impl Player {
         }
         let damage = self.destroy_progress(content, inventory, hit.state, tick)?;
         if self.breaking.is_none() {
-            self.action(0, hit.position, hit.face, true, out)?;
-            self.swing(0, out);
             if self.game_mode == 1 || damage >= 1. {
+                self.destroy_action(0, &hit, world, content, out)?;
+                self.swing(0, out);
                 self.break_delay = 5;
-                self.emit_break_completion(world, content, &hit)?;
                 self.breaking = Some(Breaking {
                     hit,
                     item: item.cloned(),
@@ -613,6 +612,8 @@ impl Player {
                 });
                 return Ok(());
             }
+            self.action(0, hit.position, hit.face, true, out)?;
+            self.swing(0, out);
             self.breaking = Some(Breaking {
                 hit,
                 item: item.cloned(),
@@ -635,13 +636,47 @@ impl Player {
         if knock {
             self.emit_break_hit(world, content, &hit)?;
         }
-        self.swing(0, out);
         if finished {
-            self.action(2, hit.position, hit.face, true, out)?;
-            self.emit_break_completion(world, content, &hit)?;
+            self.destroy_action(2, &hit, world, content, out)?;
             self.breaking.as_mut().unwrap().finished = true;
             self.break_delay = 5;
         }
+        self.swing(0, out);
+        Ok(())
+    }
+    fn destroy_action(
+        &mut self,
+        action: i32,
+        hit: &BlockHit,
+        world: &World,
+        content: &Content,
+        out: &mut Vec<PacketCommand>,
+    ) -> Result<()> {
+        // 26.3 startPrediction allocates the sequence, destroys locally, then
+        // constructs START/STOP_DESTROY_BLOCK with that same sequence.
+        let sequence = self.next_sequence()?;
+        let replacement = match content.info(hit.state)?.fluid {
+            None => content.fluid_legacy_state("minecraft:empty")?,
+            Some(fluid) => {
+                let source = content.fluid_legacy_state(match fluid.kind {
+                    FluidKind::Water => "minecraft:water",
+                    FluidKind::Lava => "minecraft:lava",
+                })?;
+                let level = 8 - fluid.amount.min(8) + if fluid.falling { 8 } else { 0 };
+                if level == 0 {
+                    source
+                } else {
+                    const LEVELS: [&str; 16] = [
+                        "0", "1", "2", "3", "4", "5", "6", "7",
+                        "8", "9", "10", "11", "12", "13", "14", "15",
+                    ];
+                    content.with_state_property(source, "level", LEVELS[usize::from(level)])?
+                }
+            }
+        };
+        self.predict_block(world, hit.position, replacement, 11)?;
+        self.emit_break_completion(world, content, hit)?;
+        Self::write_action(action, hit.position, hit.face, sequence, out);
         Ok(())
     }
     pub fn block_changed(&mut self, position: [i32; 3], state: u32) {
@@ -1040,13 +1075,22 @@ impl Player {
         out: &mut Vec<PacketCommand>,
     ) -> Result<()> {
         let sequence = if predict { self.next_sequence()? } else { 0 };
+        Self::write_action(action, position, face, sequence, out);
+        Ok(())
+    }
+    fn write_action(
+        action: i32,
+        position: [i32; 3],
+        face: i32,
+        sequence: i32,
+        out: &mut Vec<PacketCommand>,
+    ) {
         let mut w = Writer::default();
         w.var(if action == 0 { 0 } else { action + 1 });
         w.i64(protocol::pack_pos(position));
         w.var(face);
         w.var(sequence);
         out.push(PacketCommand::new(sb::PLAYER_ACTION, w));
-        Ok(())
     }
     pub(super) fn swing(&self, hand: u8, out: &mut Vec<PacketCommand>) {
         self.visual.swing(hand);
@@ -1142,6 +1186,8 @@ mod tests {
     #[test]
     fn local_mining_emits_four_tick_hits_and_one_completion_burst() {
         let mut content = Content::test_cube();
+        use crate::protocol::world::{Chunk, Palette, Section, SurfaceHeightmap};
+        content.insert_test_fluid_legacy_state("minecraft:empty", 0);
         content.insert_test_block_sound(
             1,
             1.,
@@ -1151,7 +1197,19 @@ mod tests {
                 ("break".into(), "test:break".into()),
             ]),
         );
-        let world = World::new(0, 16);
+        let mut world = World::new(0, 16);
+        world.insert([0, 0], Chunk {
+            sections: vec![Arc::new(Section {
+                blocks: Palette { bits: 0, values: vec![1], words: Vec::new(), size: 4096 },
+                biomes: Palette { bits: 0, values: vec![0], words: Vec::new(), size: 64 },
+                non_empty_block_count: 4096,
+            })],
+            sky: BTreeMap::new(),
+            block: BTreeMap::new(),
+            block_entities: crate::protocol::world::empty_block_entities(),
+            surface_heightmap: Arc::new(SurfaceHeightmap::new(16).unwrap()),
+            surface_heightmap_received: false,
+        }).unwrap();
         let inventory = InventoryStore::default();
         let entities = EntityStore::new();
         let hit = BlockHit {
@@ -1170,6 +1228,7 @@ mod tests {
             let mut hits = 0;
             let mut completions = 0;
             let mut breaks = 0;
+            let mut predictions = 0;
             for tick in 0..200 {
                 player
                     .break_block(
@@ -1186,6 +1245,13 @@ mod tests {
                     match effect {
                         UsePrediction::Sound(sound) if sound.event == "test:hit" => hits += 1,
                         UsePrediction::Sound(sound) if sound.event == "test:break" => breaks += 1,
+                        UsePrediction::WorldBlock { position, state, flags, sequence, .. } => {
+                            assert_eq!(position, hit.position);
+                            assert_eq!(state, 0);
+                            assert_eq!(flags, 11);
+                            assert_eq!(sequence, player.sequence);
+                            predictions += 1;
+                        }
                         UsePrediction::LevelEvent {
                             event: 2001,
                             position,
@@ -1203,6 +1269,14 @@ mod tests {
             assert_eq!(hits, breaking.ticks / 4);
             assert_eq!(breaks, 1);
             assert_eq!(completions, 1);
+            assert_eq!(predictions, 1);
+            let command = commands.iter().rev().find(|command| command.id == sb::PLAYER_ACTION).unwrap();
+            let mut packet = Reader::new(&command.payload.0);
+            assert_eq!(packet.var().unwrap(), if creative { 0 } else { 3 });
+            assert_eq!(protocol::unpack_pos(packet.i64().unwrap()), hit.position);
+            assert_eq!(packet.var().unwrap(), hit.face);
+            assert_eq!(packet.var().unwrap(), player.sequence);
+            packet.done().unwrap();
         }
     }
 

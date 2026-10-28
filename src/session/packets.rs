@@ -729,6 +729,15 @@ impl Session {
     }
     fn receive_block(&mut self, position: [i32; 3], state: u32) -> Result<()> {
         let content = self.content.as_ref().ok_or("content unavailable")?;
+        content.info(state)?;
+        if let Some(prediction) = self.predicted_blocks.get_mut(&position) {
+            // ClientLevel.setServerVerifiedBlockState retains the local block
+            // until endPredictionsUpTo acknowledges this prediction sequence.
+            prediction.received = state;
+            self.received_blocks.insert(position, self.packet_sequence);
+            self.event(json!({"type":"block_update","position":position,"state_id":state,"origin":"server_observed","packet_sequence":self.packet_sequence.to_string()}));
+            return Ok(());
+        }
         let old = self.world.block(position);
         let now = (self.client_tick as f64 + f64::from(self.presentation_partial)) * 0.05;
         let new_block = content.info(state)?.block;
@@ -741,7 +750,6 @@ impl Session {
             .set(position, state, |id| content.block_is_air(id))?;
         self.entities
             .ensure_block_entity(position, state, content, self.client_tick)?;
-        self.predicted_blocks.remove(&position);
         self.received_blocks.insert(position, self.packet_sequence);
         // Stale crack entries die with the block they referenced.
         self.destruction.retain(|_, (pos, _)| *pos != position);

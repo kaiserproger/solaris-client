@@ -15,6 +15,10 @@ mod ui_packets;
 mod hud_packet_tests;
 #[cfg(test)]
 mod vehicle_packet_tests;
+#[cfg(test)]
+mod block_break_prediction_tests;
+#[cfg(test)]
+mod placement_prediction_tests;
 
 use crate::{
     api::{Command, InputIntent, Observation, Scene, Vertex},
@@ -973,8 +977,8 @@ impl Session {
             }
             self.tick_detail_ms[8] += start.elapsed().as_secs_f64() * 1000.;
             start = Instant::now();
-            self.flush_commands()?;
             self.consume_player_effects()?;
+            self.flush_commands()?;
             self.animate_atlas(previous)?;
             self.tick_detail_ms[9] += start.elapsed().as_secs_f64() * 1000.;
             self.revision += 1;

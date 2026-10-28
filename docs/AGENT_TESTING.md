@@ -51,6 +51,19 @@ The session implements bounded version-specific offline status/login/compression
 
 Single block updates remesh only their chunk and affected horizontal boundary neighbors, then aggregate the bounded cache into the current GPU scene. A global two-million-vertex limit now fails explicitly rather than silently clipping geometry. This fixes the measured ordinary-edit owner freeze; it does **not** establish C03 streaming/GPU arenas or P10 latency targets. Historical output capture covered dirt/grass, stone and supported oak hit sounds. Local mining now queues hit sounds every fourth destroy tick and one break sound on completion; grounded horizontal travel queues distance-cadenced step sounds. These requests and existing placement sounds resolve the verified per-state Source sound metadata through the native sample mixer, never a guessed stone fallback. Enqueued voices are not new audible-output evidence; broader material/variant audio remains C04 work.
 
+Ordinary completed, instant and creative mining predict the replacement block
+locally with the same action sequence as the destroy packet, before outbound
+commands are flushed. The replacement is the original fluid's legacy block
+(air when empty, water when waterlogged), matching the pinned 26.3
+`MultiPlayerGameMode.destroyBlock`. Placement uses the same pending block map.
+A server block update changes the separately observed state but does not
+replace a pending local prediction until `BLOCK_CHANGED_ACK` reaches that
+sequence; an older acknowledgement leaves it pending. Accepted actions keep
+the confirmed state; rejected or unconfirmed actions restore the latest known
+server state and collision. The real-session `prediction_tests` regressions
+exercise these paths without a graphical seat; visual mining/placement checks
+remain a separate acceptance gate.
+
 Opaque face shading samples the outward neighbor's received sky/block light, including chunk boundaries and the received layer above/below the dimension. A light update invalidates adjacent cached meshes as well as its own chunk. Missing light remains unknown rather than invented full brightness. Terminal transport errors are retained independently of the bounded packet queue; after queued packets drain, the original error is delivered exactly once, and closed streams fail the session instead of looking connected indefinitely.
 
 Outbound packets queue without a small fixed bound: a burst never ends a session (`outbound queue unavailable: sending on a full channel` was the pre-fix failure when a locked server flooded teleports). The I/O owner drains the queue between every received packet; only a genuinely stalled writer (backlog above 8192 packets, or the 2 s write timeout) is a terminal error.

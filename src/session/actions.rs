@@ -320,8 +320,8 @@ impl Session {
         } else {
             json!({"phase":"dispatched","origin":"ordinary_player_action"})
         };
-        self.flush_commands()?;
         self.consume_player_effects()?;
+        self.flush_commands()?;
         self.revision += 1;
         Ok(Some(value))
     }
@@ -365,8 +365,8 @@ impl Session {
             self.client_tick,
             &mut self.commands,
         )?;
-        self.flush_commands()?;
         self.consume_player_effects()?;
+        self.flush_commands()?;
         self.revision += 1;
         Ok(
             json!({"result":result,"consumes_action":result.starts_with("Success["),"hit_x":point[0],"hit_y":point[1],"hit_z":point[2]}),
