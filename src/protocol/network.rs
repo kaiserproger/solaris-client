@@ -170,7 +170,7 @@ fn endpoint(s: &str) -> Result<String> {
 }
 fn handshake(endpoint: &str, port: u16, next: i32) -> Vec<u8> {
     let mut w = Writer::default();
-    w.var(775);
+    w.var(777);
     let host = if endpoint.starts_with('[') {
         endpoint.split(']').next().unwrap().trim_start_matches('[')
     } else {
@@ -237,7 +237,7 @@ fn run(
             let text = r.string(32767)?;
             r.done()?;
             let v: serde_json::Value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
-            if v["version"]["protocol"].as_i64() != Some(775) {
+            if v["version"]["protocol"].as_i64() != Some(777) {
                 return Err(format!("target protocol mismatch: {}", v["version"]));
             }
             events.send(Event::Status(v)).map_err(|_| "session gone")?;
@@ -258,7 +258,7 @@ fn run(
         flush_outbound(&mut socket, &commands, state, compression)?;
         let radius = state.view_distance.load(Ordering::Acquire);
         if phase != Phase::Login && advertised_radius != Some(radius) {
-            // Packet IDs from the local 26.1.2 protocol dump: Configuration
+            // Packet IDs from the local 26.3 protocol dump: Configuration
             // ClientInformation 0x00, Play ClientInformation 0x0E.
             let id = if phase == Phase::Configuration {
                 0
@@ -307,9 +307,9 @@ fn run(
             }
             if original == Phase::Play {
                 match id {
-                    44 => write(&mut socket, 28, &body, compression)?,
-                    61 => write(&mut socket, 45, &body, compression)?,
-                    118 => {
+                    45 => write(&mut socket, 28, &body, compression)?,
+                    62 => write(&mut socket, 45, &body, compression)?,
+                    120 => {
                         write(&mut socket, 16, &[], compression)?;
                         phase = Phase::Configuration;
                         write(&mut socket, 0, &client_information(radius), compression)?;
@@ -419,7 +419,7 @@ mod tests {
                 assert_eq!(read_packet(&mut status).0, 0);
                 assert_eq!(read_packet(&mut status), (0, Vec::new()));
                 let mut response = Writer::default();
-                response.string(r#"{"version":{"protocol":775}}"#);
+                response.string(r#"{"version":{"protocol":777}}"#);
                 write(&mut status, 0, &response.0, None).unwrap();
 
                 assert_eq!(read_packet(&mut login).0, 0);
@@ -458,7 +458,7 @@ mod tests {
             network.worker.take().unwrap().join().unwrap();
             assert!(matches!(
                 network.try_recv(),
-                Ok(Event::Status(status)) if status["version"]["protocol"] == 775
+                Ok(Event::Status(status)) if status["version"]["protocol"] == 777
             ));
             assert!(matches!(
                 network.try_recv(),
@@ -516,7 +516,7 @@ mod tests {
             assert_eq!(read_packet(&mut status).0, 0);
             assert_eq!(read_packet(&mut status), (0, Vec::new()));
             let mut response = Writer::default();
-            response.string(r#"{"version":{"protocol":775}}"#);
+            response.string(r#"{"version":{"protocol":777}}"#);
             write(&mut status, 0, &response.0, None).unwrap();
             assert_eq!(read_packet(&mut login).0, 0);
             assert_eq!(read_packet(&mut login).0, 0);

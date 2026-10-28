@@ -431,10 +431,9 @@ impl Player {
         }
         if self.game_mode == 3 {
             if let Some(Hit::Entity { handle, .. }) = target {
-                let uuid = entities.uuid_bytes(handle)?;
                 let mut w = Writer::default();
-                w.0.extend_from_slice(&uuid);
-                out.push(PacketCommand::new(62, w));
+                w.var(handle.network_id.checked_add(1).ok_or("spectator entity id overflow")?);
+                out.push(PacketCommand::new(63, w));
             }
             return Ok(());
         }
@@ -1041,7 +1040,7 @@ impl Player {
     ) -> Result<()> {
         let sequence = if predict { self.next_sequence()? } else { 0 };
         let mut w = Writer::default();
-        w.var(action);
+        w.var(if action == 0 { 0 } else { action + 1 });
         w.i64(protocol::pack_pos(position));
         w.var(face);
         w.var(sequence);
@@ -1050,9 +1049,7 @@ impl Player {
     }
     pub(super) fn swing(&self, hand: u8, out: &mut Vec<PacketCommand>) {
         self.visual.swing(hand);
-        let mut w = Writer::default();
-        w.var(i32::from(hand));
-        out.push(PacketCommand::new(63, w));
+        out.push(PacketCommand::new(46, Writer::default()));
     }
     fn abort_break(&mut self, out: &mut Vec<PacketCommand>) -> Result<()> {
         if let Some(b) = self.breaking.take() {

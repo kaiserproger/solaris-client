@@ -706,7 +706,7 @@ impl InventoryStore {
                     }
                 }
             }
-            59 => {
+            60 => {
                 let container = r.var()?;
                 if container <= 0 {
                     return Err("open screen container ID must be positive".into());

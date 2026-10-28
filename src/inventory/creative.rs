@@ -9,7 +9,7 @@ fn packet(slot: i16, stack: &Stack) -> Result<PacketCommand> {
     let mut w = Writer::default();
     w.0.extend(slot.to_be_bytes());
     stack.write(&mut w)?;
-    Ok(PacketCommand::new(56, w))
+    Ok(PacketCommand::new(57, w))
 }
 impl InventoryStore {
     pub(super) fn validate_creative_item(&self, stack: &Stack, content: &Content) -> Result<()> {

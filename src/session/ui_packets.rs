@@ -1,4 +1,4 @@
-//! Target 26.1.2 UI wire layouts; semantic admission remains in the UI/inventory owners.
+//! Target 26.3 UI wire layouts; semantic admission remains in the UI/inventory owners.
 use crate::{
     inventory::PacketCommand,
     protocol::{self, nbt::Nbt, Result, Writer},
@@ -46,11 +46,11 @@ pub(super) fn chat_ack(offset: i32) -> PacketCommand {
 pub(super) fn sign(position: [i32; 3], front: bool, lines: &[String; 4]) -> Result<PacketCommand> {
     let mut writer = Writer::default();
     writer.i64(protocol::pack_pos(position));
-    writer.byte(u8::from(front));
     for line in lines {
-        utf(&mut writer, line, 32767)?;
+        utf(&mut writer, line, 384)?;
     }
-    Ok(PacketCommand::new(61, writer))
+    writer.var(i32::from(front));
+    Ok(PacketCommand::new(62, writer))
 }
 
 pub(super) fn book(slot: i32, pages: &[String], title: Option<&str>) -> Result<PacketCommand> {
@@ -74,10 +74,10 @@ pub(super) fn command_block(edit: &CommandEdit) -> Result<PacketCommand> {
     let mut writer = Writer::default();
     let id = if let Some(entity_id) = edit.entity_id {
         writer.var(entity_id);
-        55
+        56
     } else {
         writer.i64(protocol::pack_pos(edit.pos));
-        54
+        55
     };
     utf(&mut writer, &edit.command, 32767)?;
     if edit.entity_id.is_some() {
@@ -123,7 +123,7 @@ pub(super) fn structure(edit: &StructureEdit) -> Result<PacketCommand> {
             | (u8::from(edit.show_box) << 2)
             | (u8::from(edit.strict) << 3),
     );
-    Ok(PacketCommand::new(59, writer))
+    Ok(PacketCommand::new(60, writer))
 }
 
 pub(super) fn jigsaw(edit: &JigsawEdit) -> Result<PacketCommand> {
@@ -136,7 +136,7 @@ pub(super) fn jigsaw(edit: &JigsawEdit) -> Result<PacketCommand> {
     utf(&mut writer, &edit.joint, 32767)?;
     writer.var(edit.selection_priority);
     writer.var(edit.placement_priority);
-    Ok(PacketCommand::new(58, writer))
+    Ok(PacketCommand::new(59, writer))
 }
 
 pub(super) fn generate_jigsaw(position: [i32; 3], levels: i32, keep: bool) -> PacketCommand {
@@ -148,7 +148,7 @@ pub(super) fn generate_jigsaw(position: [i32; 3], levels: i32, keep: bool) -> Pa
 }
 
 /// `ServerboundCustomClickActionPacket` (play id 68): Identifier, then the optional NBT payload
-/// behind a VarInt byte length (`UNTRUSTED_TAG_CODEC`; TAG_End when absent), per the local
+/// behind a VarInt byte length (`UNTRUSTED_TAG_CODEC`; TAG_End when absent), per the local 26.3 decompiled client.
 /// 26.1.2 decompiled client.
 pub(super) fn custom_click(id: &str, payload: Option<&Nbt>) -> Result<PacketCommand> {
     let mut body = Writer::default();
@@ -193,7 +193,7 @@ pub(super) fn seen_advancements(tab: Option<&str>) -> PacketCommand {
         }
         None => writer.var(1),
     }
-    PacketCommand::new(50, writer)
+    PacketCommand::new(51, writer)
 }
 
 #[cfg(test)]
