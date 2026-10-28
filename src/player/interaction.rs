@@ -1238,7 +1238,7 @@ mod tests {
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].id, 41);
         let mut r = Reader::new(&out[0].payload.0);
-        assert_eq!(r.var().unwrap(), 1);
+        assert_eq!(r.var().unwrap(), 2);
         assert_eq!(protocol::unpack_pos(r.i64().unwrap()), [-1, 2, 3]);
         p.release_all(&mut out).unwrap();
         assert_eq!(out.len(), 1);

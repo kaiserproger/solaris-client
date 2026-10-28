@@ -49,7 +49,7 @@ fn missing_data_fails_before_opening_a_window() {
     let error = String::from_utf8(output.stderr).unwrap();
     assert!(error.contains("missing content file"), "{error}");
     assert!(
-        error.contains("facts/block_collision_shapes_26_1_2.bin"),
+        error.contains("facts/block_collision_shapes_26_3.bin"),
         "{error}"
     );
     assert!(error.contains(root.to_str().unwrap()), "{error}");
@@ -104,7 +104,7 @@ fn xdg_default_and_explicit_environment_override_are_respected() {
     let error = String::from_utf8(output.stderr).unwrap();
     assert!(
         error.contains(
-            root.join("solaris-client/facts/block_collision_shapes_26_1_2.bin")
+            root.join("solaris-client/facts/block_collision_shapes_26_3.bin")
                 .to_str()
                 .unwrap()
         ),

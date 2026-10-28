@@ -323,7 +323,7 @@ mod tests {
         assert!(
             state
                 .apply(
-                    85,
+                    87,
                     &mut Reader::new(&packet.0[..packet.0.len() - 1]),
                     &content
                 )

@@ -429,7 +429,7 @@ mod tests {
                     .all(|v| v.texture_layer == if slot == 3 { 3 } else { 2 }));
                 store
                     .apply(
-                        102,
+                        104,
                         &mut crate::protocol::Reader::new(&[4, slot as u8, 0]),
                         &content,
                         3,

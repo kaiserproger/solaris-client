@@ -650,9 +650,8 @@ mod p1_helmet_tests {
             assert_eq!(use_item.f32().unwrap(), 12.);
             assert_eq!(use_item.f32().unwrap(), -5.);
             assert_eq!(use_item.offset, use_item.bytes.len());
-            let mut swing = Reader::new(&packets[1].payload.0);
-            assert_eq!(swing.var().unwrap(), i32::from(hand));
-            assert_eq!(swing.offset, swing.bytes.len());
+            // 26.3 replaced the hand-bearing swing packet with empty punch.
+            assert!(packets[1].payload.0.is_empty());
             assert_eq!(predicted_slot(&player, 5), Some(&Some(helmet(None))));
             assert_eq!(
                 player.last_interaction_result,

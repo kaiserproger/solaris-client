@@ -859,7 +859,7 @@ mod tests {
         packet.f32(40.);
         packet.byte(0);
 
-        session.apply(Phase::Play, 127, &packet.0).unwrap();
+        session.apply(Phase::Play, 130, &packet.0).unwrap();
 
         assert_eq!(session.tick_interval(), Duration::from_millis(25));
         assert!(!session.server_frozen);

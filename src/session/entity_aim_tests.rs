@@ -204,7 +204,7 @@ fn local_player_air_supply_is_captured_from_its_own_metadata_row() {
     session
         .entities
         .apply(
-            99,
+            101,
             &mut Reader::new(&packet.0),
             session.content.as_ref().unwrap(),
             1,

@@ -536,7 +536,7 @@ mod tests {
 
             // A reconfiguration must use the latest published radius, not the
             // startup value and not the session owner's potentially stale phase.
-            write(&mut login, 118, &[], None).unwrap();
+            write(&mut login, 120, &[], None).unwrap();
             assert_eq!(read_packet(&mut login), (16, Vec::new()));
             assert_eq!(read_packet(&mut login), (0, client_information(16)));
             login.shutdown(Shutdown::Write).unwrap();

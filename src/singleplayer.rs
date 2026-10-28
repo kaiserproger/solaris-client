@@ -1197,8 +1197,8 @@ mod tests {
         let root = temp_root("life");
         let binary = fake_server(
             &root,
-            "echo 'Solaris is listening (edge v2) addr=127.0.0.1:41234 name=w'\n\
-             trap 'echo checkpoint written > \"$PWD/checkpoint\"; exit 0' TERM\n\
+            "trap 'echo checkpoint written > \"$PWD/checkpoint\"; exit 0' TERM\n\
+             echo 'Solaris is listening (edge v2) addr=127.0.0.1:41234 name=w'\n\
              while :; do sleep 1 & wait $!; done",
         );
         let mut server = launch_fake(&root, &binary).unwrap();
@@ -1221,8 +1221,8 @@ mod tests {
         let root = temp_root("badstop");
         let binary = fake_server(
             &root,
-            "echo 'is listening addr=127.0.0.1:41236'\n\
-             trap 'echo save failed >&2; exit 3' TERM\n\
+            "trap 'echo save failed >&2; exit 3' TERM\n\
+             echo 'is listening addr=127.0.0.1:41236'\n\
              while :; do sleep 1 & wait $!; done",
         );
         let mut server = launch_fake(&root, &binary).unwrap();
