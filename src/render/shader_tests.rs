@@ -1,7 +1,7 @@
 use super::*;
 use bytemuck::Zeroable;
 
-fn observation() -> Observation {
+pub(super) fn observation() -> Observation {
     Observation {
         instance_id: "shader-test".into(),
         connection_epoch: "1".into(),
@@ -18,7 +18,7 @@ fn observation() -> Observation {
         data: json!({}),
     }
 }
-fn pixels(renderer: &mut Renderer, scene: &Scene) -> Vec<u8> {
+pub(super) fn pixels(renderer: &mut Renderer, scene: &Scene) -> Vec<u8> {
     renderer.stats = FrameStats::default();
     let mut encoder = renderer.encode_scene(scene, &observation(), None).unwrap();
     let buffer = renderer.device.create_buffer(&wgpu::BufferDescriptor {
@@ -112,11 +112,11 @@ fn fancy_shader_gpu_toggle_preserves_ui_and_off_pixels() {
         });
     }
     scene.overlay.indices[0] = vec![0, 1, 2, 0, 2, 3];
-    renderer.set_fancy_shaders(false);
+    renderer.set_graphics_preset(GraphicsPreset::Low);
     let off = pixels(&mut renderer, &scene);
-    renderer.set_fancy_shaders(true);
+    renderer.set_graphics_preset(GraphicsPreset::Medium);
     let fancy = pixels(&mut renderer, &scene);
-    renderer.set_fancy_shaders(false);
+    renderer.set_graphics_preset(GraphicsPreset::Low);
     let off_again = pixels(&mut renderer, &scene);
     assert_eq!(
         off, off_again,
@@ -171,9 +171,9 @@ fn fancy_shader_gpu_toggle_preserves_ui_and_off_pixels() {
     scene.revision += 1;
     scene.camera_position = [0., 2., 0.];
     scene.pitch = 20.;
-    renderer.set_fancy_shaders(false);
+    renderer.set_graphics_preset(GraphicsPreset::Low);
     let water_off = pixels(&mut renderer, &scene);
-    renderer.set_fancy_shaders(true);
+    renderer.set_graphics_preset(GraphicsPreset::Medium);
     let water_fancy = pixels(&mut renderer, &scene);
     assert!(
         renderer.stats.submitted_indices >= 18,
@@ -195,9 +195,9 @@ fn fancy_shader_gpu_toggle_preserves_ui_and_off_pixels() {
     scene.environment.fog_color = [0.043, 0.035, 0.067];
     scene.environment.sun_angle = 180.;
     scene.environment.moon_angle = 0.;
-    renderer.set_fancy_shaders(false);
+    renderer.set_graphics_preset(GraphicsPreset::Low);
     let night_off = pixels(&mut renderer, &scene);
-    renderer.set_fancy_shaders(true);
+    renderer.set_graphics_preset(GraphicsPreset::Medium);
     let night_fancy = pixels(&mut renderer, &scene);
     assert!(
         f32::from(night_fancy[sky_pixel + 2]) >= f32::from(night_off[sky_pixel + 2]) * 0.8,
@@ -222,7 +222,7 @@ fn terrain_mdi_compute_matches_fallback_pixels_across_arena_growth() {
         eprintln!("MDI hardware unavailable; fallback covered by remaining render tests");
         return;
     }
-    renderer.set_fancy_shaders(false);
+    renderer.set_graphics_preset(GraphicsPreset::Low);
     let mut scene = Scene::default();
     scene.camera_position = [0., 2., 0.];
     scene.pitch = 20.;
@@ -452,8 +452,8 @@ fn fancy_emission_enters_hdr_in_linear_space() {
             sky_kind: SkyKind::Overworld,
             sky_color: [0.; 3],
             fog_color: [0.; 3],
-            sun_angle: 45.,
-            moon_angle: 225.,
+            sun_angle: 225.,
+            moon_angle: 45.,
             sun_texture: sprite,
             moon_texture: sprite,
             ..Default::default()
@@ -467,10 +467,12 @@ fn fancy_emission_enters_hdr_in_linear_space() {
             "HDR pixel {actual}, expected {expected} ±2"
         )
     };
-    renderer.set_fancy_shaders(false);
+    renderer.set_graphics_preset(GraphicsPreset::Low);
     close(pixels(&mut renderer, &scene)[center], 128);
-    renderer.set_fancy_shaders(true);
-    // sRGB(128) -> linear 0.21586 -> exposure 3.2 -> ACES -> sRGB ~=220.
+    renderer.set_graphics_preset(GraphicsPreset::Medium);
+    // The camera looks at the moon (sun below the horizon, so the atmosphere adds
+    // no sun aureole behind the sprite): sRGB(128) -> linear 0.21586 -> exposure 3.2
+    // -> ACES -> sRGB ~=220.
     close(pixels(&mut renderer, &scene)[center], 220);
 
     scene.yaw = 0.;
@@ -487,6 +489,9 @@ fn fancy_emission_enters_hdr_in_linear_space() {
     scene.environment.fog_color = [0.; 3];
     scene.environment.sun_angle = 0.;
     scene.environment.moon_angle = 180.;
+    // Full rain drops the atmosphere's physical blend: the vanilla black sky
+    // behind the emissive quads stays black, isolating their own HDR value.
+    scene.environment.rain = 1.;
     for position in [[-2., -2., 4.], [-2., 2., 4.], [2., 2., 4.], [2., -2., 4.]] {
         scene.dynamic.vertices.push(crate::api::Vertex {
             position,
@@ -502,9 +507,9 @@ fn fancy_emission_enters_hdr_in_linear_space() {
     }
     scene.dynamic.indices[EntityMaterial::Lightning as usize] = vec![0, 1, 2, 0, 2, 3];
     scene.revision += 1;
-    renderer.set_fancy_shaders(false);
+    renderer.set_graphics_preset(GraphicsPreset::Low);
     close(pixels(&mut renderer, &scene)[center], 128);
-    renderer.set_fancy_shaders(true);
+    renderer.set_graphics_preset(GraphicsPreset::Medium);
     // Unlit source kind 4: linear(0.5)=0.214 -> ACES -> display ~=154.
     close(pixels(&mut renderer, &scene)[center], 154);
 
@@ -543,9 +548,9 @@ fn fancy_emission_enters_hdr_in_linear_space() {
         },
     );
     scene.revision += 1;
-    renderer.set_fancy_shaders(false);
+    renderer.set_graphics_preset(GraphicsPreset::Low);
     close(pixels(&mut renderer, &scene)[center], 64);
-    renderer.set_fancy_shaders(true);
+    renderer.set_graphics_preset(GraphicsPreset::Medium);
     close(pixels(&mut renderer, &scene)[center], 56);
 }
 
@@ -576,7 +581,7 @@ fn terrain_cpu_release_keeps_gpu_geometry_and_requires_fresh_payload() {
         PathBuf::from(".analysis/clientcpu-release-regression"),
     ))
     .unwrap();
-    renderer.set_fancy_shaders(false);
+    renderer.set_graphics_preset(GraphicsPreset::Low);
     let mut scene = Scene {
         camera_position: [0., 2., 0.],
         pitch: 20.,
@@ -691,7 +696,7 @@ fn terrain_facing_groups_preserve_pixels_and_drop_back_faces() {
         PathBuf::from(".analysis/facing-groups-regression"),
     ))
     .unwrap();
-    renderer.set_fancy_shaders(true);
+    renderer.set_graphics_preset(GraphicsPreset::Medium);
     let environment = crate::api::WorldEnvironment {
         sky_kind: SkyKind::Overworld,
         display_encoded: true,
@@ -788,7 +793,7 @@ fn probe(@builtin(global_invocation_id) id: vec3<u32>) {
     let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("packed terrain decode probe"),
         source: wgpu::ShaderSource::Wgsl(
-            format!("{}{PROBE}", include_str!("../shader.wgsl")).into(),
+            format!("{}{PROBE}", graphics::main_shader_source()).into(),
         ),
     });
     let layout_entry = |binding, ty| wgpu::BindGroupLayoutEntry {

@@ -24,6 +24,10 @@ struct Camera {
     fancy: vec4<f32>,
     sun_direction: vec4<f32>,
     world_origin: vec4<f32>,
+    shadow_cascades: array<mat4x4<f32>, 3>,
+    cascade_info: vec4<f32>,
+    moon_direction: vec4<f32>,
+    atmosphere: vec4<f32>,
 };
 @group(0) @binding(0) var<uniform> camera: Camera;
 @group(1) @binding(0) var block_atlas: texture_2d_array<f32>;
@@ -32,9 +36,11 @@ struct Camera {
 @group(1) @binding(3) var lightmap_sampler: sampler;
 @group(1) @binding(4) var terrain_sampler: sampler;
 @group(1) @binding(5) var entity_overlay_texture: texture_2d<f32>;
-@group(2) @binding(0) var shadow_map: texture_depth_2d;
+@group(2) @binding(0) var shadow_map: texture_depth_2d_array;
 @group(2) @binding(1) var shadow_sampler: sampler_comparison;
 @group(2) @binding(2) var opaque_depth: texture_depth_2d;
+@group(2) @binding(3) var scene_copy: texture_2d<f32>;
+@group(2) @binding(4) var scene_sampler: sampler;
 @group(1) @binding(6) var tile_table: texture_2d<f32>;
 fn srgb_to_linear(color: vec3<f32>) -> vec3<f32> {
     return select(pow((max(color, vec3<f32>(0.0)) + vec3<f32>(0.055)) / 1.055, vec3<f32>(2.4)),
@@ -138,34 +144,57 @@ fn decode_terrain(words: vec4<u32>, rgba: vec4<f32>, lanes: vec4<u32>, uv_bits: 
     }
     return t;
 }
-fn fancy_sky(ray: vec3<f32>) -> vec3<f32> {
-    let horizon = pow(1.0 - clamp(abs(ray.y), 0.0, 1.0), 3.0);
-    let sun = vec3<f32>(camera.color_space.z, camera.color_space.w, 0.0);
-    let warm = camera.sunrise.a * pow(max(dot(ray, sun), 0.0), 2.0);
-    let base = mix(srgb_to_linear(camera.sky.rgb), srgb_to_linear(camera.fog.rgb), horizon)
-        + vec3<f32>(0.003, 0.006, 0.014) * camera.color_space.y;
-    return mix(base, vec3<f32>(1.2, 0.39, 0.12), warm * 0.6);
+fn cascade_radius(index: i32) -> f32 {
+    return camera.cascade_info[index + 1];
 }
-fn fancy_lighting(in: SceneOut, color: vec4<f32>) -> vec4<f32> {
-    if camera.fancy.x < 0.5 || camera.viewport.w != 1.0 { return color; }
-    let projected = camera.shadow_projection * vec4<f32>(in.relative, 1.0);
+// One cascade's 3x3 PCF visibility; `inside` is 0 when the point misses the map.
+fn cascade_visibility(index: i32, relative: vec3<f32>, normal: vec3<f32>) -> vec2<f32> {
+    // World size of one shadow texel; the offset along the normal and the
+    // receiver bias scale with it so every cascade is acne-free at its own density.
+    let texel = 2.0 * cascade_radius(index) / 2048.0;
+    let projected = camera.shadow_cascades[index] * vec4<f32>(relative + normal * (texel * 1.2), 1.0);
     let coord = projected.xyz / projected.w;
     let uv = coord.xy * vec2<f32>(0.5, -0.5) + vec2<f32>(0.5);
-    var visibility = 1.0;
     if all(uv > vec2<f32>(0.002)) && all(uv < vec2<f32>(0.998)) && coord.z > 0.0 && coord.z < 1.0 {
-        visibility = 0.0;
+        let bias = (texel * 3.0 + 0.04) / 383.0;
+        var visibility = 0.0;
         for (var y = -1; y <= 1; y++) {
             for (var x = -1; x <= 1; x++) {
                 visibility += textureSampleCompareLevel(shadow_map, shadow_sampler,
-                    uv + vec2<f32>(f32(x), f32(y)) / 2048.0, coord.z - 0.00065);
+                    uv + vec2<f32>(f32(x), f32(y)) / 2048.0, index, coord.z - bias);
             }
         }
-        visibility /= 9.0;
-        visibility = mix(1.0, visibility, 1.0 - smoothstep(60.0, 78.0, length(in.relative)));
+        return vec2<f32>(visibility / 9.0, 1.0);
     }
+    return vec2<f32>(1.0, 0.0);
+}
+// Cascaded directional shadow: nearest cascade covering the receiver, blended
+// into the next across its outer 12%, faded out at the last cascade's edge.
+fn shadow_visibility(relative: vec3<f32>, normal: vec3<f32>) -> f32 {
+    let count = i32(camera.cascade_info.x);
+    let distance = length(relative);
+    var index = 0;
+    while index + 1 < count && distance > cascade_radius(index) * 0.92 { index++; }
+    var result = cascade_visibility(index, relative, normal);
+    var visibility = result.x;
+    let radius = cascade_radius(index);
+    if index + 1 < count {
+        let blend = smoothstep(radius * 0.8, radius * 0.92, distance);
+        if blend > 0.0 {
+            visibility = mix(visibility, cascade_visibility(index + 1, relative, normal).x, blend);
+        }
+    } else {
+        visibility = mix(1.0, visibility, 1.0 - smoothstep(radius * 0.75, radius * 0.975, distance));
+    }
+    return visibility;
+}
+fn fancy_lighting(in: SceneOut, color: vec4<f32>) -> vec4<f32> {
+    if camera.fancy.x < 0.5 || camera.viewport.w != 1.0 { return color; }
     let normal = normalize(in.normal + vec3<f32>(0.0, 0.00001, 0.0));
+    var visibility = 1.0;
+    if camera.cascade_info.x > 0.5 { visibility = shadow_visibility(in.relative, normal); }
     let diffuse = max(dot(normal, camera.sun_direction.xyz), 0.0);
-    let warm = vec3<f32>(1.0, 0.94, 0.82) + camera.sunrise.rgb * camera.sunrise.a * 0.32;
+    let warm = vec3<f32>(1.0, 0.96, 0.88) * dominant_light_tint() + camera.sunrise.rgb * camera.sunrise.a * 0.16;
     let lighting = vec3<f32>(0.66, 0.73, 0.84) + warm * (0.55 * visibility * diffuse * camera.sun_direction.w);
     // Display exposure rises smoothly after sunset; received light still controls dark terrain.
     return vec4<f32>(color.rgb * lighting * mix(1.0, 3.2, camera.color_space.y), color.a);
@@ -275,9 +304,13 @@ fn fogged(in: SceneOut, color: vec4<f32>) -> vec4<f32> {
     let fog = max(linear_fog(in.fog_distance.x, camera.fog.w, camera.sky.w),
         linear_fog(in.fog_distance.y, camera.star.y, camera.star.z)) * camera.star.w;
     if camera.fancy.x > 0.5 {
-        let distance_fog = max(fog, smoothstep(camera.sky.w * 0.24, camera.sky.w, in.fog_distance.x) * 0.72);
+        // Vanilla fog ramp, a distance floor and a light exponential aerial
+        // perspective; the colour is the atmosphere sky along the same ray so
+        // terrain dissolves into the pixel the sky pass drew behind it.
+        let aerial = (1.0 - exp(-in.fog_distance.x * camera.atmosphere.y)) * camera.star.w;
+        let distance_fog = max(max(fog, smoothstep(camera.sky.w * 0.24, camera.sky.w, in.fog_distance.x) * 0.72), aerial);
         let ray = normalize(in.relative + vec3<f32>(0.0, 0.00001, 0.0));
-        let sky = select(srgb_to_linear(camera.fog.rgb), fancy_sky(ray), camera.viewport.w == 1.0);
+        let sky = select(srgb_to_linear(camera.fog.rgb), atmosphere_sky(ray), camera.viewport.w == 1.0);
         return vec4<f32>(mix(color.rgb, sky, distance_fog), color.a);
     }
     return target_color(vec4<f32>(mix(color.rgb, camera.fog.rgb, fog), color.a));
@@ -289,6 +322,56 @@ fn fogged(in: SceneOut, color: vec4<f32>) -> vec4<f32> {
 @fragment fn cutout_fragment(in: SceneOut) -> @location(0) vec4<f32> {
     let color = material(in, camera.fancy.x < 0.5 && camera.color_space.x > 0.5, true);
     if color.a < 0.5 { discard; } return fogged(in, fancy_lighting(in, color));
+}
+fn linear_depth(depth: f32) -> f32 {
+    return 0.05 * 2048.0 / (2048.0 - depth * (2048.0 - 0.05));
+}
+fn interleaved_noise(position: vec2<f32>) -> f32 {
+    return fract(52.9829189 * fract(dot(position, vec2<f32>(0.06711056, 0.00583715))) + camera.fancy.y * 3.7);
+}
+// Screen-space reflection against the opaque depth/colour copy: geometric step
+// growth (about 90 blocks reach), bisection refine, edge and distance fade.
+// Returns rgb + hit weight; a miss (weight 0) is filled by the caller from the sky.
+fn trace_reflection(origin: vec3<f32>, direction: vec3<f32>, noise: f32) -> vec4<f32> {
+    let size = vec2<f32>(textureDimensions(opaque_depth));
+    var travelled = 0.35 + noise * 0.25;
+    var step = 0.55;
+    var previous = 0.0;
+    for (var i = 0; i < 22; i++) {
+        let point = origin + direction * travelled;
+        let clip = camera.view_projection * vec4<f32>(point, 1.0);
+        if clip.w <= 0.0 { break; }
+        let ndc = clip.xyz / clip.w;
+        let uv = ndc.xy * vec2<f32>(0.5, -0.5) + vec2<f32>(0.5);
+        if any(uv < vec2<f32>(0.0)) || any(uv > vec2<f32>(1.0)) || ndc.z >= 1.0 { break; }
+        let scene = textureLoad(opaque_depth, vec2<i32>(uv * size), 0);
+        let gap = linear_depth(ndc.z) - linear_depth(scene);
+        if gap > 0.0 && scene < 1.0 {
+            if gap < 0.45 + travelled * 0.12 {
+                // Bisect between the last in-front sample and this one.
+                var low = previous; var high = travelled;
+                for (var j = 0; j < 4; j++) {
+                    let mid = (low + high) * 0.5;
+                    let c = camera.view_projection * vec4<f32>(origin + direction * mid, 1.0);
+                    let n = c.xyz / c.w;
+                    let m_uv = n.xy * vec2<f32>(0.5, -0.5) + vec2<f32>(0.5);
+                    let s = textureLoad(opaque_depth, vec2<i32>(m_uv * size), 0);
+                    if linear_depth(n.z) > linear_depth(s) { high = mid; } else { low = mid; }
+                }
+                let c = camera.view_projection * vec4<f32>(origin + direction * high, 1.0);
+                let n = c.xyz / c.w;
+                let hit_uv = n.xy * vec2<f32>(0.5, -0.5) + vec2<f32>(0.5);
+                let edge = min(min(hit_uv.x, 1.0 - hit_uv.x), min(hit_uv.y, 1.0 - hit_uv.y));
+                let fade = smoothstep(0.0, 0.1, edge) * (1.0 - smoothstep(30.0, 85.0, high));
+                return vec4<f32>(textureSampleLevel(scene_copy, scene_sampler, hit_uv, 0.0).rgb, fade);
+            }
+            break;
+        }
+        previous = travelled;
+        travelled += step;
+        step *= 1.2;
+    }
+    return vec4<f32>(0.0);
 }
 @fragment fn translucent_fragment(in: SceneOut) -> @location(0) vec4<f32> {
     var color = material(in, camera.fancy.x < 0.5 && camera.color_space.x > 0.5, true);
@@ -302,17 +385,43 @@ fn fogged(in: SceneOut, color: vec4<f32>) -> vec4<f32> {
         let n = normalize(normalize(in.normal) + vec3<f32>(wave.x, 0.0, wave.y));
         let view = normalize(-in.relative);
         let fresnel = 0.02 + 0.98 * pow(1.0 - max(dot(n, view), 0.0), 5.0);
-        let reflection = fancy_sky(reflect(-view, n));
-        let pixel = clamp(vec2<i32>(in.position.xy), vec2<i32>(0), vec2<i32>(textureDimensions(opaque_depth)) - vec2<i32>(1));
+        let reflected = reflect(-view, n);
+        let sky = atmosphere_sky(vec3<f32>(reflected.x, max(reflected.y, 0.01), reflected.z));
+        let size = vec2<f32>(textureDimensions(opaque_depth));
+        let pixel = clamp(vec2<i32>(in.position.xy), vec2<i32>(0), vec2<i32>(size) - vec2<i32>(1));
         let depth = textureLoad(opaque_depth, pixel, 0);
         let background = camera.inverse_view_projection * vec4<f32>(
             in.position.xy / camera.viewport.xy * vec2<f32>(2.0, -2.0) + vec2<f32>(-1.0, 1.0), depth, 1.0);
         let thickness = clamp(length(background.xyz / background.w - in.relative), 0.0, 24.0);
-        let tint = mix(vec3<f32>(0.035, 0.24, 0.27), vec3<f32>(0.008, 0.055, 0.11), 1.0 - exp(-thickness * 0.14));
         let half_vector = normalize(view + camera.sun_direction.xyz);
         let specular = pow(max(dot(n, half_vector), 0.0), 180.0) * camera.sun_direction.w * 2.5;
-        color = vec4<f32>(mix(mix(color.rgb, tint, 0.68), reflection, fresnel * 0.85)
-            + vec3<f32>(1.0, 0.9, 0.7) * specular, clamp(0.38 + thickness * 0.025 + fresnel * 0.45, 0.38, 0.92));
+        let glint = vec3<f32>(1.0, 0.9, 0.7) * dominant_light_tint() * specular;
+        if camera.atmosphere.z > 0.5 {
+            // High: refract the copied opaque scene (offset kept only where the
+            // sample lies behind the surface), absorb it with Beer-Lambert along
+            // the water column, and add a screen-space reflection over the sky.
+            let uv = in.position.xy / size;
+            let strength = 0.04 * clamp(thickness * 0.4, 0.0, 1.0) / (1.0 + length(world) * 0.03);
+            let offset_uv = clamp(uv + n.xz * strength, vec2<f32>(0.001), vec2<f32>(0.999));
+            let behind = textureLoad(opaque_depth, vec2<i32>(offset_uv * size), 0);
+            let source_uv = select(uv, offset_uv, behind > in.position.z);
+            let bed = textureSampleLevel(scene_copy, scene_sampler, source_uv, 0.0).rgb;
+            let lit = clamp(0.3 + camera.sun_direction.w * camera.sun_direction.y, 0.0, 1.0);
+            let absorption = exp(-vec3<f32>(0.45, 0.12, 0.06) * thickness);
+            // Mostly the vanilla water colour (texture x biome tint): recognisably Minecraft.
+            let body = mix(vec3<f32>(0.03, 0.2, 0.3), color.rgb, 0.7) * lit;
+            let refracted = bed * absorption + body * (vec3<f32>(1.0) - absorption * absorption);
+            var reflection = sky;
+            if reflected.y > 0.0 {
+                let hit = trace_reflection(world, reflected, interleaved_noise(in.position.xy));
+                reflection = mix(sky, hit.rgb, hit.a);
+            }
+            let rgb = mix(refracted, reflection, fresnel * 0.9) + glint;
+            return fogged(in, vec4<f32>(rgb, 1.0));
+        }
+        let tint = mix(vec3<f32>(0.035, 0.24, 0.27), vec3<f32>(0.008, 0.055, 0.11), 1.0 - exp(-thickness * 0.14));
+        color = vec4<f32>(mix(mix(color.rgb, tint, 0.68), sky, fresnel * 0.85) + glint,
+            clamp(0.38 + thickness * 0.025 + fresnel * 0.45, 0.38, 0.92));
     }
     return fogged(in, fancy_lighting(in, color));
 }
@@ -365,7 +474,7 @@ fn celestial_sample(ray: vec3<f32>, angle: f32, height: f32, radius: f32, uv: ve
     let ray = normalize(p.xyz / p.w);
     var color = camera.sky.rgb;
     if camera.fancy.x > 0.5 && camera.viewport.w == 1.0 {
-        return vec4<f32>(fancy_sky(ray), 1.0);
+        return vec4<f32>(atmosphere_sky(ray), 1.0);
     }
     if camera.viewport.w == 0.0 { return target_color(vec4<f32>(camera.fog.rgb, 1.0)); }
     if camera.viewport.w == 2.0 {

@@ -49,6 +49,10 @@ The first Play derives the server's content cache from the Mojang `server.jar` w
 
 The client renders vanilla 26.1.2 server-driven dialogs (`show_dialog`/`clear_dialog`): `notice`, `confirmation` and `multi_action` with plain-message bodies and `text`, `number_range`, `boolean` and `single_option` inputs. Buttons answer with `custom_click_action` (`dynamic/custom` and `custom` actions carry the typed input values; `run_command` actions send the templated command). `after_action`, `can_close_with_escape` and Escape-as-cancel follow vanilla. Not rendered: `server_links`/`dialog_list`, item bodies, button tooltips and vanilla's "custom screen" warning button. The server side is documented in the Solaris repo (`docs/DIALOGS.md`).
 
+### Far terrain
+
+On Solaris servers with `[lod]` enabled the client draws a coarse heightfield of the overworld beyond the render distance, fading into the sky. `far_terrain` in `client-settings.json` sets its reach in blocks (2048 by default, 1024 with the Low graphics preset, 0 turns it off; the server caps it). It is built from the chunks you received, the server's stored chunks and, for never-generated land, the server's terrain generator. Only if the server operator enables `share_terrain_keys` does the server send its generation program and this machine generate never-generated land itself, on the GPU (or a CPU thread without compute support). Tiles are cached as heights and colours under `far-terrain/`. `SOLARIS_CLIENT_FAR_TERRAIN=<blocks>` overrides the setting; `SOLARIS_CLIENT_FAR_GPU=0` forces CPU generation.
+
 ## System requirements
 
 - 64-bit Linux (glibc 2.35 or newer, e.g. Ubuntu 22.04+) or Windows 10/11 x86_64.
@@ -69,6 +73,7 @@ mojang/versions/26.1.2/server.jar     singleplayer only: fetched on its first Pl
 jdk/                                  singleplayer only: managed Temurin JDK that runs the content import
 servers/                              singleplayer: derived server content cache, plugin copy, optional solaris-v2
 worlds/<name>/                        singleplayer worlds (world data, server.toml, ops.json, logs/server.log)
+far-terrain/<server>/overworld/       far terrain tiles (heights and colours) per server
 launcher.json  client-settings.json   your profiles/servers, and in-game Options
 logs/launcher.log                     everything the launcher and the client printed
 ```

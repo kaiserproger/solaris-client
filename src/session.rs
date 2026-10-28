@@ -73,6 +73,8 @@ pub struct Session {
     loader: crate::loader::Loader,
     environment: Environment,
     terrain: Option<Terrain>,
+    /// Far terrain beyond the loaded chunks (Solaris `[lod]` servers).
+    pub(crate) far: crate::far::Far,
     scene: Scene,
     presentation_partial: f32,
     camera_mode: u8,
@@ -174,6 +176,7 @@ impl Session {
             loader: crate::loader::Loader::default(),
             environment: Environment::new(),
             terrain: None,
+            far: crate::far::Far::default(),
             scene: Scene::default(),
             presentation_partial: 0.,
             camera_mode: 0,
@@ -336,6 +339,25 @@ impl Session {
     ) {
         if let Some(terrain) = &mut self.terrain {
             terrain.release_uploaded(&mut self.scene.chunks, uploaded);
+        }
+    }
+
+    /// The renderer's far-terrain generation: whether it can generate on the
+    /// GPU (else the session's CPU worker does) and the tiles it finished.
+    pub(crate) fn far_generated(
+        &mut self,
+        gpu: bool,
+        tiles: Vec<(crate::far::TileKey, Vec<crate::far::program::Column>)>,
+    ) {
+        self.far.set_gpu(gpu);
+        if tiles.is_empty() {
+            return;
+        }
+        let Some(content) = self.content.as_ref() else {
+            return;
+        };
+        if let Err(error) = self.far.generated(tiles, content) {
+            self.event(json!({"type":"far_terrain_generation_failed","error":error}));
         }
     }
     pub fn ui_mut(&mut self) -> Option<&mut UiState> {
@@ -518,6 +540,7 @@ impl Session {
             ui.release_all();
             ui.clear_item_models();
         }
+        self.far.disconnect();
         self.world.clear();
         self.entities.clear_connection();
         self.predicted_blocks.clear();
@@ -658,6 +681,13 @@ impl Session {
             .as_ref()
             .ok_or("not connected")?
             .send(id, payload.0)
+    }
+    /// A Play custom payload on an arbitrary channel.
+    pub(crate) fn send_custom(&self, channel: &str, payload: &[u8]) -> Result<()> {
+        let mut body = Writer::default();
+        body.string(channel);
+        body.0.extend(payload);
+        self.send(0x16, body)
     }
     fn send_loader(&self, outgoing: crate::loader::Outgoing) -> Result<()> {
         let id = match self.phase.as_str() {
@@ -1090,6 +1120,8 @@ impl Session {
         self.scene.texture_height = content.height;
         self.scene.texture_layers = content.texture_layers;
         self.scene.texture_revision = self.resource_epoch;
+        // Far-terrain colours are texture averages: resolve them again.
+        self.far.reset_colours();
         self.scene.texture_patches.clear();
     }
     fn animate_atlas(&mut self, previous: u64) -> Result<()> {

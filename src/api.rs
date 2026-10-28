@@ -441,4 +441,49 @@ pub struct Scene {
     /// Physical-pixel UI geometry, composited in painter order without depth.
     pub overlay: MeshGeometry,
     pub environment: WorldEnvironment,
+    /// Far-terrain tiles beyond the loaded chunks (Solaris `[lod]` servers).
+    pub far: FarScene,
+}
+
+/// Far-terrain draw list: one entry per tile with samples, nearest first.
+#[derive(Clone, Debug, Default)]
+pub struct FarScene {
+    /// Far distance in blocks; 0 turns the pass off.
+    pub distance: f32,
+    /// Changes whenever any tile or the list changes.
+    pub revision: u64,
+    pub tiles: Vec<FarTileDraw>,
+    /// GPU generation work (servers sharing their program only).
+    pub(crate) generation: FarGeneration,
+}
+
+/// Never-generated tiles for the renderer's compute pass to generate with
+/// the server's program; the session drops a tile once its columns arrive.
+#[derive(Clone, Default)]
+pub(crate) struct FarGeneration {
+    pub program: Option<Arc<crate::far::program::Program>>,
+    pub tiles: Vec<crate::far::TileKey>,
+    /// Changes whenever `tiles` changes.
+    pub revision: u64,
+}
+
+impl std::fmt::Debug for FarGeneration {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("FarGeneration")
+            .field("program", &self.program.is_some())
+            .field("tiles", &self.tiles)
+            .field("revision", &self.revision)
+            .finish()
+    }
+}
+
+/// One tile: 16x16 samples spaced `1 << level` blocks from block
+/// `(x, z) * (16 << level)`; per sample a height+source word and an RGBA8 word.
+#[derive(Clone, Debug)]
+pub struct FarTileDraw {
+    pub level: u8,
+    pub x: i32,
+    pub z: i32,
+    pub revision: u64,
+    pub data: Arc<[u32; crate::far::WORDS]>,
 }

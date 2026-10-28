@@ -148,7 +148,7 @@ impl Renderer {
         }
         target["width"] = json!(self.config.width);
         target["height"] = json!(self.config.height);
-        target["fancy_shaders"] = json!(self.fancy_shaders);
+        target["graphics_preset"] = json!(self.graphics.as_str());
         target["present_mode"] = json!(match self.config.present_mode {
             wgpu::PresentMode::Fifo => "fifo",
             wgpu::PresentMode::AutoNoVsync => "auto_no_vsync",
@@ -288,13 +288,11 @@ impl Renderer {
             json!(u64::from(self.config.width) * u64::from(self.config.height) * 8);
         resident["outline_target_active_bytes"] =
             json!(u64::from(self.config.width) * u64::from(self.config.height) * 12);
-        resident["fancy_target_active_bytes"] = json!(
-            u64::from(self.config.width) * u64::from(self.config.height) * 12
-                + u64::from(self.config.width.div_ceil(2))
-                    * u64::from(self.config.height.div_ceil(2))
-                    * 16
-                + u64::from(shadow::SIZE) * u64::from(shadow::SIZE) * 4
-        );
+        // Shadow cascades + opaque depth/colour copies + bloom, god-ray and TAA
+        // history targets; the scene HDR target is reported separately above.
+        resident["fancy_target_active_bytes"] = json!((self.shadow.target_bytes()
+            + self.post.target_bytes())
+        .saturating_sub(u64::from(self.config.width) * u64::from(self.config.height) * 8));
         resident["shadow_instance_reserved_bytes"] = json!(((mesh::MAX_CHUNKS + 2) * 16) as u64);
         resident["terrain_vertex_budget_bytes"] = json!(mesh::VERTEX_BUDGET);
         resident["terrain_index_budget_bytes"] = json!(mesh::INDEX_BUDGET);

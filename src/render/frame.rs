@@ -81,7 +81,7 @@ impl Renderer {
         // terrain with the sky ray; elsewhere fog colour differs from the sky.
         let env = &scene.environment;
         let fully_fogged = !self.reference_mode
-            && self.fancy_shaders
+            && self.graphics.features().hdr
             && env.sky_kind == SkyKind::Overworld
             && env.fog_alpha >= 1.;
         let fog_sphere = (env.fog_start < env.fog_end).then_some(env.fog_end + FOG_MARGIN);
@@ -112,7 +112,7 @@ impl Renderer {
             let offset = relative(chunk.origin, scene.camera_position);
             // shader::waving displaces Fancy cutout vegetation at most
             // 0.09 blocks in X and 0.0495 in Z; preserve border silhouettes.
-            let wind = if self.fancy_shaders
+            let wind = if self.graphics.features().hdr
                 && scene.environment.sky_kind == SkyKind::Overworld
                 && !chunk.mesh.ranges[1].is_empty()
             {
@@ -338,16 +338,52 @@ impl Renderer {
             * Mat4::look_to_rh(Vec3::ZERO, forward, Vec3::Y);
         self.prepare_visibility(scene, view_projection)?;
         let env = &scene.environment;
-        let fancy = self.fancy_shaders && env.sky_kind == SkyKind::Overworld;
+        let features = self.graphics.features();
+        let fancy = features.hdr && env.sky_kind == SkyKind::Overworld;
+        // Far terrain: tiles synced, culled and uniform written before encoding.
+        let far_visible = self.far.prepare(
+            &self.queue,
+            scene,
+            hurt_camera_transform(scene) * Mat4::look_to_rh(Vec3::ZERO, forward, Vec3::Y),
+            fov.to_radians(),
+            self.config.width as f32 / self.config.height as f32,
+            fancy,
+            self.chunks.keys().map(|key| [key[0], key[2]]),
+        );
+        let taa = fancy && self.post.taa();
+        let open_air = fancy && env.fog_start >= 0.;
+        // Sub-pixel projection jitter for TAA. Culling and Hi-Z keep the
+        // unjittered matrix: jitter stays under their 0.5 px slack.
+        let jitter_ndc = if taa {
+            let pixels = graphics::jitter_pixels(self.temporal.frame);
+            [
+                pixels[0] * 2. / self.config.width as f32,
+                pixels[1] * 2. / self.config.height as f32,
+            ]
+        } else {
+            [0.; 2]
+        };
+        let jittered =
+            Mat4::from_translation(Vec3::new(jitter_ndc[0], jitter_ndc[1], 0.)) * view_projection;
         let (sun_sine, sun_cosine) = if fancy {
             env.sun_angle.to_radians().sin_cos()
         } else {
             (0., 1.)
         };
-        let (shadow_projection, sunlight, light_strength) = if fancy {
-            shadow::projection(env.sun_angle, env.moon_angle)
+        let moon = {
+            let (sine, cosine) = env.moon_angle.to_radians().sin_cos();
+            Vec3::new(-sine, cosine, 0.)
+        };
+        let moon_strength = ((moon.y + 0.1) / 0.2).clamp(0., 1.);
+        let (cascades, sunlight, light_strength) = if fancy {
+            shadow::cascades(
+                env.sun_angle,
+                env.moon_angle,
+                scene.camera_position,
+                features.cascades,
+            )
         } else {
-            (Mat4::IDENTITY, Vec3::Y, 0.)
+            (shadow::Cascades::NONE, Vec3::Y, 0.)
         };
         if fancy {
             self.shadow.prepare(
@@ -355,7 +391,7 @@ impl Renderer {
                 &self.chunks,
                 scene,
                 self.fixture.as_ref(),
-                shadow_projection,
+                &cascades,
                 sunlight,
             );
         }
@@ -370,8 +406,8 @@ impl Renderer {
         let portal_layer =
             |index: usize| scene.portal_sprites.map_or(-1., |p| p[index].layer as f32);
         let uniform = CameraUniform {
-            view_projection: view_projection.to_cols_array(),
-            inverse_view_projection: view_projection.inverse().to_cols_array(),
+            view_projection: jittered.to_cols_array(),
+            inverse_view_projection: jittered.inverse().to_cols_array(),
             fog: [
                 env.fog_color[0],
                 env.fog_color[1],
@@ -447,7 +483,7 @@ impl Renderer {
                 0.,
                 0.,
             ],
-            shadow_projection: shadow_projection.to_cols_array(),
+            shadow_projection: cascades.matrices[0].to_cols_array(),
             fancy: [
                 f32::from(u8::from(fancy)),
                 self.monotonic_origin.elapsed().as_secs_f32(),
@@ -471,9 +507,73 @@ impl Renderer {
                 0.,
                 0.,
             ],
+            shadow_cascades: std::array::from_fn(|i| cascades.matrices[i].to_cols_array()),
+            cascade_info: [
+                cascades.count as f32,
+                cascades.radii[0],
+                cascades.radii[1],
+                cascades.radii[2],
+            ],
+            moon_direction: [moon.x, moon.y, moon.z, moon_strength],
+            // Underwater (negative fog start) and other special fogs keep the
+            // vanilla fog colours: the atmosphere model only describes open air.
+            atmosphere: [
+                if open_air { 0.7 * (1. - env.rain.clamp(0., 1.)) } else { 0. },
+                if open_air { 0.0015 } else { 0. },
+                f32::from(u8::from(open_air && features.water_ssr)),
+                0.,
+            ],
         };
         self.queue
             .write_buffer(&self.camera, 0, bytemuck::bytes_of(&uniform));
+        for cascade in 0..cascades.count as usize {
+            // The shadow vertex stage reads only `shadow_projection`.
+            let per_cascade = CameraUniform {
+                shadow_projection: cascades.matrices[cascade].to_cols_array(),
+                ..uniform
+            };
+            self.queue.write_buffer(
+                &self.shadow.cameras[cascade].0,
+                0,
+                bytemuck::bytes_of(&per_cascade),
+            );
+        }
+        if fancy {
+            let sun_clip = view_projection * sunlight.extend(0.);
+            let sun_ndc = if sun_clip.w > 0. {
+                sun_clip.truncate().truncate() / sun_clip.w
+            } else {
+                glam::Vec2::ZERO
+            };
+            // Warm toward the horizon; strength follows the light's elevation,
+            // weather and, for the moon, its lower intensity.
+            let low = 1. - (sunlight.y * 3.).clamp(0., 1.);
+            let elevation = ((sunlight.y + 0.02) / 0.14).clamp(0., 1.);
+            let strength = light_strength * (1. - env.rain.clamp(0., 1.)) * elevation * (0.2 + 0.28 * low);
+            let tint = Vec3::new(1., 0.86 - 0.3 * low, 0.62 - 0.4 * low);
+            let ray_color = (tint * strength).to_array();
+            self.post.update(
+                &self.queue,
+                &post::PostFrame {
+                    inverse_view_projection: view_projection.inverse(),
+                    previous_view_projection: self.temporal.previous_view_projection,
+                    camera_delta: Vec3::new(
+                        (scene.camera_position[0] - self.temporal.previous_camera[0]) as f32,
+                        (scene.camera_position[1] - self.temporal.previous_camera[1]) as f32,
+                        (scene.camera_position[2] - self.temporal.previous_camera[2]) as f32,
+                    ),
+                    // A teleport or dimension change invalidates reprojection.
+                    history_valid: self.temporal.history_valid
+                        && (0..3).all(|axis| {
+                            (scene.camera_position[axis] - self.temporal.previous_camera[axis]).abs() < 32.
+                        }),
+                    ray_color,
+                    sun_uv: [sun_ndc.x * 0.5 + 0.5, 0.5 - sun_ndc.y * 0.5],
+                    sun_in_front: sun_clip.w > 0.,
+                    jitter_ndc,
+                },
+            );
+        }
         let drawing = Instant::now();
         let mut encoder = self
             .device
@@ -496,61 +596,73 @@ impl Renderer {
             }
         }
         if fancy {
-            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Fancy sun moon directional shadows"),
-                color_attachments: &[],
-                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                    view: &self.shadow.view,
-                    depth_ops: Some(wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(1.),
-                        store: wgpu::StoreOp::Store,
-                    }),
-                    stencil_ops: None,
-                }),
-                timestamp_writes: self.timing.writes(12),
-                occlusion_query_set: None,
-            });
-            pass.set_pipeline(&self.shadow.terrain_pipeline);
-            pass.set_bind_group(0, &self.camera_bind, &[]);
-            pass.set_bind_group(1, &self.atlas_bind, &[]);
-            pass.set_vertex_buffer(1, self.shadow.instances.slice(..));
-            // Both terrain materials share the alpha-tested shadow pipeline.
-            // Preserve caster/instance order in one native indirect batch.
+            self.stats.shadow_terrain_api_calls = 0;
+            self.stats.shadow_terrain_logical_draws = [0; 2];
+            self.stats.shadow_terrain_indices = 0;
+            // One depth pass per cascade (slot 12, then the cascade-1/2 slots).
+            const CASCADE_SLOTS: [usize; graphics::MAX_CASCADES] = [12, 23, 24];
             let shadow_mdi = !self.reference_mode && self.mdi.is_some() && self.shadow.batch.is_some();
-            if shadow_mdi {
-                let batch = self.shadow.batch.as_ref().expect("shadow batch armed");
-                let issued = u64::from(!batch.draws.is_empty());
-                if issued != 0 {
-                    pass.set_vertex_buffer(0, self.vertex_arena.whole());
-                    pass.set_index_buffer(self.index_arena.whole(), wgpu::IndexFormat::Uint32);
-                    pass.multi_draw_indexed_indirect(&batch.buffer, 0, batch.draws.len() as u32);
+            for cascade in 0..cascades.count as usize {
+                let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("Fancy sun moon directional shadow cascade"),
+                    color_attachments: &[],
+                    depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                        view: &self.shadow.layers[cascade],
+                        depth_ops: Some(wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(1.),
+                            store: wgpu::StoreOp::Store,
+                        }),
+                        stencil_ops: None,
+                    }),
+                    timestamp_writes: self.timing.writes(CASCADE_SLOTS[cascade]),
+                    occlusion_query_set: None,
+                });
+                pass.set_pipeline(&self.shadow.terrain_pipeline);
+                pass.set_bind_group(0, &self.shadow.cameras[cascade].1, &[]);
+                pass.set_bind_group(1, &self.atlas_bind, &[]);
+                pass.set_vertex_buffer(1, self.shadow.instances.slice(..));
+                // Both terrain materials share the alpha-tested shadow pipeline.
+                // Preserve caster/instance order in one native indirect batch per cascade.
+                if shadow_mdi {
+                    let batch = self.shadow.batch.as_ref().expect("shadow batch armed");
+                    let range = batch.ranges[cascade].clone();
+                    let issued = u64::from(!range.is_empty());
+                    if issued != 0 {
+                        pass.set_vertex_buffer(0, self.vertex_arena.whole());
+                        pass.set_index_buffer(self.index_arena.whole(), wgpu::IndexFormat::Uint32);
+                        pass.multi_draw_indexed_indirect(
+                            &batch.buffer,
+                            u64::from(range.start) * std::mem::size_of::<shadow::ShadowDraw>() as u64,
+                            range.end - range.start,
+                        );
+                    }
+                    self.stats.draw_calls += issued;
+                    self.stats.shadow_terrain_api_calls += issued;
+                    self.stats.shadow_terrain_logical_draws = batch.logical_draws;
+                    self.stats.shadow_terrain_indices = batch.submitted_indices;
+                } else {
+                    for run in &self.shadow.runs[self.shadow.run_ranges[cascade].clone()] {
+                        let mesh = match run.key {
+                            Some(key) => &self.chunks[&key].mesh,
+                            None => self.fixture.as_ref().expect("fixture shadow run"),
+                        };
+                        let indices = u64::from(run.range.end - run.range.start);
+                        self.draw_resident(&mut pass, mesh, run.range.clone(), run.instance);
+                        self.stats.draw_calls += 1;
+                        self.stats.shadow_terrain_api_calls += 1;
+                        self.stats.shadow_terrain_logical_draws[run.material] += 1;
+                        self.stats.shadow_terrain_indices += indices;
+                    }
                 }
-                self.stats.draw_calls += issued;
-                self.stats.shadow_terrain_api_calls = issued;
-                self.stats.shadow_terrain_logical_draws = batch.logical_draws;
-                self.stats.shadow_terrain_indices = batch.submitted_indices;
-            } else {
-                for run in &self.shadow.runs {
-                    let mesh = match run.key {
-                        Some(key) => &self.chunks[&key].mesh,
-                        None => self.fixture.as_ref().expect("fixture shadow run"),
-                    };
-                    let indices = u64::from(run.range.end - run.range.start);
-                    self.draw_resident(&mut pass, mesh, run.range.clone(), run.instance);
-                    self.stats.draw_calls += 1;
-                    self.stats.shadow_terrain_api_calls += 1;
-                    self.stats.shadow_terrain_logical_draws[run.material] += 1;
-                    self.stats.shadow_terrain_indices += indices;
-                }
-            }
-            pass.set_pipeline(&self.shadow.pipeline);
-            pass.set_vertex_buffer(0, self.dynamic.vertices.slice(..));
-            pass.set_index_buffer(self.dynamic.indices.slice(..), wgpu::IndexFormat::Uint32);
-            for (family, range) in self.dynamic.ranges.iter().enumerate() {
-                let descriptor = material::MATERIALS[family];
-                if !range.is_empty() && descriptor.write_depth && descriptor.shader.kind <= 2 {
-                    pass.draw_indexed(range.clone(), 0, 1..2);
-                    self.stats.draw_calls += 1;
+                pass.set_pipeline(&self.shadow.pipeline);
+                pass.set_vertex_buffer(0, self.dynamic.vertices.slice(..));
+                pass.set_index_buffer(self.dynamic.indices.slice(..), wgpu::IndexFormat::Uint32);
+                for (family, range) in self.dynamic.ranges.iter().enumerate() {
+                    let descriptor = material::MATERIALS[family];
+                    if !range.is_empty() && descriptor.write_depth && descriptor.shader.kind <= 2 {
+                        pass.draw_indexed(range.clone(), 0, 1..2);
+                        self.stats.draw_calls += 1;
+                    }
                 }
             }
         }
@@ -609,6 +721,42 @@ impl Renderer {
                 self.stats.draw_calls += 1;
             }
         }
+        // Far terrain behind everything else: its own depth clear here, and
+        // the opaque pass clears depth again, so real chunks draw over it.
+        if far_visible {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some(timing::PASSES[timing::FAR_TERRAIN]),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &self.post.scene_view,
+                    resolve_target: None,
+                    depth_slice: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &self.targets.depth_view,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(1.),
+                        store: wgpu::StoreOp::Discard,
+                    }),
+                    stencil_ops: None,
+                }),
+                timestamp_writes: self.timing.writes(timing::FAR_TERRAIN),
+                occlusion_query_set: None,
+            });
+            self.far.draw(&mut pass);
+            self.stats.draw_calls += 1;
+        }
+        // Far-terrain tiles generated on the GPU (program-sharing servers only).
+        self.far.generator.encode(
+            &self.device,
+            &self.queue,
+            &mut encoder,
+            &scene.far.generation,
+            &self.timing,
+        );
         // Hi-Z splits the cutout pass so phase-2 terrain lands before any
         // blended entity geometry, which must still draw over all terrain.
         // (material, terrain, dynamic geometry)
@@ -639,6 +787,28 @@ impl Renderer {
                         depth_or_array_layers: 1,
                     },
                 );
+                if features.water_ssr {
+                    // High water refracts/reflects the opaque scene colour.
+                    encoder.copy_texture_to_texture(
+                        wgpu::TexelCopyTextureInfo {
+                            texture: &self.post.scene,
+                            mip_level: 0,
+                            origin: wgpu::Origin3d::ZERO,
+                            aspect: wgpu::TextureAspect::All,
+                        },
+                        wgpu::TexelCopyTextureInfo {
+                            texture: &self.shadow.scene_copy,
+                            mip_level: 0,
+                            origin: wgpu::Origin3d::ZERO,
+                            aspect: wgpu::TextureAspect::All,
+                        },
+                        wgpu::Extent3d {
+                            width: self.config.width,
+                            height: self.config.height,
+                            depth_or_array_layers: 1,
+                        },
+                    );
+                }
             }
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some(timing::PASSES[slot]),
@@ -847,9 +1017,16 @@ impl Renderer {
                 self.stats.terrain_phase2_api_calls += phase2_calls;
             }
         }
-        self.post
+        let post_draws = self
+            .post
             .encode(&mut encoder, &self.targets.color_view, fancy, &self.timing);
-        self.stats.draw_calls += if fancy { 3 } else { 1 };
+        self.stats.draw_calls += post_draws;
+        if fancy {
+            self.temporal.frame = self.temporal.frame.wrapping_add(1);
+            self.temporal.previous_view_projection = view_projection;
+            self.temporal.previous_camera = scene.camera_position;
+        }
+        self.temporal.history_valid = taa;
         if self
             .dynamic
             .ranges
@@ -1301,17 +1478,17 @@ mod terrain_translucency_tests {
         scene.environment.render_fog_start = 240.;
         scene.environment.render_fog_end = 256.;
         let view = Mat4::from_scale(Vec3::splat(0.0005));
-        renderer.set_fancy_shaders(true);
+        renderer.set_graphics_preset(GraphicsPreset::Medium);
         renderer.prepare_visibility(&scene, view).unwrap();
         assert_eq!(renderer.stats.visible_chunks, 1);
         assert_eq!(renderer.stats.fog_rejected_chunks, 1);
         // Reference rendering and non-Fancy shading keep every section.
-        renderer.set_fancy_shaders(false);
+        renderer.set_graphics_preset(GraphicsPreset::Low);
         renderer.prepare_visibility(&scene, view).unwrap();
         assert_eq!(renderer.stats.visible_chunks, 2);
         assert_eq!(renderer.stats.fog_rejected_chunks, 0);
         // Fog that has not reached full strength (alpha < 1) never culls.
-        renderer.set_fancy_shaders(true);
+        renderer.set_graphics_preset(GraphicsPreset::Medium);
         scene.environment.fog_alpha = 0.5;
         renderer.prepare_visibility(&scene, view).unwrap();
         assert_eq!(renderer.stats.visible_chunks, 2);

@@ -4,6 +4,7 @@
 //! the same `UiCommand::Settings` path the old cycling buttons used.
 use super::state::{NodeAction, Paint, Screen, UiState};
 use crate::protocol::Result;
+use crate::render::GraphicsPreset;
 use serde_json::{json, Value};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -63,10 +64,10 @@ const VIDEO: [Row; 6] = [
         "Borderless fullscreen window.",
     ),
     row(
-        "fancy_shaders",
-        "Shaders",
-        Kind::Toggle,
-        "Fancy lighting and water. Turn off for speed.",
+        "graphics_preset",
+        "Graphics",
+        Kind::Choice,
+        "Low fast vanilla; Medium rich; High max.",
     ),
 ];
 const CONTROLS: [Row; 2] = [
@@ -228,7 +229,7 @@ pub(super) fn pos_at(key: &str, bounds: [f32; 4], px: f32) -> Option<usize> {
 }
 
 fn default_bool(key: &str) -> bool {
-    matches!(key, "vsync" | "fancy_shaders" | "text_background")
+    matches!(key, "vsync" | "text_background")
 }
 
 pub(super) fn value_text(key: &str, value: Option<&Value>) -> String {
@@ -252,12 +253,11 @@ pub(super) fn value_text(key: &str, value: Option<&Value>) -> String {
         "narrator" => ["Off", "All", "Chat", "System"]
             [value.and_then(Value::as_u64).unwrap_or(0) as usize % 4]
             .into(),
-        "fancy_shaders" => if value.and_then(Value::as_bool).unwrap_or(true) {
-            "Fancy"
-        } else {
-            "Off"
-        }
-        .into(),
+        "graphics_preset" => value
+            .and_then(GraphicsPreset::from_setting)
+            .unwrap_or_default()
+            .label()
+            .into(),
         _ => if value.and_then(Value::as_bool).unwrap_or(default_bool(key)) {
             "On"
         } else {
@@ -555,7 +555,7 @@ mod tests {
         for tab in 0..4 {
             assert!(ids.contains(&format!("options/tab/{tab}").as_str()), "{ids:?}");
         }
-        for key in ["fov", "render_distance", "max_fps", "vsync", "fullscreen", "fancy_shaders"] {
+        for key in ["fov", "render_distance", "max_fps", "vsync", "fullscreen", "graphics_preset"] {
             assert!(ids.contains(&format!("settings/{key}").as_str()), "{key}");
         }
         for node in &ui.nodes {
@@ -751,7 +751,9 @@ mod tests {
         assert_eq!(value_text("max_fps", Some(&json!(0))), "Unlimited");
         assert_eq!(value_text("ui_scale", Some(&json!(0.))), "Auto");
         assert_eq!(value_text("ui_scale", Some(&json!(3.))), "3x");
-        assert_eq!(value_text("fancy_shaders", Some(&json!(true))), "Fancy");
+        assert_eq!(value_text("graphics_preset", Some(&json!("medium"))), "Medium");
+        assert_eq!(value_text("graphics_preset", Some(&json!("low"))), "Low");
+        assert_eq!(value_text("graphics_preset", Some(&json!("high"))), "High");
         assert_eq!(value_text("vsync", None), "On");
         assert_eq!(value_text("fullscreen", None), "Off");
         assert_eq!(value_text("narrator", Some(&json!(2))), "Chat");

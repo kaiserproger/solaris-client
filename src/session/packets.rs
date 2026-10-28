@@ -172,10 +172,40 @@ impl Session {
                 }
                 _ => return Err(format!("unsupported Loader channel or phase: {channel}")),
             }
+        } else if channel.starts_with("solaris:lod/") && self.phase == "play" {
+            let payload = r.take(r.bytes.len() - r.offset)?;
+            let outcome = match channel.as_str() {
+                "solaris:lod/hello" => self.far.hello(payload),
+                "solaris:lod/program" => self.far.program(payload),
+                "solaris:lod/tile" => match self.content.as_ref() {
+                    Some(content) => self.far.tile(payload, content),
+                    None => Ok(()),
+                },
+                _ => Ok(()),
+            };
+            // Far terrain is optional presentation: a bad payload is reported, never fatal.
+            if let Err(error) = outcome {
+                self.event(
+                    json!({"type":"far_terrain_payload_rejected","channel":channel,"error":error}),
+                );
+            }
         } else if channel != "minecraft:brand" {
             self.event(json!({"type":"optional_custom_payload_ignored","channel":channel}));
         }
         Ok(())
+    }
+    /// Fold one received column into the far-terrain store (optional presentation).
+    fn ingest_far_chunk(&mut self, position: [i32; 2]) {
+        let (Some(chunk), Some(content)) = (self.world.chunk(position), self.content.as_ref())
+        else {
+            return;
+        };
+        if let Err(error) = self
+            .far
+            .ingest_chunk(position, chunk, self.world.min_y, content)
+        {
+            self.event(json!({"type":"far_terrain_ingest_failed","error":error}));
+        }
     }
     fn play(&mut self, id: i32, r: &mut Reader<'_>) -> Result<()> {
         if id == 60 {
@@ -349,6 +379,7 @@ impl Session {
                 if let Some(terrain) = &mut self.terrain {
                     terrain.invalidate_chunk(&self.world, position)?;
                 }
+                self.ingest_far_chunk(position);
             }
             48 => {
                 let position = [r.var()?, r.var()?];
@@ -361,6 +392,7 @@ impl Session {
                 let packed = r.i64()?;
                 let position = [packed as i32, (packed >> 32) as i32];
                 r.done()?;
+                self.ingest_far_chunk(position);
                 self.world.remove(position);
                 self.entities.unload_chunk(position);
                 self.predicted_blocks
@@ -494,6 +526,7 @@ impl Session {
             118 => {
                 self.phase = "configuration".into();
                 self.loader.reset();
+                self.far.disconnect();
                 self.clear_loader_content()?;
                 self.keys.clear();
                 self.player.reset_dimension(false);
@@ -613,6 +646,8 @@ impl Session {
         self.inventory.game_mode = mode;
         self.flat_world = flat;
         self.dimension = Some(dimension.clone());
+        self.far
+            .enter_dimension(&dimension, self.address.as_deref());
         self.dimension_epoch += 1;
         self.entities.clear_dimension();
         self.predicted_blocks.clear();

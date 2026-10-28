@@ -4,6 +4,7 @@ pub mod automation;
 mod content_paths;
 pub mod entities;
 pub mod environment;
+mod far;
 mod headless;
 mod hotbar_wheel;
 pub mod inventory;
@@ -25,7 +26,7 @@ mod ui_hotfix_tests;
 
 use api::{Command, InputIntent, Request, Shared, SharedState};
 use automation::{Config as AutomationConfig, Server};
-use render::Renderer;
+use render::{GraphicsPreset, Renderer};
 use serde_json::json;
 use session::Session;
 use std::{
@@ -610,6 +611,7 @@ impl App {
             }
             renderer.render(self.session.scene(), capture, &shared)?;
             self.session.release_uploaded_terrain(renderer.drain_uploaded_meshes());
+            self.session.far_generated(renderer.far_gpu_generation(), renderer.drain_far_generated());
             renderer.update_metrics(&mut shared.data["render"]);
             let epochs = self.session.context_epochs();
             if renderer.spawn_meshes_presented(
@@ -711,7 +713,7 @@ impl App {
         }
         if let Some(renderer) = &mut self.renderer {
             renderer.set_vsync(self.session.native_setting("vsync").and_then(serde_json::Value::as_bool).unwrap_or(true));
-            renderer.set_fancy_shaders(self.session.native_setting("fancy_shaders").and_then(serde_json::Value::as_bool).unwrap_or(true));
+            renderer.set_graphics_preset(self.session.native_setting("graphics_preset").and_then(GraphicsPreset::from_setting).unwrap_or_default());
         }
         let game_input = self.focused && !self.occluded && self.session.phase() == "play"
             && self.session.screen() == "game" && !self.session.chat_open()

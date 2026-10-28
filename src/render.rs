@@ -14,7 +14,11 @@ use std::{
     time::Instant,
 };
 mod arena;
+mod far;
+mod far_generate;
 mod frame;
+mod graphics;
+pub use graphics::GraphicsPreset;
 mod material;
 mod mdi;
 mod mesh;
@@ -31,6 +35,8 @@ mod timing;
 mod visibility;
 #[cfg(test)]
 mod shader_tests;
+#[cfg(test)]
+mod design_tests;
 use arena::Arena;
 use mesh::{ResidentMesh, Stream};
 use packed::{TerrainVertex, TileTable};
@@ -264,6 +270,10 @@ struct CameraUniform {
     fancy: [f32; 4],
     sun_direction: [f32; 4],
     world_origin: [f32; 4],
+    shadow_cascades: [[f32; 16]; 3],
+    cascade_info: [f32; 4],
+    moon_direction: [f32; 4],
+    atmosphere: [f32; 4],
 }
 #[derive(Default)]
 struct FrameStats {
@@ -338,7 +348,9 @@ pub struct Renderer {
     outline: outline::Outline,
     post: post::Post,
     shadow: shadow::Shadow,
-    fancy_shaders: bool,
+    far: far::FarTerrain,
+    graphics: GraphicsPreset,
+    temporal: graphics::Temporal,
     atlas_texture: wgpu::Texture,
     atlas_bind: wgpu::BindGroup,
     lightmap_texture: wgpu::Texture,
@@ -668,9 +680,16 @@ impl Renderer {
         });
         let targets = Self::targets(&device, &config, &pipelines.blit);
         let mut shadow = shadow::Shadow::new(&device, &pipelines.camera_layout, &pipelines.atlas_layout);
-        shadow.resize(&device, config.width, config.height);
+        let features = GraphicsPreset::default().features();
+        shadow.configure(&device, features.cascades, features.water_ssr, config.width, config.height);
         let outline = outline::Outline::new(&device, config.width, config.height);
-        let post = post::Post::new(&device, config.width, config.height);
+        let post = post::Post::new(
+            &device,
+            config.width,
+            config.height,
+            &shadow.opaque_depth_view,
+            &features,
+        );
         let dynamic = Stream::new(&device);
         let overlay = Stream::new(&device);
         let sunrise = Stream::new(&device);
@@ -700,6 +719,13 @@ impl Renderer {
         }
         let progress =
             progress::Progress::new(device.clone(), progress_errors, gpu_failed.clone())?;
+        // GPU far-terrain generation needs compute; SOLARIS_CLIENT_FAR_GPU=0
+        // forces the session's CPU generator instead.
+        let far = far::FarTerrain::new(
+            &device,
+            downlevel.flags.contains(wgpu::DownlevelFlags::COMPUTE_SHADERS)
+                && std::env::var_os("SOLARIS_CLIENT_FAR_GPU").is_none_or(|value| value != "0"),
+        );
         Ok(Self {
             surface,
             device,
@@ -711,7 +737,9 @@ impl Renderer {
             outline,
             post,
             shadow,
-            fancy_shaders: true,
+            far,
+            graphics: GraphicsPreset::default(),
+            temporal: graphics::Temporal::default(),
             atlas_texture,
             atlas_bind,
             texture_revision: None,
@@ -804,8 +832,24 @@ impl Renderer {
         self.uploaded_meshes.drain(..)
     }
 
-    pub fn set_fancy_shaders(&mut self, fancy: bool) {
-        self.fancy_shaders = fancy;
+    /// Whether far-terrain tiles are generated here (compute) rather than by
+    /// the session's CPU worker.
+    pub(crate) fn far_gpu_generation(&self) -> bool {
+        self.far.generator.supported
+    }
+
+    /// Far-terrain tiles the compute pass finished since the last call.
+    pub(crate) fn drain_far_generated(
+        &mut self,
+    ) -> Vec<(crate::far::TileKey, Vec<crate::far::program::Column>)> {
+        self.far.generator.drain()
+    }
+
+    pub fn set_graphics_preset(&mut self, preset: GraphicsPreset) {
+        if self.graphics != preset {
+            self.graphics = preset;
+            self.apply_graphics();
+        }
     }
 
     pub fn set_vsync(&mut self, enabled: bool) {
@@ -1086,8 +1130,7 @@ impl Renderer {
                 self.config.height,
             );
         }
-        self.post = post::Post::new(&self.device, self.config.width, self.config.height);
-        self.shadow.resize(&self.device, self.config.width, self.config.height);
+        self.apply_graphics();
         self.outline
             .resize(&self.device, self.config.width, self.config.height);
     }
@@ -1359,6 +1402,7 @@ impl Renderer {
                             .to_string()
                     );
                     metadata["gpu_timestamps"] = self.timing.latest.clone();
+                    metadata["far_terrain"] = self.far.metrics();
                     metadata["submitted_frame_interval_ms"] = json!(self.frame_interval_ms);
                     metadata["frame_interval_sample_frame_id"] = json!(self.frame_id.saturating_sub(1).to_string());
                     metadata["environment"] = json!({"sky_kind":format!("{:?}",scene.environment.sky_kind),
@@ -1396,6 +1440,7 @@ impl Renderer {
             }
         });
         self.timing.submitted(self.frame_id);
+        self.far.generator.submitted();
         if let Some(mdi) = &mut self.mdi {
             mdi.submitted(self.frame_id);
         }

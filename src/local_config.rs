@@ -169,19 +169,7 @@ pub fn load_client_settings() -> BTreeMap<String, serde_json::Value> {
     let Some(path) = client_settings_path() else {
         return BTreeMap::new();
     };
-    let text = std::fs::read_to_string(&path).unwrap_or_default();
-    if text.trim().is_empty() {
-        return BTreeMap::new();
-    }
-    let parsed: serde_json::Value = serde_json::from_str(&text).unwrap_or_default();
-    let serde_json::Value::Object(map) = parsed else {
-        return BTreeMap::new();
-    };
-    map.into_iter()
-        .filter(|(key, _)| {
-            key.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_') && key.len() <= 64
-        })
-        .collect()
+    load_client_settings_from(&path)
 }
 /// Best-effort atomic-ish save of managed settings (write + rename).
 pub fn save_client_settings(settings: &BTreeMap<String, serde_json::Value>) {
@@ -200,11 +188,26 @@ pub fn load_client_settings_from(path: &std::path::Path) -> BTreeMap<String, ser
     let serde_json::Value::Object(map) = parsed else {
         return BTreeMap::new();
     };
-    map.into_iter()
+    let mut out: BTreeMap<String, serde_json::Value> = map
+        .into_iter()
         .filter(|(key, _)| {
             key.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_') && key.len() <= 64
         })
-        .collect()
+        .collect();
+    // One-way legacy migration: bool `fancy_shaders` -> string `graphics_preset`.
+    if !out.contains_key("graphics_preset")
+        && let Some(legacy) = out.remove("fancy_shaders")
+    {
+        let preset = if legacy.as_bool().unwrap_or(true) {
+            "medium"
+        } else {
+            "low"
+        };
+        out.insert("graphics_preset".into(), serde_json::json!(preset));
+    } else {
+        out.remove("fancy_shaders");
+    }
+    out
 }
 /// Test seam: save to an explicit path (same managed-keys-only filter).
 pub fn save_client_settings_to(
@@ -266,7 +269,7 @@ mod tests {
         settings.insert("damage_tilt_strength".into(), serde_json::json!(0.5));
         settings.insert("fullscreen".into(), serde_json::json!(true));
         settings.insert("vsync".into(), serde_json::json!(false));
-        settings.insert("fancy_shaders".into(), serde_json::json!(false));
+        settings.insert("graphics_preset".into(), serde_json::json!("low"));
         settings.insert("max_fps".into(), serde_json::json!(120));
         settings.insert("chat_key".into(), serde_json::json!("not persisted"));
         save_client_settings_to(&settings, &path);
@@ -277,7 +280,7 @@ mod tests {
         assert_eq!(loaded["damage_tilt_strength"], serde_json::json!(0.5));
         assert_eq!(loaded.get("fullscreen"), Some(&serde_json::json!(true)));
         assert_eq!(loaded.get("vsync"), Some(&serde_json::json!(false)));
-        assert_eq!(loaded.get("fancy_shaders"), Some(&serde_json::json!(false)));
+        assert_eq!(loaded.get("graphics_preset"), Some(&serde_json::json!("low")));
         assert_eq!(loaded.get("max_fps"), Some(&serde_json::json!(120)));
         assert!(!loaded.contains_key("chat_key"));
         // Corrupt file degrades to empty, not an error.
@@ -285,6 +288,31 @@ mod tests {
         assert!(load_client_settings_from(&path).is_empty());
         // Missing file degrades to empty.
         assert!(load_client_settings_from(&dir.join("absent.json")).is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn legacy_fancy_shaders_migrates_to_graphics_preset() {
+        let dir = std::env::temp_dir().join(format!(
+            "solaris-settings-migrate-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("client-settings.json");
+        std::fs::write(&path, r#"{"fancy_shaders":false,"volume":0.5}"#).unwrap();
+        let loaded = load_client_settings_from(&path);
+        assert_eq!(loaded.get("graphics_preset"), Some(&serde_json::json!("low")));
+        assert!(!loaded.contains_key("fancy_shaders"));
+        std::fs::write(&path, r#"{"fancy_shaders":true}"#).unwrap();
+        let loaded = load_client_settings_from(&path);
+        assert_eq!(loaded.get("graphics_preset"), Some(&serde_json::json!("medium")));
+        std::fs::write(&path, r#"{"fancy_shaders":false,"graphics_preset":"high"}"#).unwrap();
+        let loaded = load_client_settings_from(&path);
+        assert_eq!(loaded.get("graphics_preset"), Some(&serde_json::json!("high")));
+        assert!(!loaded.contains_key("fancy_shaders"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

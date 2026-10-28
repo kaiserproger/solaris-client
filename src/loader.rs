@@ -7,7 +7,7 @@ use crate::{
     ui::UiState,
 };
 use serde::Deserialize;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -947,11 +947,9 @@ mod tests {
         assert!(loader.artifact(&chunk(&value, &corrupt)).is_err());
         assert!(!loader.acknowledged);
         let mut loader = begin(&value).unwrap();
-        assert!(
-            loader
-                .artifact(&chunk(&value, &bytes[..bytes.len() - 1]))
-                .is_err()
-        );
+        assert!(loader
+            .artifact(&chunk(&value, &bytes[..bytes.len() - 1]))
+            .is_err());
         assert!(!loader.acknowledged);
     }
     #[test]

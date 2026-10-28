@@ -1,7 +1,7 @@
 use serde_json::{json, Value};
 use std::{cell::Cell, sync::mpsc};
 
-pub(super) const PASSES: [&str; 21] = [
+pub(super) const PASSES: [&str; 27] = [
     "sky",
     "opaque",
     "cutout",
@@ -23,7 +23,36 @@ pub(super) const PASSES: [&str; 21] = [
     "terrain_occlusion_cull",
     "terrain_occlusion_draw",
     "dynamic_geometry",
+    "god_rays",
+    "taa_resolve",
+    "directional_shadow_cascade1",
+    "directional_shadow_cascade2",
+    "far_terrain",
+    "far_terrain_generate",
 ];
+/// Timestamp slot of the far-terrain pass.
+pub(super) const FAR_TERRAIN: usize = pass_index("far_terrain");
+/// Timestamp slot of the far-terrain compute generation pass.
+pub(super) const FAR_TERRAIN_GENERATE: usize = pass_index("far_terrain_generate");
+const fn pass_index(name: &str) -> usize {
+    let mut index = 0;
+    'passes: while index < PASSES.len() {
+        let (a, b) = (PASSES[index].as_bytes(), name.as_bytes());
+        if a.len() == b.len() {
+            let mut byte = 0;
+            while byte < a.len() {
+                if a[byte] != b[byte] {
+                    index += 1;
+                    continue 'passes;
+                }
+                byte += 1;
+            }
+            return index;
+        }
+        index += 1;
+    }
+    panic!("unknown timing pass");
+}
 const QUERIES: u32 = PASSES.len() as u32 * 2;
 const RESOLVE_STRIDE: u64 = wgpu::QUERY_RESOLVE_BUFFER_ALIGNMENT;
 struct Slot {

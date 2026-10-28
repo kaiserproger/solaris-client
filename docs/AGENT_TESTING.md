@@ -316,9 +316,8 @@ Direct Connect. Direct Connect contains an address and explicit offline username
 
 Options is reachable from Title and Pause. Done/Escape returns to the originating
 screen, not unconditionally to gameplay. The managed settings JSON also stores
-`fullscreen`, `vsync`, `max_fps` (zero means Unlimited), and `fancy_shaders`
-(true means Fancy). The App applies window/present-mode/shader changes; FOV,
-distance, sensitivity and GUI scale retain their normal session/UI paths.
+`fullscreen`, `vsync`, `max_fps` (zero means Unlimited), and `graphics_preset`
+(`"low"`, `"medium"`, or `"high"`). The App applies window/present-mode/shader changes; FOV,
 Pause releases the cursor; Back to Game/Escape recaptures it. Transport/bootstrap
 failures and kicks show Connection Lost with their reason and Back to Title.
 

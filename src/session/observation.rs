@@ -283,6 +283,7 @@ impl Session {
                 "motion":self.player.visual_motion_observation(),"block_motions":self.block_motion.len()},
             "inputs":{"held":self.keys},"screen":self.screen(),"breaking":self.player.breaking_observation(),"using":self.player.using_observation(self.client_tick),"events":self.events,
             "presentation_available":self.presentation,"packets":{"counts":self.packet_counts,"unsupported_presentation":self.ignored_presentation},"audio":self.audio.as_ref().map(Audio::observation),"terrain":self.terrain.as_ref().map(Terrain::metrics),"movement_blocked":self.player.movement_blocked,
+            "far_terrain":self.far.metrics(),
             "corrections":self.player.corrections,"last_correction_distance":self.player.last_correction_distance,"state_version":self.state_version});
         self.observation_envelope(data, truncated)
     }
@@ -488,6 +489,29 @@ impl Session {
         self.refresh_scene_mode(false)
     }
 
+    /// Choose far-terrain tiles around the camera, send the server requests
+    /// they need and publish changed tiles. True when the draw list changed.
+    fn refresh_far(&mut self) -> bool {
+        let world = &self.world;
+        let requests = self.far.update(
+            self.scene.camera_position,
+            world.chunk_lifecycle_revision(),
+            &|column| world.chunk(column).is_some(),
+        );
+        for payload in requests {
+            if let Err(error) = self.send_custom("solaris:lod/request", &payload) {
+                self.event(json!({"type":"far_terrain_request_failed","error":error}));
+                break;
+            }
+        }
+        if let Some(content) = self.content.as_ref()
+            && let Err(error) = self.far.poll_generated(content)
+        {
+            self.event(json!({"type":"far_terrain_generation_failed","error":error}));
+        }
+        self.far.scene(&mut self.scene.far)
+    }
+
     pub(super) fn refresh_scene_mode(&mut self, animation_only: bool) -> Result<bool> {
         self.camera();
         let world_ready = self.play_world_presentation_ready();
@@ -529,8 +553,14 @@ impl Session {
         } else {
             false
         };
+        let far_changed = !animation_only && world_ready && self.refresh_far();
         let state_changed = self.scene_state_revision != self.revision;
-        if !animation_only && !state_changed && !mesh_changed && (self.scene.lightmap.is_some() || !world_ready) {
+        if !animation_only
+            && !state_changed
+            && !mesh_changed
+            && !far_changed
+            && (self.scene.lightmap.is_some() || !world_ready)
+        {
             return Ok(false);
         }
         if !animation_only && !state_changed && self.scene.lightmap.is_some() {
@@ -606,6 +636,14 @@ impl Session {
                 self.render_distance,
                 &facts,
             )?;
+            // Far terrain continues past the loaded chunks: the vanilla
+            // render-distance fog moves out to the far distance with it.
+            let far = self.far.active_distance() as f32;
+            let environment = &mut self.scene.environment;
+            if far > environment.render_fog_end {
+                environment.render_fog_start = far - (far / 10.).clamp(4., 64.);
+                environment.render_fog_end = far;
+            }
             self.scene.lightmap = self.environment.lightmap_texture();
             self.scene.shader_game_time =
                 Some((self.environment.game_time().rem_euclid(24000) as f32) / 24000.);

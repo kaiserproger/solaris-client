@@ -1,8 +1,8 @@
-use super::models::shapes::{FeatureRequirements, TerrainFact, rectangles_cover};
+use super::models::shapes::{rectangles_cover, FeatureRequirements, TerrainFact};
 pub use super::models::{BakedModel, BakedQuad, ModelTransform, TintKind};
 use super::{
-    Result,
     models::{Baker, JavaRandom},
+    Result,
 };
 use crate::api::{AtlasMip, AtlasPatch, RenderLayer};
 use serde_json::{Map, Value};
@@ -908,26 +908,13 @@ impl Content {
         Self::load_mode(true)
     }
     pub(crate) fn load_state() -> Result<Self> {
-        let data = PathBuf::from(
-            std::env::var("SOLARIS_CLIENT_DATA_DIR")
-                .map_err(|_| "SOLARIS_CLIENT_DATA_DIR required for pinned local data")?,
-        );
-        Self::load_from_mode(
-            ResourceSource {
-                roots: Vec::new(),
-                indexed: BTreeMap::new(),
-                loader: BTreeMap::new(),
-                limits: ResourceLimits::default(),
-            },
-            &data,
-            false,
-        )
+        Self::load_mode(false)
     }
     fn load_mode(presentation: bool) -> Result<Self> {
         let root =
-            PathBuf::from(std::env::var("SOLARIS_CLIENT_RESOURCE_ROOT").map_err(
-                |_| "SOLARIS_CLIENT_RESOURCE_ROOT required for verified local resources",
-            )?);
+            PathBuf::from(std::env::var("SOLARIS_CLIENT_RESOURCE_ROOT").map_err(|_| {
+                "SOLARIS_CLIENT_RESOURCE_ROOT required for verified local resources"
+            })?);
         let data = PathBuf::from(
             std::env::var("SOLARIS_CLIENT_DATA_DIR")
                 .map_err(|_| "SOLARIS_CLIENT_DATA_DIR required for pinned local data")?,
@@ -1922,7 +1909,7 @@ impl Content {
             tint,
         })
     }
-    pub fn grass_tint(&self, temperature: f32, downfall: f32) -> [f32; 3] {
+    pub fn grass_tint(&self, temperature: f32, downfall: f32) -> Result<[f32; 3]> {
         color_from_map(&self.grass_colormap, temperature, downfall)
     }
     pub fn grass_color(&self, biome: &Value) -> Option<[f32; 3]> {
@@ -1938,8 +1925,11 @@ impl Content {
             .as_f64()
             .filter(|v| v.is_finite())
             .ok_or("biome downfall")? as f32;
-        let base = parse_color(&effects["grass_color"])
-            .unwrap_or_else(|| packed(color_from_map(&self.grass_colormap, t, d)));
+        let base = if let Some(color) = parse_color(&effects["grass_color"]) {
+            color
+        } else {
+            packed(color_from_map(&self.grass_colormap, t, d)?)
+        };
         let grass = match effects["grass_color_modifier"].as_str().unwrap_or("none") {
             "none" => base,
             "dark_forest" => ((base & 0xfefefe) + 0x28340a) >> 1,
@@ -1952,12 +1942,16 @@ impl Content {
             }
             m => return Err(format!("unsupported mandatory grass modifier {m}")),
         };
-        let foliage = parse_color(&effects["foliage_color"])
-            .map(rgb)
-            .unwrap_or_else(|| color_from_map(&self.foliage_colormap, t, d));
-        let dry_foliage = parse_color(&effects["dry_foliage_color"])
-            .map(rgb)
-            .unwrap_or_else(|| color_from_map(&self.dry_foliage_colormap, t, d));
+        let foliage = if let Some(color) = parse_color(&effects["foliage_color"]) {
+            rgb(color)
+        } else {
+            color_from_map(&self.foliage_colormap, t, d)?
+        };
+        let dry_foliage = if let Some(color) = parse_color(&effects["dry_foliage_color"]) {
+            rgb(color)
+        } else {
+            color_from_map(&self.dry_foliage_colormap, t, d)?
+        };
         let water = rgb(parse_color(&effects["water_color"]).ok_or("biome water color")?);
         let sky = attribute_color(biome, "minecraft:visual/sky_color", 0)?;
         let fog = attribute_color(biome, "minecraft:visual/fog_color", 0)?;
@@ -2325,12 +2319,15 @@ fn packed(c: [f32; 3]) -> u32 {
         | ((c[1] * 255.).round() as u32) << 8
         | (c[2] * 255.).round() as u32
 }
-fn color_from_map(map: &[[u8; 3]], temperature: f32, downfall: f32) -> [f32; 3] {
+fn color_from_map(map: &[[u8; 3]], temperature: f32, downfall: f32) -> Result<[f32; 3]> {
+    if map.len() != 256 * 256 {
+        return Err("colormap entry count".into());
+    }
     let temperature = f64::from(temperature.clamp(0., 1.));
     let rainfall = f64::from(downfall.clamp(0., 1.)) * temperature;
     let x = ((1. - temperature) * 255.) as usize;
     let y = ((1. - rainfall) * 255.) as usize;
-    map[y * 256 + x].map(|v| f32::from(v) / 255.)
+    Ok(map[y * 256 + x].map(|v| f32::from(v) / 255.))
 }
 fn attribute_color(biome: &Value, key: &str, default: u32) -> Result<[f32; 3]> {
     let v = &biome["attributes"][key];
@@ -2977,35 +2974,27 @@ mod tests {
                 .unwrap(),
             &[7, 2, 9, 2]
         );
-        assert!(
-            content
-                .registry_tag_contains("minecraft:block", "test:selection", 2)
-                .unwrap()
-        );
-        assert!(
-            !content
-                .registry_tag_contains("minecraft:block", "test:selection", 3)
-                .unwrap()
-        );
+        assert!(content
+            .registry_tag_contains("minecraft:block", "test:selection", 2)
+            .unwrap());
+        assert!(!content
+            .registry_tag_contains("minecraft:block", "test:selection", 3)
+            .unwrap());
         assert_eq!(
             content
                 .registry_tag_optional("minecraft:block", "test:absent")
                 .unwrap(),
             None
         );
-        assert!(
-            content
-                .registry_tag_optional("test:unobserved_registry", "test:absent")
-                .is_err()
-        );
-        assert!(
-            content
-                .set_tags(BTreeMap::from([(
-                    "minecraft:block".into(),
-                    BTreeMap::from([("test:selection".into(), vec![10])]),
-                )]))
-                .is_err()
-        );
+        assert!(content
+            .registry_tag_optional("test:unobserved_registry", "test:absent")
+            .is_err());
+        assert!(content
+            .set_tags(BTreeMap::from([(
+                "minecraft:block".into(),
+                BTreeMap::from([("test:selection".into(), vec![10])]),
+            )]))
+            .is_err());
         assert_eq!(
             content
                 .registry_tag("minecraft:block", "test:selection")
@@ -3035,8 +3024,15 @@ mod tests {
         let map = (0..65536)
             .map(|i| [(i % 256) as u8, (i / 256) as u8, 0])
             .collect::<Vec<_>>();
-        assert_eq!(color_from_map(&map, -0.5, 0.8), [1., 1., 0.]);
-        assert_eq!(color_from_map(&map, 2., -1.), [0., 1., 0.]);
+        assert_eq!(color_from_map(&map, -0.5, 0.8).unwrap(), [1., 1., 0.]);
+        assert_eq!(color_from_map(&map, 2., -1.).unwrap(), [0., 1., 0.]);
+    }
+    #[test]
+    fn missing_colormap_is_rejected_before_color_lookup() {
+        assert_eq!(
+            color_from_map(&[], 0.5, 0.5).unwrap_err(),
+            "colormap entry count"
+        );
     }
     #[test]
     fn biome_override_and_dark_forest_modifier_compose() {

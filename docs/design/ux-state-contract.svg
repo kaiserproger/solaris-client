@@ -1,0 +1,94 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="1080" viewBox="0 0 1440 1080" role="img" aria-labelledby="title desc">
+  <title id="title">Solaris monitor interaction contract — proposed states, not a runtime screenshot</title>
+  <desc id="desc">Three separate authorities: local capture, local input control and another player's viewing. Consent defaults to Deny and discloses the current all-open-screens scope. Owner management separates Revoke all viewers from Close capture. A lower matrix describes pending, canceled, denied, revoked and failed states.</desc>
+  <defs>
+    <style>
+      text { font-family: "IBM Plex Sans", sans-serif; fill: #eeeae0; }
+      .title { font-size: 30px; font-weight: 600; }
+      .h { font-size: 22px; font-weight: 600; }
+      .body { font-size: 17px; }
+      .small { font-size: 15px; fill: #b8b9b5; }
+      .state { font-weight: 600; }
+      .panel { fill: #181512; }
+      .button { fill: #221E1A; stroke: #3A332C; stroke-width: 1; }
+      .rule { stroke: #3A332C; stroke-width: 1; }
+      .muted { fill: #b8b9b5; }
+      .mono { font-family: "IBM Plex Mono", monospace; font-size: 15px; }
+    </style>
+  </defs>
+  <rect width="1440" height="1080" fill="#0F0D0B"/>
+  <text x="48" y="58" class="title">Three permissions. Three visible states.</text>
+  <text x="48" y="90" class="body muted">INTERACTION SPECIMEN · illustrative names · proposed UI, not shipped behavior</text>
+  <path d="M48 116H1392" class="rule"/>
+
+  <rect x="48" y="142" width="424" height="196" rx="3" class="panel"/>
+  <text x="72" y="178" class="h">1. Local capture</text>
+  <text x="72" y="211" class="body">Choose a window through the OS.</text>
+  <text x="72" y="241" class="small">No window pictures before permission.</text>
+  <rect x="72" y="266" width="210" height="44" rx="2" class="button"/>
+  <text x="93" y="294" class="body">Choose window</text>
+  <text x="300" y="294" class="small">Cancelable</text>
+
+  <rect x="508" y="142" width="424" height="196" rx="3" class="panel"/>
+  <text x="532" y="178" class="h">2. Local control</text>
+  <text x="532" y="211" class="body">You control your selected window.</text>
+  <text x="532" y="241" class="small">Not permission for another player.</text>
+  <rect x="532" y="266" width="218" height="44" rx="2" class="button"/>
+  <text x="551" y="294" class="body">Release control</text>
+  <text x="772" y="294" class="mono">Esc</text>
+
+  <rect x="968" y="142" width="424" height="196" rx="3" class="panel"/>
+  <text x="992" y="178" class="h">3. Viewer access</text>
+  <text x="992" y="211" class="body">Other players can receive pictures.</text>
+  <text x="992" y="241" class="small">No keyboard or mouse input.</text>
+  <rect x="992" y="266" width="210" height="44" rx="2" class="button"/>
+  <text x="1012" y="294" class="body">Manage viewers</text>
+  <text x="1220" y="294" class="small">Separate grant</text>
+
+  <rect x="48" y="370" width="652" height="374" rx="3" class="panel"/>
+  <text x="72" y="410" class="h">Allow desktop viewing?</text>
+  <text x="72" y="445" class="body">Alex · Example server</text>
+  <text x="72" y="479" class="body">Requests pictures from all your open screens.</text>
+  <text x="72" y="510" class="body">No remote keyboard or mouse control.</text>
+  <text x="72" y="547" class="small">Scope must match the actual authorization contract.</text>
+  <text x="72" y="572" class="small">Do not label a broad grant “this window only”.</text>
+  <path d="M72 595H676" class="rule"/>
+  <rect x="69" y="613" width="118" height="50" rx="2" fill="none" stroke="#FFA32E" stroke-width="2"/>
+  <rect x="72" y="616" width="112" height="44" rx="2" class="button"/>
+  <text x="107" y="644" class="body">Deny</text>
+  <rect x="204" y="616" width="472" height="44" rx="2" class="button"/>
+  <text x="226" y="644" class="body">Allow viewing all open screens</text>
+  <text x="72" y="704" class="small">Initial focus: Deny · Esc: deny · Never auto-accept</text>
+
+  <rect x="736" y="370" width="656" height="374" rx="3" class="panel"/>
+  <text x="760" y="410" class="h">Your monitor</text>
+  <text x="760" y="445" class="body">Source: selected window · Capturing</text>
+  <text x="760" y="474" class="small">Viewer access is not local input control.</text>
+  <path d="M760 496H1368" class="rule"/>
+  <text x="760" y="528" class="body">Alex</text>
+  <text x="884" y="528" class="small">Allowed to view</text>
+  <rect x="1224" y="504" width="144" height="40" rx="2" class="button"/>
+  <text x="1243" y="530" class="body">Revoke Alex</text>
+  <text x="760" y="576" class="small">“Watching now” requires observed live demand.</text>
+  <rect x="760" y="602" width="270" height="44" rx="2" class="button"/>
+  <text x="781" y="630" class="body">Revoke all viewers</text>
+  <rect x="1050" y="602" width="318" height="44" rx="2" class="button"/>
+  <text x="1071" y="630" class="body">Close capture</text>
+  <text x="760" y="685" class="small">Revoke retains local capture.</text>
+  <text x="760" y="710" class="small">Close capture stops the source. Dismiss only closes this panel.</text>
+
+  <text x="48" y="795" class="h">No state may masquerade as success</text>
+  <path d="M48 814H1392" class="rule"/>
+  <text x="48" y="846" class="body state">Opening</text>
+  <text x="276" y="846" class="body">Awaiting selected source; cancel remains available. No live-preview claim.</text>
+  <text x="48" y="883" class="body state">Waiting for owner</text>
+  <text x="276" y="883" class="body">Request sent is not approval. Viewer can cancel or leave.</text>
+  <text x="48" y="920" class="body state">Denied / canceled</text>
+  <text x="276" y="920" class="body">Neutral outcome. No automatic retry or permission escalation.</text>
+  <text x="48" y="957" class="body state">Revoked</text>
+  <text x="276" y="957" class="body">Stop local sending immediately. Do not claim remote acknowledgement before it arrives.</text>
+  <text x="48" y="994" class="body state">Capture failed</text>
+  <text x="276" y="994" class="body">Show why, mark the image stale/ended, and offer Choose another window.</text>
+  <path d="M48 1018H1392" class="rule"/>
+  <text x="48" y="1051" class="small">Companion to 2026-10-23-astra-ux-review.md · native source scope: src/computer/native/sharing.rs:19–26</text>
+</svg>

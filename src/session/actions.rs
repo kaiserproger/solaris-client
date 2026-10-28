@@ -675,7 +675,7 @@ impl Session {
             return Ok(());
         };
         match key {
-            "fullscreen" | "vsync" | "max_fps" | "fancy_shaders" | "ui_scale" => {
+            "fullscreen" | "vsync" | "max_fps" | "graphics_preset" | "ui_scale" => {
                 self.presentation_settings.insert(key.into(), clean.clone());
             }
             "render_distance" => {
@@ -768,7 +768,7 @@ impl Session {
                 let _ = ui.apply_setting(key, clean.clone());
             }
             match *key {
-                "fullscreen" | "vsync" | "max_fps" | "fancy_shaders" | "ui_scale" => {
+                "fullscreen" | "vsync" | "max_fps" | "graphics_preset" | "ui_scale" => {
                     self.presentation_settings.insert((*key).into(), clean.clone());
                 }
                 "render_distance" => {
@@ -804,6 +804,29 @@ impl Session {
                 _ => {}
             }
         }
+        // Far terrain distance in blocks (`far_terrain`, 0 = off); the Low
+        // graphics preset defaults to a shorter reach for weak GPUs.
+        // SOLARIS_CLIENT_FAR_TERRAIN overrides both for scripted runs.
+        let low = self
+            .presentation_settings
+            .get("graphics_preset")
+            .and_then(Value::as_str)
+            .is_some_and(|preset| preset.eq_ignore_ascii_case("low"));
+        let distance = std::env::var("SOLARIS_CLIENT_FAR_TERRAIN")
+            .ok()
+            .and_then(|value| value.parse::<u32>().ok())
+            .or_else(|| {
+                settings
+                    .get("far_terrain")
+                    .and_then(Value::as_u64)
+                    .map(|v| v.min(u64::from(crate::far::MAX_DISTANCE)) as u32)
+            })
+            .unwrap_or(if low {
+                crate::far::LOW_PRESET_DISTANCE
+            } else {
+                crate::far::DEFAULT_DISTANCE
+            });
+        self.far.set_distance(distance);
         self.camera();
     }
     pub(super) fn consume_player_effects(&mut self) -> Result<()> {

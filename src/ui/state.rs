@@ -9,6 +9,7 @@ use crate::{
     api::{MeshGeometry, RenderLayer, Vertex},
     inventory::{InventoryStore, MenuKind, UiContext},
     protocol::{content::Content, models::TintKind, Result},
+    render::GraphicsPreset,
 };
 use glam::{Mat4, Vec3};
 use serde::Serialize;
@@ -347,10 +348,19 @@ pub(crate) enum Paint {
     /// Options category tab (`true` = selected).
     Tab(bool),
     /// Options slider; `t` is the 0..1 stop position, `desc` the hover description.
-    Slider { t: f32, desc: &'static str },
-    Toggle { on: bool, desc: &'static str },
+    Slider {
+        t: f32,
+        desc: &'static str,
+    },
+    Toggle {
+        on: bool,
+        desc: &'static str,
+    },
     /// Row split at `delim` into a left label and a right-aligned value.
-    Split { delim: &'static str, desc: &'static str },
+    Split {
+        delim: &'static str,
+        desc: &'static str,
+    },
     /// Themed translucent panel.
     Frame,
     Hotbar,
@@ -632,7 +642,7 @@ impl UiState {
         "fullscreen",
         "vsync",
         "max_fps",
-        "fancy_shaders",
+        "graphics_preset",
     ];
     fn setting_f64(value: &Value) -> Option<f64> {
         value.as_f64().or_else(|| value.as_u64().map(|v| v as f64))
@@ -641,7 +651,10 @@ impl UiState {
     /// unknown keys or non-numeric values where numbers are required.
     pub fn sanitize_setting_value(key: &str, value: &Value) -> Option<Value> {
         match key {
-            "fullscreen" | "vsync" | "fancy_shaders" => value.as_bool().map(|v| json!(v)),
+            "fullscreen" | "vsync" => value.as_bool().map(|v| json!(v)),
+            "graphics_preset" => {
+                GraphicsPreset::from_setting(value).map(|preset| json!(preset.as_str()))
+            }
             "max_fps" => value
                 .as_u64()
                 .map(|v| json!(if v == 0 { 0 } else { v.clamp(30, 260) })),
@@ -705,7 +718,8 @@ impl UiState {
     pub fn default_setting_value(key: &str) -> Option<Value> {
         match key {
             "fullscreen" => Some(json!(false)),
-            "vsync" | "fancy_shaders" => Some(json!(true)),
+            "vsync" => Some(json!(true)),
+            "graphics_preset" => Some(json!(GraphicsPreset::default().as_str())),
             "max_fps" => Some(json!(120)),
             "render_distance" => Some(json!(Self::DEFAULT_RENDER_DISTANCE)),
             "fov" => Some(json!(Self::DEFAULT_FOV_DEG)),
@@ -721,9 +735,15 @@ impl UiState {
     pub fn next_setting_value(key: &str, current: Option<&Value>) -> Option<Value> {
         let sane = |v: &Value| Self::sanitize_setting_value(key, v);
         match key {
-            "fullscreen" | "vsync" | "fancy_shaders" => Some(json!(!current
+            "fullscreen" | "vsync" => Some(json!(!current
                 .and_then(Value::as_bool)
                 .unwrap_or(key != "fullscreen"))),
+            "graphics_preset" => {
+                let current = current
+                    .and_then(GraphicsPreset::from_setting)
+                    .unwrap_or_default();
+                Some(json!(current.next().as_str()))
+            }
             "max_fps" => {
                 let current = current.and_then(Value::as_u64).unwrap_or(120);
                 Some(json!([30, 60, 90, 120, 144, 165, 240, 260, 0]
@@ -2011,7 +2031,10 @@ impl UiState {
                                         ClickMode::Pickup
                                     },
                                 });
-                            } else if let NodeAction::Dialog(super::dialog::DialogControl::Slide(_)) = action {
+                            } else if let NodeAction::Dialog(super::dialog::DialogControl::Slide(
+                                _,
+                            )) = action
+                            {
                                 self.focus = Some(id.clone());
                                 self.slider_drag = Some(id.clone());
                                 self.dialog_slider_pointer(&id);
@@ -2054,12 +2077,14 @@ impl UiState {
                         if let Some(id) = self.slider_drag.clone() {
                             if self.screen == Screen::ServerDialog {
                                 self.dialog_slider_pointer(&id);
-                            } else if let Some((key, bounds)) = self.nodes.iter().find(|n| n.id == id).and_then(
-                                |n| match n.action {
-                                    NodeAction::Slider(key) => Some((key, n.bounds)),
-                                    _ => None,
-                                },
-                            ) {
+                            } else if let Some((key, bounds)) =
+                                self.nodes.iter().find(|n| n.id == id).and_then(|n| {
+                                    match n.action {
+                                        NodeAction::Slider(key) => Some((key, n.bounds)),
+                                        _ => None,
+                                    }
+                                })
+                            {
                                 if let Some(pos) =
                                     super::options::pos_at(key, bounds, self.pointer[0])
                                 {
@@ -3332,7 +3357,11 @@ impl UiState {
                 Paint::Field(id) => {
                     // Single-line fields centre their text vertically; tall
                     // (multi-line editor) fields keep the top inset.
-                    let ty = if h <= 28. { y + ((h - 9.) / 2.).floor() } else { y + 4. };
+                    let ty = if h <= 28. {
+                        y + ((h - 9.) / 2.).floor()
+                    } else {
+                        y + 4.
+                    };
                     p.pixel_panel(
                         node.bounds,
                         super::theme::TRACK,
@@ -3645,13 +3674,21 @@ impl UiState {
                     [x + offset, y + offset]
                 };
                 let color = if !node.enabled {
-                    if menu { super::theme::TEXT_OFF } else { 0xff888888 }
+                    if menu {
+                        super::theme::TEXT_OFF
+                    } else {
+                        0xff888888
+                    }
                 } else if !menu {
                     0xffffffff
                 } else if wordmark || heading || panel_title {
                     super::theme::HEADING
                 } else if matches!(node.paint, Paint::Button) {
-                    if fx.hover > 0.4 { 0xffffe2a8 } else { super::theme::TEXT }
+                    if fx.hover > 0.4 {
+                        0xffffe2a8
+                    } else {
+                        super::theme::TEXT
+                    }
                 } else if node.id == "title/error" {
                     0xffff8466
                 } else if node.id == "title/subtitle" {
@@ -4052,6 +4089,23 @@ mod client_settings_tests {
             None
         );
         assert_eq!(UiState::next_setting_value("hide_hud", None), None);
+        // Graphics preset cycles Low -> Medium -> High -> Low.
+        assert_eq!(
+            UiState::next_setting_value("graphics_preset", None),
+            Some(json!("medium"))
+        );
+        assert_eq!(
+            UiState::next_setting_value("graphics_preset", Some(&json!("low"))),
+            Some(json!("medium"))
+        );
+        assert_eq!(
+            UiState::next_setting_value("graphics_preset", Some(&json!("medium"))),
+            Some(json!("high"))
+        );
+        assert_eq!(
+            UiState::next_setting_value("graphics_preset", Some(&json!("high"))),
+            Some(json!("low"))
+        );
     }
     #[test]
     fn sanitize_clamps_ranges() {
@@ -4076,5 +4130,15 @@ mod client_settings_tests {
         );
         assert!(UiState::sanitize_setting_value("fov", &json!("wide")).is_none());
         assert!(UiState::sanitize_setting_value("bogus", &json!(1)).is_none());
+        assert_eq!(
+            UiState::sanitize_setting_value("graphics_preset", &json!("HIGH")),
+            Some(json!("high"))
+        );
+        assert_eq!(
+            UiState::default_setting_value("graphics_preset"),
+            Some(json!("medium"))
+        );
+        assert!(UiState::sanitize_setting_value("graphics_preset", &json!("ultra")).is_none());
+        assert!(UiState::sanitize_setting_value("graphics_preset", &json!(true)).is_none());
     }
 }

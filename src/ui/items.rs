@@ -3,9 +3,9 @@ use crate::{
     entities,
     inventory::Stack,
     protocol::{
-        Result,
         content::Content,
         models::{BakedModel, TintKind},
+        Result,
     },
 };
 use glam::{Mat4, Vec3};
@@ -538,7 +538,7 @@ fn tint_color(c: &Content, v: &Value, s: &Stack) -> Result<[f32; 3]> {
             if !temperature.is_finite() || !downfall.is_finite() {
                 return Err("grass tint range".into());
             }
-            return Ok(c.grass_tint(temperature, downfall));
+            return c.grass_tint(temperature, downfall);
         }
         other => return Err(format!("unsupported item tint {other}")),
     };
@@ -743,7 +743,10 @@ mod tests {
         )]));
         let ctx = ItemContext::default();
         let error = models.model_with(&content, &stack, &ctx).unwrap_err();
-        assert!(error.contains("unknown special item render family"), "{error}");
+        assert!(
+            error.contains("unknown special item render family"),
+            "{error}"
+        );
         let icon = models.icon_model(&content, &stack, &ctx);
         assert!(icon.quads.is_empty());
         // Repeated frames stay non-fatal.
