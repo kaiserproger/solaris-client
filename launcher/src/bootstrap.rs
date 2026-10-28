@@ -301,7 +301,7 @@ mod tests {
 
     fn manifest(name: &str, sha: &str) -> Vec<u8> {
         format!(
-            r#"{{"game_version":"26.1.2","bundles":[{{"name":"{name}","kind":"facts","url":"http://h/x","sha256":"{sha}","size":5}}]}}"#
+            r#"{{"game_version":"26.3","bundles":[{{"name":"{name}","kind":"facts","url":"http://h/x","sha256":"{sha}","size":5}}]}}"#
         )
         .into_bytes()
     }
@@ -322,7 +322,7 @@ mod tests {
 
     #[test]
     fn unpinned_bundle_name_is_never_installed() {
-        assert!(parse_bundles(&manifest("solaris-facts-26.1.2-r99", pins::FACTS_SHA256)).is_err());
+        assert!(parse_bundles(&manifest("solaris-facts-26.3-r99", pins::FACTS_SHA256)).is_err());
     }
 
     #[test]

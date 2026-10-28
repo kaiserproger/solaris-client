@@ -149,7 +149,6 @@ pub(super) fn generate_jigsaw(position: [i32; 3], levels: i32, keep: bool) -> Pa
 
 /// `ServerboundCustomClickActionPacket` (play id 68): Identifier, then the optional NBT payload
 /// behind a VarInt byte length (`UNTRUSTED_TAG_CODEC`; TAG_End when absent), per the local 26.3 decompiled client.
-/// 26.1.2 decompiled client.
 pub(super) fn custom_click(id: &str, payload: Option<&Nbt>) -> Result<PacketCommand> {
     let mut body = Writer::default();
     match payload {
@@ -208,14 +207,14 @@ mod advancement_tests {
             "custom:root",
         ] {
             let packet = seen_advancements(Some(root));
-            assert_eq!(packet.id, 0x32);
+            assert_eq!(packet.id, 0x33);
             let mut reader = crate::protocol::Reader::new(&packet.payload.0);
             assert_eq!(reader.var().unwrap(), 0);
             assert_eq!(reader.string(32767).unwrap(), root);
             reader.done().unwrap();
         }
         let packet = seen_advancements(None);
-        assert_eq!(packet.id, 0x32);
+        assert_eq!(packet.id, 0x33);
         assert_eq!(packet.payload.0, [1]);
     }
 }
@@ -249,7 +248,7 @@ mod dialog_tests {
             ("walls".into(), Nbt::Byte(1)),
         ]);
         let packet = custom_click("solaris:dialog_probe/submit", Some(&payload)).unwrap();
-        // Local 26.1.2 packets.json: play serverbound custom_click_action = 68.
+        // Local 26.3 packets.json: play serverbound custom_click_action = 68.
         assert_eq!(packet.id, 0x44);
         let mut reader = Reader::new(&packet.payload.0);
         assert_eq!(reader.string(32767).unwrap(), "solaris:dialog_probe/submit");

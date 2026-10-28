@@ -1,4 +1,4 @@
-//! Native protocol-775 remote presentation. Session remains the local physics/health owner.
+//! Native protocol-777 remote presentation. Session remains the local physics/health owner.
 //! Derived model data is explicitly activated; no Java process is used by the client.
 mod analog;
 mod block_components;
@@ -904,7 +904,8 @@ impl Store {
                     let props = r.var()?;
                     let steps = props >> 1;
                     let mut delta = [0.; 3];
-                    for _ in 0..=steps {
+                    let count = if steps == 0 { 1 } else { steps };
+                    for _ in 0..count {
                         if steps != 0 {
                             r.var()?;
                         }
@@ -969,7 +970,7 @@ impl Store {
                         pitch,
                         head_yaw,
                     },
-                    Some(velocity),
+                    None,
                     ground,
                     tick,
                     false,

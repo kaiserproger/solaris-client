@@ -674,7 +674,7 @@ mod tests {
         packet.byte(1);
         packet.string("minecraft:adventure/root");
         assert!(ui
-            .apply(85, &mut crate::protocol::Reader::new(&packet.0), &content)
+            .apply(87, &mut crate::protocol::Reader::new(&packet.0), &content)
             .unwrap());
         ui.semantic_tree(&inventory, &content).unwrap();
         assert_eq!(

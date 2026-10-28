@@ -282,7 +282,7 @@ impl Session {
             return Ok(());
         }
         match id {
-            0 | 12 | 45 | 82 => {}
+            0 | 12 | 45 => {}
             32 => return Err(format!("Play disconnect: {}", r.nbt()?)),
             50 => {
                 self.player.entity_id = r.i32()?;
@@ -414,7 +414,7 @@ impl Session {
                 r.done()?;
                 self.receive_block(position, state)?;
             }
-            84 => {
+            86 => {
                 let packed = r.i64()?;
                 let sx = (packed >> 42) as i32;
                 let sy = ((packed << 44) >> 44) as i32;
@@ -867,7 +867,7 @@ mod tests {
         session
             .apply(
                 Phase::Play,
-                46,
+                47,
                 &level_event_bytes(2001, position, 1, false),
             )
             .unwrap();
@@ -922,7 +922,7 @@ mod tests {
             let body = level_event_bytes(0x01020304, position, -17, global);
             assert_eq!(body.len(), 17);
             assert_eq!(&body[..4], &[1, 2, 3, 4]);
-            session.apply(Phase::Play, 46, &body).unwrap();
+            session.apply(Phase::Play, 47, &body).unwrap();
             let event = json!({"type":"level_event","event":0x01020304,"position":position,
                 "data":-17,"global":global,"origin":"server_observed",
                 "packet_sequence":"10","presentation_supported":false});
@@ -934,7 +934,7 @@ mod tests {
                     .last(),
                 Some(&event)
             );
-            assert_eq!(session.ignored_presentation.get(&46), None);
+            assert_eq!(session.ignored_presentation.get(&47), None);
         }
     }
 
@@ -946,17 +946,17 @@ mod tests {
         let before_events = session.events.len();
         let before_version = session.state_version();
         for length in 0..body.len() {
-            assert!(session.apply(Phase::Play, 46, &body[..length]).is_err());
+            assert!(session.apply(Phase::Play, 47, &body[..length]).is_err());
             assert_eq!(session.events.len(), before_events);
             assert_eq!(session.state_version(), before_version);
         }
         let mut trailing = body;
         trailing.push(0);
-        assert!(session.apply(Phase::Play, 46, &trailing).is_err());
+        assert!(session.apply(Phase::Play, 47, &trailing).is_err());
         assert_eq!(session.events.len(), before_events);
         assert_eq!(session.state_version(), before_version);
-        let error = session.apply(Phase::Play, 141, &[]).unwrap_err();
-        assert_eq!(error, "unknown mandatory Play packet 141");
+        let error = session.apply(Phase::Play, 144, &[]).unwrap_err();
+        assert_eq!(error, "unknown mandatory Play packet 144");
         assert_eq!(session.events.len(), before_events);
     }
 
@@ -1066,7 +1066,7 @@ mod tests {
     fn open_sign_bytes(position: [i32; 3], front: bool) -> Vec<u8> {
         let mut writer = Writer::default();
         writer.i64(protocol::pack_pos(position));
-        writer.byte(u8::from(front));
+        writer.var(i32::from(front));
         writer.0
     }
 
@@ -1084,7 +1084,7 @@ mod tests {
                 assert_eq!(session.entities.block_entity_name(position), Some(kind));
                 assert_eq!(session.entities.block_entities[&position].state, Some(1));
                 session
-                    .apply(Phase::Play, 60, &open_sign_bytes(position, front))
+                    .apply(Phase::Play, 61, &open_sign_bytes(position, front))
                     .unwrap();
                 let data = session.entities.block_entity_data(position).unwrap();
                 for side in ["front_text", "back_text"] {
@@ -1155,7 +1155,7 @@ mod tests {
             )
             .unwrap();
         session
-            .apply(Phase::Play, 60, &open_sign_bytes(position, false))
+            .apply(Phase::Play, 61, &open_sign_bytes(position, false))
             .unwrap();
         assert_eq!(
             session.ui.as_ref().unwrap().title_field("sign/line/0"),
@@ -1166,7 +1166,7 @@ mod tests {
             Some(&[10, 0][..])
         );
         session
-            .apply(Phase::Play, 60, &open_sign_bytes(position, true))
+            .apply(Phase::Play, 61, &open_sign_bytes(position, true))
             .unwrap();
         let ui = session.ui.as_mut().unwrap();
         ui.synchronize(&session.inventory, session.content.as_ref().unwrap())
@@ -1180,7 +1180,7 @@ mod tests {
         let mut session = sign_session(position, "minecraft:sign");
         session.receive_block(position, 0).unwrap();
         session
-            .apply(Phase::Play, 60, &open_sign_bytes(position, true))
+            .apply(Phase::Play, 61, &open_sign_bytes(position, true))
             .unwrap();
         assert_eq!(session.inventory.sign_editor, None);
         assert!(!session.inventory.screen_open);
@@ -1272,7 +1272,7 @@ mod tests {
                     json!(["", "", "", ""])
                 );
                 session
-                    .apply(Phase::Play, 60, &open_sign_bytes(position, front))
+                    .apply(Phase::Play, 61, &open_sign_bytes(position, front))
                     .unwrap();
                 let ui = session.ui.as_mut().unwrap();
                 ui.synchronize(&session.inventory, session.content.as_ref().unwrap())
@@ -1319,7 +1319,7 @@ mod tests {
         session.reconcile_ack(8).unwrap();
         assert_eq!(session.entities.block_entities[&position].state, Some(1));
         session
-            .apply(Phase::Play, 60, &open_sign_bytes(position, true))
+            .apply(Phase::Play, 61, &open_sign_bytes(position, true))
             .unwrap();
         assert_eq!(
             session.ui.as_ref().unwrap().title_field("sign/line/0"),
@@ -1365,7 +1365,7 @@ mod tests {
                 "predicted front"
             );
             session
-                .apply(Phase::Play, 60, &open_sign_bytes(position, true))
+                .apply(Phase::Play, 61, &open_sign_bytes(position, true))
                 .unwrap();
             assert_eq!(
                 session.ui.as_ref().unwrap().title_field("sign/line/0"),
@@ -1439,7 +1439,7 @@ mod tests {
         menu.var(7);
         menu.var(0); // Generic 9x1 menu.
         nbt::write(&Tag::string("Review menu"), &mut menu).unwrap();
-        session.apply(Phase::Play, 59, &menu.0).unwrap();
+        session.apply(Phase::Play, 60, &menu.0).unwrap();
         session
             .ui
             .as_mut()
@@ -1453,7 +1453,7 @@ mod tests {
         let entity_revision = session.entities.revision;
         session.keys.insert("forward".into());
         session
-            .apply(Phase::Play, 60, &open_sign_bytes(position, true))
+            .apply(Phase::Play, 61, &open_sign_bytes(position, true))
             .unwrap();
         session
             .ui
@@ -1678,7 +1678,7 @@ mod tests {
         for _ in 0..6 {
             packet.var(0); // four empty light masks and two empty array lists
         }
-        session.apply(Phase::Play, 45, &packet.0).unwrap();
+        session.apply(Phase::Play, 46, &packet.0).unwrap();
         let position = [-1, 3, -1];
         assert_eq!(session.world.block(position), Some(1));
         assert_eq!(

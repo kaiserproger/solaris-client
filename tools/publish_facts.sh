@@ -29,7 +29,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(dirname "$SCRIPT_DIR")"
 DIST="${DIST:-$REPO/dist}"
 OUT_DIR="${OUT_DIR:-$REPO/target/publish}"
-GAME_VERSION="26.1.2"
+GAME_VERSION="$(awk -F'"' '/pub const GAME_VERSION: &str/ { print $2; exit }' "$REPO/launcher/src/paths.rs")"
+if [[ ! "$GAME_VERSION" =~ ^[0-9]+\.[0-9]+$ ]]; then
+  echo "publish_facts: launcher GAME_VERSION is not a release version: $GAME_VERSION" >&2
+  exit 1
+fi
 NAME="solaris-facts-${GAME_VERSION}-r${REV}"
 BASE_URL="http://135.106.208.217:8080/static"
 
@@ -37,7 +41,7 @@ FACTS_FILES=(
   action-state-facts.json
   block-state-predicates.json
   block-use-classes.json
-  block_collision_shapes_26_1_2.bin
+  block_collision_shapes_26_3.bin
   creative-facts.json
   entity-use-static.json
   interaction-facts.json

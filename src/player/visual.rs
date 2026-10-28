@@ -569,7 +569,7 @@ mod tests {
         let inventory = InventoryStore::default();
         let mut packets = Vec::new();
         player.swing(0, &mut packets);
-        assert_eq!(packets[0].id, 63);
+        assert_eq!(packets[0].id, 46);
         player.visual_tick(player.position, &inventory);
         assert!(player.visual.sample(&player, 0.5).swing > 0.);
         // Repeated block-hit swings must not pin the animation at its first frame.

@@ -132,7 +132,7 @@ fn packet(dialog: &Nbt) -> Vec<u8> {
 
 fn show(ui: &mut UiState, dialog: &Nbt) -> Result<()> {
     let bytes = packet(dialog);
-    ui.apply_dialog_packet(140, &mut Reader::new(&bytes))
+    ui.apply_dialog_packet(143, &mut Reader::new(&bytes))
 }
 
 fn rebuild(ui: &mut UiState, content: &Content, inventory: &InventoryStore) {
@@ -449,7 +449,7 @@ fn after_action_none_keeps_the_dialog_and_wait_for_response_blocks_until_cleared
         "controls are gone while waiting"
     );
     // clear_dialog answers the wait.
-    ui.apply_dialog_packet(139, &mut Reader::new(&[])).unwrap();
+    ui.apply_dialog_packet(142, &mut Reader::new(&[])).unwrap();
     assert_eq!(ui.screen(), Screen::Game);
 }
 
@@ -471,7 +471,7 @@ fn a_new_dialog_replaces_the_shown_one_and_keeps_the_original_return_screen() {
             .any(|n| n.id == "dialog/title" && n.label == "Second")
     );
     assert!(ui.nodes.iter().all(|n| n.id != "dialog/input/name"));
-    ui.apply_dialog_packet(139, &mut Reader::new(&[])).unwrap();
+    ui.apply_dialog_packet(142, &mut Reader::new(&[])).unwrap();
     assert_eq!(ui.screen(), Screen::Pause);
 }
 
@@ -493,7 +493,7 @@ fn dialog_received_while_loading_opens_when_loading_ends() {
     assert_eq!(ui.screen(), Screen::Loading);
     ui.set_presentation(presentation(None)).unwrap();
     assert_eq!(ui.screen(), Screen::ServerDialog);
-    ui.apply_dialog_packet(139, &mut Reader::new(&[])).unwrap();
+    ui.apply_dialog_packet(142, &mut Reader::new(&[])).unwrap();
     assert_eq!(ui.screen(), Screen::Game);
 }
 
@@ -580,7 +580,7 @@ fn malformed_dialogs_fail_the_packet_and_unsupported_types_are_reported_not_fata
     assert_eq!(ui.screen(), Screen::Game);
     assert_eq!(ui.dialogs.rejected.len(), 1);
     // Registry references need the dialog registry; they are ignored, not fatal.
-    ui.apply_dialog_packet(140, &mut Reader::new(&[2])).unwrap();
+    ui.apply_dialog_packet(143, &mut Reader::new(&[2])).unwrap();
     assert_eq!(ui.screen(), Screen::Game);
 }
 

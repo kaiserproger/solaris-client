@@ -29,7 +29,7 @@ impl BlockSounds {
     }
     fn parse(value: &Value, expected_client_sha1: &str) -> Result<Self> {
         if expected_client_sha1.len() != 40
-            || value["version"].as_str() != Some("26.1.2")
+            || value["version"].as_str() != Some("26.3")
             || value["client_sha1"].as_str() != Some(expected_client_sha1)
         {
             return Err("block sound oracle version/client digest mismatch".into());
@@ -159,7 +159,7 @@ mod tests {
     #[test]
     fn state_lookup_and_action_gains_do_not_guess_names() {
         let hash = "1234567890123456789012345678901234567890";
-        let table=BlockSounds::parse(&json!({"version":"26.1.2","client_sha1":hash,"types":[{"hit":"pack:glass_hit","break":"pack:glass_break","place":"pack:glass_place","step":"pack:glass_step","fall":"pack:glass_fall","volume":0.5,"pitch":1.5}],"states":[{"id":0,"block":"pack:stone_named_glass","sound_type":0}]}),hash).unwrap();
+        let table=BlockSounds::parse(&json!({"version":"26.3","client_sha1":hash,"types":[{"hit":"pack:glass_hit","break":"pack:glass_break","place":"pack:glass_place","step":"pack:glass_step","fall":"pack:glass_fall","volume":0.5,"pitch":1.5}],"states":[{"id":0,"block":"pack:stone_named_glass","sound_type":0}]}),hash).unwrap();
         let hit = table
             .request(0, BlockSoundAction::Hit, [1., 2., 3.], 1)
             .unwrap();

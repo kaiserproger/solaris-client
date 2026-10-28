@@ -4,7 +4,7 @@
 
 Read `SPECIFICATION.md` for the complete immutable source/requirement ledger, `LONG_TERM_PLAN.md` for the **single** live cursor, `COMPATIBILITY_MATRIX.md` for actual coverage, then `docs/AGENT_TESTING.md` before controlling/testing a client. A new session uses live describe/capabilities/schemas and chooses an exact instance/profile; proposed commands are not proof of implemented CLI. Runtime evidence overrides aspirations.
 
-- Scope: independent Rust client targeting Java Edition 26.1.2; preserve every requirement and honest compatibility label. Do not declare full client from an early preview.
+- Scope: independent Rust client targeting Java Edition 26.3; preserve every requirement and honest compatibility label. Do not declare full client from an early preview.
 - `../solaris`, `../solaris-loader`, `../solaris-default-plugins` are read-only references: read their AGENTS and bounded current cursors first. Preserve unrelated/concurrent dirty changes. No server-plan replacement, reset/clean, commit/push/publish or global host-settings changes without explicit owner authorization.
 - Mojang original/derived bytes, Java archives/decompilation and local receipts remain ignored local data, never Git/releases/public caches. Own redistributable fixtures remain tracked. Packet IDs/layouts come from local version-specific wire-probe/javap/decompiled evidence, never memory. No copied implementation without provenance/license review.
 - One session authority; prediction is not server observation. Human/UI/MCP share the real action path. No fake Fabric identity, hidden give/teleport, placeholders claiming parity or second bot-client.

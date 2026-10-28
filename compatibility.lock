@@ -1,23 +1,23 @@
 {
   "schema": 1,
-  "generated_date": "2026-10-01",
+  "generated_date": "2026-10-28",
   "format": "JSON",
   "status": "C00_source_contract_lock_not_full_client_acceptance",
   "game": {
     "edition": "Java",
-    "version": "26.1.2",
-    "protocol": 775,
-    "world_data_version": 4790,
+    "version": "26.3",
+    "protocol": 777,
+    "world_data_version": 5023,
     "resource_pack_format": {
-      "major": 84,
-      "minor": 0
-    },
-    "data_pack_format": {
-      "major": 101,
+      "major": 97,
       "minor": 1
     },
+    "data_pack_format": {
+      "major": 121,
+      "minor": 0
+    },
     "java_runtime_major": 25,
-    "authority": "version.json embedded in verified official client and server archives; protocol IDs and C02 layouts independently inspected with javap"
+    "authority": "verified official 26.3 descriptor and archives; packet IDs/layouts inspected from the version-specific generated report and decompilation"
   },
   "upstream": {
     "solaris": {
@@ -68,49 +68,49 @@
       "redistribute_bytes": false
     },
     "descriptor": {
-      "path": "/home/kaiserroman/solaris-client/.analysis/evidence/C00/descriptor-current.json",
-      "canonical_path": "/home/kaiserroman/solaris-client/.analysis/evidence/C00/descriptor-current.json",
-      "size": 42491,
-      "sha1": "ee044d53f31fdcbfa31be3684ad321d44c81c3a5",
-      "sha256": "bedfd4c667d5f73d725fb9bdbf53efa13b8026b8c00e1eb1ab789c25ffbf5ca0",
-      "origin": "https://piston-meta.mojang.com/v1/packages/ee044d53f31fdcbfa31be3684ad321d44c81c3a5/26.1.2.json",
-      "expected_sha1": "ee044d53f31fdcbfa31be3684ad321d44c81c3a5",
+      "path": "/run/media/kaiserroman/games/solaris-work/wt/bump263/.analysis/v263/26.3.json",
+      "canonical_path": "/run/media/kaiserroman/games/solaris-work/wt/bump263/.analysis/v263/26.3.json",
+      "size": 44992,
+      "sha1": "5df1795e16eea19d75b923d66ecca9ce183353c5",
+      "sha256": "7755c56601d666849aad5b4266503cacc17dac1b747018fccd5a19201b3dda82",
+      "origin": "https://piston-meta.mojang.com/v1/packages/5df1795e16eea19d75b923d66ecca9ce183353c5/26.3.json",
+      "expected_sha1": "5df1795e16eea19d75b923d66ecca9ce183353c5",
       "verified": true,
       "redistribute_bytes": false
     },
     "client": {
-      "path": "/home/kaiserroman/solaris/.analysis/client-automation/versions/26.1.2/client.jar",
-      "canonical_path": "/home/kaiserroman/.gradle/caches/fabric-loom/26.1.2/minecraft-client.jar",
-      "size": 38113927,
-      "sha1": "4e618f09a0c649dde3fdf829df443ce0b8831e65",
-      "sha256": "b1b3158572666445eff01e82fad8c7de2e4953db6d354f311730d77a8359d0b0",
-      "origin": "https://piston-data.mojang.com/v1/objects/4e618f09a0c649dde3fdf829df443ce0b8831e65/client.jar",
-      "expected_sha1": "4e618f09a0c649dde3fdf829df443ce0b8831e65",
-      "expected_size": 38113927,
+      "path": "/run/media/kaiserroman/games/solaris-work/wt/bump263/.analysis/v263/client.jar",
+      "canonical_path": "/run/media/kaiserroman/games/solaris-work/wt/bump263/.analysis/v263/client.jar",
+      "size": 41483720,
+      "sha1": "e877b6a07acd633fb3bb475002175cec036e7b87",
+      "sha256": "4508d006323f24fa02876310c192d739af56516eb259000ac50f0909a68c9a2d",
+      "origin": "https://piston-data.mojang.com/v1/objects/e877b6a07acd633fb3bb475002175cec036e7b87/client.jar",
+      "expected_sha1": "e877b6a07acd633fb3bb475002175cec036e7b87",
+      "expected_size": 41483720,
       "verified": true,
       "redistribute_bytes": false
     },
     "server": {
-      "path": "/home/kaiserroman/solaris/.analysis/server.jar",
-      "canonical_path": "/home/kaiserroman/solaris/.analysis/server.jar",
-      "size": 60417480,
-      "sha1": "97ccd4c0ed3f81bbb7bfacddd1090b0c56f9bc51",
-      "sha256": "cd47e7c38328f64768fd17af8fcd8b22496b40b63d4ffee81e71ae059fedcb42",
-      "origin": "https://piston-data.mojang.com/v1/objects/97ccd4c0ed3f81bbb7bfacddd1090b0c56f9bc51/server.jar",
-      "expected_sha1": "97ccd4c0ed3f81bbb7bfacddd1090b0c56f9bc51",
-      "expected_size": 60417480,
+      "path": "/run/media/kaiserroman/games/solaris-work/wt/bump263/.analysis/v263/server.jar",
+      "canonical_path": "/run/media/kaiserroman/games/solaris-work/wt/bump263/.analysis/v263/server.jar",
+      "size": 62294556,
+      "sha1": "33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c",
+      "sha256": "d052f14d7a173734fba553711e5b570162e2f2a313267ee31a21b975a679be64",
+      "origin": "https://piston-data.mojang.com/v1/objects/33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c/server.jar",
+      "expected_sha1": "33680f5f2ac32864d6d7cf5e56a705fdb3e05f4c",
+      "expected_size": 62294556,
       "verified": true,
       "redistribute_bytes": false
     },
     "asset_index": {
-      "path": "/home/kaiserroman/solaris-client/.analysis/evidence/C00/asset-index-current.json",
-      "canonical_path": "/home/kaiserroman/solaris-client/.analysis/evidence/C00/asset-index-current.json",
-      "size": 548391,
-      "sha1": "2c17565f9cd7dbb95294e71fe258d65d6a8f0360",
-      "sha256": "07aeb96147ad5b7e5910d8617673f2a9c54bd78a951f40f701d20bed3e0238bc",
-      "origin": "https://piston-meta.mojang.com/v1/packages/2c17565f9cd7dbb95294e71fe258d65d6a8f0360/30.json",
-      "expected_sha1": "2c17565f9cd7dbb95294e71fe258d65d6a8f0360",
-      "expected_size": 548391,
+      "path": "downloaded by launcher from the verified 26.3 descriptor",
+      "canonical_path": "downloaded by launcher from the verified 26.3 descriptor",
+      "size": 597035,
+      "sha1": "917ff6d74b9f635c46bac0d28857206bbcc1ffe4",
+      "sha256": null,
+      "origin": "https://piston-meta.mojang.com/v1/packages/917ff6d74b9f635c46bac0d28857206bbcc1ffe4/34.json",
+      "expected_sha1": "917ff6d74b9f635c46bac0d28857206bbcc1ffe4",
+      "expected_size": 597035,
       "verified": true,
       "redistribute_bytes": false
     }

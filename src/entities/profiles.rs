@@ -1,4 +1,4 @@
-//! Protocol-775 PlayerInfo and presentation profile lifetimes.
+//! Protocol-777 PlayerInfo and presentation profile lifetimes.
 //! Signature validation/download/atlas publication is parent-owned; raw properties never
 //! become trusted merely because a server supplied them.
 use super::{metadata, Store};
@@ -243,7 +243,7 @@ impl Store {
         }
     }
     pub(super) fn apply_player_info(&mut self, id: i32, r: &mut Reader<'_>) -> Result<()> {
-        if id == 69 {
+        if id == 70 {
             let count = r.count(MAX_PROFILES)?;
             let mut ids = BTreeSet::new();
             for _ in 0..count {

@@ -1216,7 +1216,7 @@ mod tests {
         packet.var(7);
         packet.f32(90.);
         assert!(player
-            .apply(42, &mut Reader::new(&packet.0), &content, 100)
+            .apply(43, &mut Reader::new(&packet.0), &content, 100)
             .unwrap());
         assert_eq!(player.hurt_tick, Some(100));
         assert_eq!(player.hurt_direction, 90.);
@@ -1225,18 +1225,32 @@ mod tests {
         other.var(8);
         other.f32(-45.);
         let mut reader = Reader::new(&other.0);
-        assert!(!player.apply(42, &mut reader, &content, 101).unwrap());
+        assert!(!player.apply(43, &mut reader, &content, 101).unwrap());
         assert_eq!(reader.offset, 0);
         assert_eq!(player.hurt_tick, Some(100));
         packet.0.push(0);
         assert!(player
-            .apply(42, &mut Reader::new(&packet.0), &content, 102)
+            .apply(43, &mut Reader::new(&packet.0), &content, 102)
             .is_err());
         assert_eq!(player.hurt_tick, Some(100));
         packet.0.pop();
         assert!(player
-            .apply(42, &mut Reader::new(&packet.0), &content, 107)
+            .apply(43, &mut Reader::new(&packet.0), &content, 107)
             .unwrap());
         assert_eq!(player.hurt_tick, Some(107));
+    }
+    #[test]
+    fn teleport_acknowledgement_echoes_corrected_pose_in_26_3_layout() {
+        let mut player = Player::new();
+        player.pending_teleport = Some((17, [1.5, 64., -2.25], 90., -30.));
+        let mut commands = Vec::new();
+        player.drain_commands(&mut commands);
+        let acknowledgement = &commands[0];
+        assert_eq!(acknowledgement.id, 0);
+        let mut reader = Reader::new(&acknowledgement.payload.0);
+        assert_eq!(reader.var().unwrap(), 17);
+        assert_eq!([reader.f64().unwrap(), reader.f64().unwrap(), reader.f64().unwrap()], [1.5, 64., -2.25]);
+        assert_eq!((reader.f32().unwrap(), reader.f32().unwrap()), (90., -30.));
+        reader.done().unwrap();
     }
 }

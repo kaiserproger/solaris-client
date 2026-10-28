@@ -642,7 +642,7 @@ mod p1_helmet_tests {
                 .unwrap();
             assert_eq!(
                 packets.iter().map(|packet| packet.id).collect::<Vec<_>>(),
-                vec![67, 63],
+                vec![67, 46],
             );
             let mut use_item = Reader::new(&packets[0].payload.0);
             assert_eq!(use_item.var().unwrap(), i32::from(hand));

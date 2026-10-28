@@ -13,7 +13,7 @@
 //! ```
 use std::path::{Path, PathBuf};
 
-pub const GAME_VERSION: &str = "26.1.2";
+pub const GAME_VERSION: &str = "26.3";
 
 /// `--data-dir` wins; otherwise the same rule the client uses so both agree.
 pub fn data_root(explicit: Option<PathBuf>) -> Result<PathBuf, String> {
@@ -84,7 +84,7 @@ impl Layout {
 /// Files and directories the client refuses to start without (mirrors the
 /// client's `content_paths` table). `true` = directory.
 pub const REQUIRED: &[(&str, bool)] = &[
-    ("facts/block_collision_shapes_26_1_2.bin", false),
+    ("facts/block_collision_shapes_26_3.bin", false),
     ("facts/terrain-facts.json", false),
     ("facts/block-state-predicates.json", false),
     ("facts/block-use-classes.json", false),

@@ -268,7 +268,7 @@ mod tests {
             equipment.var(0);
         }
         store
-            .apply(102, &mut Reader::new(&equipment.0), &content, 2)
+            .apply(104, &mut Reader::new(&equipment.0), &content, 2)
             .unwrap();
         let mut rigs = BTreeMap::new();
         let mut sets = BTreeMap::new();
@@ -707,7 +707,7 @@ mod tests {
             .unwrap();
         // Local source javap: target VarInt, ordinal CHEST=4, count/item/empty patch.
         store
-            .apply(102, &mut Reader::new(&[4, 4, 1, 1, 0, 0]), &content, 2)
+            .apply(104, &mut Reader::new(&[4, 4, 1, 1, 0, 0]), &content, 2)
             .unwrap();
         let observed = store.observation(None, 512);
         assert_eq!(observed["entities"][0]["network_id"], 4);
@@ -826,7 +826,7 @@ mod tests {
             6
         );
         store
-            .apply(102, &mut Reader::new(&[4, 4, 0]), &content, 3)
+            .apply(104, &mut Reader::new(&[4, 4, 0]), &content, 3)
             .unwrap();
         assert!(store.get(4).unwrap().equipment_value(4).is_none());
         store.equipment_cache = cache;

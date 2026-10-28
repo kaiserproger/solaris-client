@@ -1141,13 +1141,13 @@ mod client_settings_tests {
         assert_eq!(session.inventory.sign_editor, None);
         assert_eq!(session.commands.len(), 1);
         let packet = &session.commands[0];
-        assert_eq!(packet.id, 61);
+        assert_eq!(packet.id, 62);
         let mut reader = crate::protocol::Reader::new(&packet.payload.0);
         assert_eq!(crate::protocol::unpack_pos(reader.i64().unwrap()), position);
-        assert!(!reader.bool().unwrap());
         for line in lines {
-            assert_eq!(reader.string(32767).unwrap(), line);
+            assert_eq!(reader.string(384).unwrap(), line);
         }
+        assert_eq!(reader.var().unwrap(), 0);
         reader.done().unwrap();
     }
 
@@ -1217,9 +1217,9 @@ mod client_settings_tests {
                 let mut session = p1_review_sign_session(received.clone());
                 let mut open = crate::protocol::Writer::default();
                 open.i64(crate::protocol::pack_pos([1, 2, 3]));
-                open.byte(u8::from(front));
+                open.var(i32::from(front));
                 session
-                    .apply(crate::session::Phase::Play, 60, &open.0)
+                    .apply(crate::session::Phase::Play, 61, &open.0)
                     .unwrap();
                 let ui = session.ui.as_mut().unwrap();
                 ui.synchronize(&session.inventory, session.content.as_ref().unwrap())
@@ -1263,16 +1263,16 @@ mod client_settings_tests {
                 }
                 assert_eq!(session.commands.len(), 1);
                 let packet = &session.commands[0];
-                assert_eq!(packet.id, 61);
+                assert_eq!(packet.id, 62);
                 let mut reader = crate::protocol::Reader::new(&packet.payload.0);
                 assert_eq!(
                     crate::protocol::unpack_pos(reader.i64().unwrap()),
                     [1, 2, 3]
                 );
-                assert_eq!(reader.bool().unwrap(), front);
                 for line in &lines {
-                    assert_eq!(reader.string(32767).unwrap(), *line);
+                    assert_eq!(reader.string(384).unwrap(), *line);
                 }
+                assert_eq!(reader.var().unwrap(), i32::from(front));
                 reader.done().unwrap();
                 assert!(!session.inventory.screen_open);
                 let side = if front { "front_text" } else { "back_text" };
