@@ -67,7 +67,7 @@ impl InventoryStore {
                     self.ghost_recipe_stacks = stacks;
                 }
             }
-            74 => {
+            136 => {
                 let count = r.count(65536)?;
                 let mut entries = BTreeMap::new();
                 for _ in 0..count {
@@ -84,7 +84,7 @@ impl InventoryStore {
                     self.recipes.extend(entries);
                 }
             }
-            75 => {
+            76 => {
                 let count = r.count(65536)?;
                 let mut ids = Vec::with_capacity(count);
                 for _ in 0..count {
@@ -95,7 +95,7 @@ impl InventoryStore {
                     self.recipes.remove(&id);
                 }
             }
-            76 => {
+            77 => {
                 let mut settings = [(false, false); 4];
                 for settings in &mut settings {
                     *settings = (r.bool()?, r.bool()?);
