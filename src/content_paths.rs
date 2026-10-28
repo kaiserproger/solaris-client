@@ -27,19 +27,7 @@ const INPUTS: &[(&str, &str)] = &[
 ];
 
 pub(crate) fn default_root() -> Result<PathBuf, String> {
-    #[cfg(windows)]
-    if let Some(app) = std::env::var_os("APPDATA").filter(|s| !s.is_empty()) {
-        return Ok(PathBuf::from(app).join("solaris-client"));
-    }
-    if let Some(data) = std::env::var_os("XDG_DATA_HOME").filter(|s| !s.is_empty()) {
-        return Ok(PathBuf::from(data).join("solaris-client"));
-    }
-    std::env::var_os("HOME")
-        .filter(|s| !s.is_empty())
-        .map(|home| PathBuf::from(home).join(".local/share/solaris-client"))
-        .ok_or_else(|| {
-            "data directory unavailable: set HOME/XDG_DATA_HOME or pass --data-dir DIR".into()
-        })
+    solaris_paths::data_root(None)
 }
 
 /// Called only by the CLI before the event loop or any application threads exist.

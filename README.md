@@ -7,9 +7,11 @@ A Rust/wgpu client for Minecraft Java Edition **26.1.2**, with a small launcher 
 1. Download the archive for your system from the project's Releases page:
    - Linux x86_64: `solaris-client-<version>-linux-x86_64.tar.gz`
    - Windows x86_64: `solaris-client-<version>-windows-x86_64.zip`
-2. Unpack it anywhere (keep `solaris-launcher` and `solaris-client` in the same folder).
-3. Run the launcher: `./solaris-launcher` (Linux) or double-click `solaris-launcher.exe` (Windows).
+   - macOS Apple Silicon: `solaris-client-<version>-macos-aarch64.zip`
+2. Unpack it anywhere. On Linux and Windows, keep `solaris-launcher` and `solaris-client` in the same folder. On macOS, keep the complete `Solaris.app` bundle intact.
+3. Run the launcher: `./solaris-launcher` (Linux), double-click `solaris-launcher.exe` (Windows), or open `Solaris.app` (macOS).
    Linux desktop entry (optional): `./install-desktop.sh` adds "Solaris Launcher" to your application menu; `./install-desktop.sh --uninstall` removes it.
+   The macOS bundle is ad-hoc signed, not notarized. At first launch, Control-click **Solaris.app**, choose **Open**, then confirm **Open**. Alternatively, after verifying the download, run `xattr -dr com.apple.quarantine /path/to/Solaris.app`.
 4. Use **Profiles** to choose or edit an **offline username** and **Servers** to choose a server (the **Solaris test** server is pre-filled), then press **Play**.
 5. **First run only:** the launcher downloads about **480 MB** and unpacks about **1 GB** into your data folder (see below), with a progress bar and a log. Later launches go straight into the game without touching the network. No Java is needed to play on a server.
 
@@ -55,14 +57,14 @@ On Solaris servers with `[lod]` enabled the client draws a coarse heightfield of
 
 ## System requirements
 
-- 64-bit Linux (glibc 2.35 or newer, e.g. Ubuntu 22.04+) or Windows 10/11 x86_64.
-- A GPU and driver with **Vulkan 1.1+** (Intel, AMD or NVIDIA; software Vulkan via Mesa `lavapipe` also works but slowly). The launcher window itself needs OpenGL 3.3.
-- 4 GB RAM, ~1.5 GB free disk, working audio output (ALSA/PulseAudio/PipeWire on Linux).
+- 64-bit Linux (glibc 2.35 or newer, e.g. Ubuntu 22.04+), Windows 10/11 x86_64, or macOS 11+ on Apple Silicon.
+- A GPU and driver with **Vulkan 1.1+** on Linux/Windows (Intel, AMD or NVIDIA; software Vulkan via Mesa `lavapipe` also works but slowly), or Metal support on macOS. The launcher uses OpenGL 3.3 on Linux/Windows and the system graphics stack on macOS.
+- 4 GB RAM, ~1.5 GB free disk, and working audio output (ALSA/PulseAudio/PipeWire on Linux; Core Audio on macOS).
 - Internet access on first run.
 
 ## Where things live
 
-The data folder is `$XDG_DATA_HOME/solaris-client` (default `~/.local/share/solaris-client`) on Linux and `%APPDATA%\solaris-client` on Windows; **Settings → General → Open data folder** shows it. Override with `solaris-launcher --data-dir DIR`.
+The data folder is `$XDG_DATA_HOME/solaris-client` (default `~/.local/share/solaris-client`) on Linux, `%APPDATA%\solaris-client` on Windows, and `~/Library/Application Support/solaris-client` on macOS; **Settings → General → Open data folder** shows it. Override with `solaris-launcher --data-dir DIR`.
 
 ```
 facts/ data/vanilla/                  Solaris data tables (entity metadata and models ship inside the client)
@@ -82,9 +84,10 @@ Render distance and fullscreen in the launcher's Settings use the same `client-s
 
 ## Troubleshooting
 
-- **No window / "Failed to create wgpu adapter" / black window.** The client needs Vulkan. Check `vulkaninfo --summary`; install your GPU's Vulkan driver (Linux: `mesa-vulkan-drivers`, or NVIDIA's proprietary driver). On Windows update the GPU driver. `WGPU_BACKEND=gl` selects the OpenGL fallback if Vulkan is broken. Set it in your shell, then start the launcher from that shell.
-- **Launcher window does not open or is garbled.** It needs OpenGL 3.3 (`LIBGL_ALWAYS_SOFTWARE=1 ./solaris-launcher` forces Mesa software rendering). Check `glxinfo -B`.
+- **No window / "Failed to create wgpu adapter" / black window.** The client needs Vulkan on Linux/Windows and uses Metal on macOS. Check `vulkaninfo --summary` on Linux; install your GPU's Vulkan driver (Linux: `mesa-vulkan-drivers`, or NVIDIA's proprietary driver). On Windows update the GPU driver. `WGPU_BACKEND=gl` selects the OpenGL fallback if Vulkan is broken. Set it in your shell, then start the launcher from that shell.
+- **Launcher window does not open or is garbled.** It needs OpenGL 3.3 on Linux/Windows (`LIBGL_ALWAYS_SOFTWARE=1 ./solaris-launcher` forces Mesa software rendering). Check `glxinfo -B`.
 - **Wayland vs X11 (Linux).** Both work. If a window is missing, scaled wrongly or has no input under Wayland, force X11 with `WAYLAND_DISPLAY= WINIT_UNIX_BACKEND=x11 ./solaris-launcher`; to force Wayland unset `DISPLAY`. The game inherits the launcher's environment.
+- **macOS says Solaris.app cannot be opened.** The app is ad-hoc signed but not notarized. Control-click it, choose **Open**, and confirm; or run `xattr -dr com.apple.quarantine /path/to/Solaris.app` after verifying the download.
 - **Download fails / stalls.** Press PLAY again: it resumes. Behind a proxy set `HTTPS_PROXY`/`HTTP_PROXY` (also used for the Solaris data download over plain HTTP). **Verify / repair** re-checks every file. The full log is in the Logs tab and `logs/launcher.log`.
 - **"refusing content bundle … does not match the hash pinned in this launcher".** The Solaris data on the server changed after this launcher was built. Download the newest launcher release. The launcher never installs a bundle it was not built to trust.
 - **Singleplayer's first Play fails while downloading the Java runtime.** Only singleplayer needs it (multiplayer never does): the client runs `solaris-launcher --singleplayer-runtime` from beside itself, which needs `api.adoptium.net`. Or point `SOLARIS_JDK` at an existing JDK 25 (a folder with `bin/java` and `javac`) and set `SOLARIS_LAUNCHER_BIN` if the launcher is not next to the client.
@@ -110,9 +113,9 @@ solaris-client --help
 cargo build --release          # builds solaris-client and solaris-launcher into target/release/
 ```
 
-`rust-toolchain.toml` pins Rust 1.95.0. The client links ALSA on Linux (`libasound2-dev`); the launcher uses OpenGL/X11/Wayland via eframe. On the shared dev host the build is wrapped as described in [PLAYING.md](PLAYING.md).
+`rust-toolchain.toml` pins Rust 1.95.0. The client links ALSA on Linux and Core Audio on macOS; the launcher uses OpenGL/X11/Wayland on Linux and the system graphics stack on macOS. On the shared dev host the build is wrapped as described in [PLAYING.md](PLAYING.md).
 
-CI (`.github/workflows/release.yml`) builds the Linux tar.gz and Windows zip on every `v*` tag and attaches them with `SHA256SUMS`; it asserts that no `.jar` or `assets/` directory is in the package.
+CI (`.github/workflows/release.yml`) builds Linux and Windows archives plus an ad-hoc-signed Apple Silicon `Solaris.app` zip on every `v*` tag, attaches checksums, and asserts that no `.jar` or `assets/` directory is in the package.
 
 ### Publishing the data bundle
 

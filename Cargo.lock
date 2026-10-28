@@ -3342,6 +3342,7 @@ dependencies = [
  "serde_json",
  "sha1",
  "sha2",
+ "solaris-paths",
  "symphonia",
  "unicode-bidi",
  "uuid",
@@ -3363,10 +3364,15 @@ dependencies = [
  "serde_json",
  "sha1",
  "sha2",
+ "solaris-paths",
  "tar",
  "zip",
  "zstd",
 ]
+
+[[package]]
+name = "solaris-paths"
+version = "0.1.0"
 
 [[package]]
 name = "spin"
