@@ -8,5 +8,5 @@ pub const FACTS_NAME: &str = "solaris-facts-26.3-r2";
 pub const FACTS_SHA256: &str = "19727e911cca4eab8fe5cc4c9f7d317eef3bd4d514abf7bf912af6f32faf40c7";
 
 /// Singleplayer server content cache (`tools/publish_content.sh` prints the values).
-pub const CONTENT_NAME: &str = "solaris-content-26.3-r3";
-pub const CONTENT_SHA256: &str = "3b9309aef07cce26f39eba25b770749bad7c54b3ae589b7bd2eb7bf96c4bb90f";
+pub const CONTENT_NAME: &str = "solaris-content-26.3-r4";
+pub const CONTENT_SHA256: &str = "7cb637aeea7059ed391eb68d29cfc0b7790a567587259c6708f28dc3f011b1a1";
