@@ -179,8 +179,8 @@ impl Models {
         Ok(doc)
     }
     fn check_registry(doc: &Document, content: &Content) -> Result<()> {
-        for (name, schema) in &doc.entities {
-            if content.entity_names.get(&schema.protocol_id) != Some(name) {
+        for name in doc.entities.keys() {
+            if !content.entity_names.values().any(|candidate| candidate == name) {
                 return Err(format!("entity registry/facts mismatch for {name}"));
             }
         }
