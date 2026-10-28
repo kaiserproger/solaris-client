@@ -23,6 +23,7 @@ pub(super) struct PlacementFacts {
     item_ids: BTreeMap<String, u32>,
 }
 #[derive(serde::Deserialize)]
+#[cfg_attr(test, derive(Default))]
 struct StateFacts {
     is_solid: bool,
     blocks_motion: bool,
@@ -347,6 +348,12 @@ impl Content {
     pub(crate) fn insert_test_placement_metadata(&mut self, state: u32, metadata: Value) {
         let id = self.info(state).unwrap().registry_id;
         self.placement.blocks.insert(id, metadata);
+    }
+    #[cfg(test)]
+    pub(crate) fn insert_test_placement_solid(&mut self, state: u32, solid: bool) {
+        let required = self.placement.states.len().max(state as usize + 1);
+        self.placement.states.resize_with(required, StateFacts::default);
+        self.placement.states[state as usize].is_solid = solid;
     }
     #[cfg(test)]
     pub(crate) fn insert_test_entity_dimensions(&mut self, name: &str, dimensions: [f32; 2]) {

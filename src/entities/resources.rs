@@ -205,7 +205,7 @@ impl Models {
         Ok(Self {
             rigs: BTreeMap::new(),
             families: BTreeMap::new(),
-            simple_particles: Vec::new(),
+            simple_particles: doc.simple_particles,
             default_skins: Vec::new(),
             schemas: doc.entities,
             poses: doc.poses,
@@ -532,6 +532,81 @@ pub fn transform(pivot: Vec3, rotation: Vec3, scale: Vec3) -> Mat4 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn wire_263_raid_omen_particle_list_metadata_packet() {
+        use crate::protocol::{Reader, Writer, packet_ids::play::clientbound as cb};
+        let doc = Models::parse().unwrap();
+        let mut content = Content::test_cube();
+        content.entity_names = doc.entities.iter()
+            .map(|(name, schema)| (schema.protocol_id, name.clone())).collect();
+        content.particle_names.insert(123, "minecraft:raid_omen".into());
+        let models = std::sync::Arc::new(Models::load_state(&content).unwrap());
+        let mut store = super::super::Store::default();
+        store.activate_models(models);
+        let mut spawn = Writer::default();
+        spawn.var(1);
+        spawn.0.extend_from_slice(&[0; 16]);
+        spawn.var(120); // 26.3 slime
+        spawn.0.extend_from_slice(&[0; 29]);
+        assert!(store.apply(cb::ADD_ENTITY, &mut Reader::new(&spawn.0), &content, 1).unwrap());
+        // Entity 1, particle-list accessor 10, serializer 17, one particle 123,
+        // followed by a byte metadata value to verify the particle consumes no options.
+        let packet = [1, 10, 17, 1, 123, 8, 0, 42, 255];
+        let mut reader = Reader::new(&packet);
+        assert!(store.apply(cb::SET_ENTITY_DATA, &mut reader, &content, 2).unwrap());
+        reader.done().unwrap();
+        match &store.get(1).unwrap().metadata[&10] {
+            super::super::metadata::Metadata::Particles(particles) => {
+                assert_eq!(particles, &[serde_json::json!({
+                    "type_id": 123, "type": "minecraft:raid_omen", "data": null
+                })]);
+            }
+            other => panic!("unexpected metadata: {other:?}"),
+        }
+        assert_eq!(store.get(1).unwrap().metadata[&8].int(), Some(42));
+    }
+
+    #[test]
+    fn wire_263_all_reported_simple_particles_decode_without_options() {
+        use crate::protocol::{Reader, Writer};
+        // The embedded facts are the sorted 26.3 SimpleParticleType registry report.
+        let doc = Models::parse().unwrap();
+        assert_eq!(doc.simple_particles.len(), 106);
+        assert!(doc.simple_particles.windows(2).all(|pair| pair[0] < pair[1]));
+        for name in [
+            "minecraft:raid_omen", "minecraft:sulfur_bubbles", "minecraft:noxious_gas",
+            "minecraft:noxious_gas_cloud", "minecraft:red_poplar_leaves",
+            "minecraft:orange_poplar_leaves", "minecraft:yellow_poplar_leaves",
+            "minecraft:sulfur_cube_goo",
+        ] {
+            assert!(doc.simple_particles.iter().any(|particle| particle == name), "{name}");
+        }
+        let mut content = Content::test_cube();
+        content.entity_names = doc.entities.iter()
+            .map(|(name, schema)| (schema.protocol_id, name.clone())).collect();
+        let models = Models::load_state(&content).unwrap();
+        for (id, name) in doc.simple_particles.iter().enumerate() {
+            content.particle_names.insert(id as u32, name.clone());
+            let mut packet = Writer::default();
+            packet.0.extend_from_slice(&[8, 17, 1]);
+            packet.var(id as i32);
+            packet.0.extend_from_slice(&[9, 0, 42, 255]);
+            let mut reader = Reader::new(&packet.0);
+            let values = super::super::metadata::decode(&mut reader, &content, &models)
+                .unwrap_or_else(|error| panic!("{name}: {error}"));
+            reader.done().unwrap();
+            match &values[&8] {
+                super::super::metadata::Metadata::Particles(particles) => {
+                    assert_eq!(particles, &[serde_json::json!({
+                        "type_id": id, "type": name, "data": null
+                    })], "{name}");
+                }
+                other => panic!("{name}: unexpected metadata: {other:?}"),
+            }
+            assert_eq!(values[&9].int(), Some(42), "{name}");
+        }
+    }
 
     #[test]
     fn embedded_entity_facts_parse_and_carry_no_geometry() {

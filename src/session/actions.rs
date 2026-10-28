@@ -832,15 +832,28 @@ impl Session {
     }
     pub(super) fn consume_player_effects(&mut self) -> Result<()> {
         if let Some(content) = self.content.as_ref() {
-            self.player.apply_pending_use_release(
-                &self.world,
-                content,
-                &self.inventory,
-                &self.entities,
-                self.client_tick,
-            )?;
+            let result = self.player.apply_pending_use_release(
+                &self.world, content, &self.inventory, &self.entities, self.client_tick,
+            );
+            if let Err(error) = result {
+                let item_id = self.inventory.player_slot(36 + u16::from(self.inventory.selected_slot))
+                    .ok().flatten().map(|stack| stack.id);
+                self.player.warn_local_prediction(item_id, "item use release", &error);
+            }
         }
         while let Some(prediction) = self.player.take_use_prediction() {
+            if let Err(error) = self.apply_local_prediction(prediction) {
+                let item_id = self.inventory.player_slot(36 + u16::from(self.inventory.selected_slot))
+                    .ok().flatten().map(|stack| stack.id);
+                self.player.warn_local_prediction(item_id, "local effect application", &error);
+            }
+        }
+        while let Some(trigger) = self.player.take_ui_trigger() {
+            self.open_trigger(trigger)?;
+        }
+        Ok(())
+    }
+    fn apply_local_prediction(&mut self, prediction: UsePrediction) -> Result<()> {
             match prediction {
                 UsePrediction::Sound(request) => { if let Some(audio) = &self.audio { audio.play(request)?; } }
                 UsePrediction::WorldBlock {position,state,sequence,..} => {
@@ -885,13 +898,31 @@ impl Session {
                     self.event(json!({"type":"local_level_event","event":event,"position":position,"data":data,"origin":"locally_predicted","presentation_supported":presented}));
                 }
             }
-        }
-        while let Some(trigger) = self.player.take_ui_trigger() {
-            self.open_trigger(trigger)?;
-        }
         Ok(())
     }
     fn open_trigger(&mut self, trigger: UiTrigger) -> Result<()> {
+        let (item_id, owner) = match &trigger {
+            UiTrigger::Book { hand } | UiTrigger::ItemUsed { hand } => {
+                let slot = if *hand == 1 { 45 } else { 36 + u16::from(self.inventory.selected_slot) };
+                (self.inventory.player_slot(slot).ok().flatten().map(|stack| stack.id), "item UI")
+            }
+            UiTrigger::Sign { .. } => (None, "Sign editor"),
+            UiTrigger::Command { .. } => (None, "Command editor"),
+            UiTrigger::MinecartCommand { .. } => (None, "MinecartCommand editor"),
+            UiTrigger::Structure { .. } => (None, "Structure editor"),
+            UiTrigger::Jigsaw { .. } => (None, "Jigsaw editor"),
+            UiTrigger::TestBlock { .. } => (None, "TestBlock editor"),
+            UiTrigger::TestInstanceBlock { .. } => (None, "TestInstanceBlock editor"),
+        };
+        if let Err(error) = self.open_trigger_local(trigger) {
+            self.player.warn_local_prediction(item_id, owner, &error);
+        }
+        if !self.commands.is_empty() {
+            self.flush_commands()?;
+        }
+        Ok(())
+    }
+    fn open_trigger_local(&mut self, trigger: UiTrigger) -> Result<()> {
         match trigger {
             UiTrigger::Book { hand } => {
                 let slot = if hand == 1 {
@@ -924,9 +955,6 @@ impl Session {
             | UiTrigger::TestInstanceBlock { .. } => {
                 return Err("operator editor activation is not supported by session".into());
             }
-        }
-        if !self.commands.is_empty() {
-            self.flush_commands()?;
         }
         Ok(())
     }
@@ -1064,6 +1092,12 @@ fn is_title_intent(intent: &UiIntent) -> bool {
 #[cfg(test)]
 mod client_settings_tests {
     use super::*;
+    #[test]
+    fn disconnects_local_ui_open_error_is_not_session_failure() {
+        let mut session = Session::new_mode("local-ui-warning".into(), false);
+        session.open_trigger(UiTrigger::Book { hand: 0 }).unwrap();
+        assert!(session.error.is_none());
+    }
     #[test]
     fn stores_fov_and_render_distance() {
         // State-only session: no audio worker, so volume applies without IO.

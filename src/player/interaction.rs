@@ -22,6 +22,34 @@ pub(super) struct UsingItem {
 }
 
 impl Player {
+    pub(crate) fn warn_local_prediction(&mut self, item_id: Option<u32>, owner: &str, error: &str) {
+        let warned = self.local_prediction_warnings.entry(item_id).or_default();
+        if !warned.contains(owner) {
+            warned.insert(owner.to_owned());
+            eprintln!("local prediction skipped: item={item_id:?} owner={owner}: {error}");
+        }
+    }
+
+    /// Only locally generated effects are discarded; queued wire commands survive.
+    pub(super) fn local_prediction<T>(
+        &mut self,
+        item_id: Option<u32>,
+        owner: &str,
+        predict: impl FnOnce(&mut Self) -> Result<T>,
+    ) -> Option<T> {
+        let predictions = self.use_predictions.len();
+        let triggers = self.ordinary_ui.len();
+        match predict(self) {
+            Ok(value) => Some(value),
+            Err(error) => {
+                self.use_predictions.truncate(predictions);
+                self.ordinary_ui.truncate(triggers);
+                self.warn_local_prediction(item_id, owner, &error);
+                None
+            }
+        }
+    }
+
     pub fn raycast(
         &self,
         world: &World,
@@ -294,7 +322,7 @@ impl Player {
                     return Err("cannot_start_gliding".into());
                 }
                 self.gliding = true;
-                self.entity_command(8, 0, out);
+                self.entity_command(PlayerCommand::StartFallFlying, 0, out);
                 Ok(())
             }
             InteractionIntent::ToggleFlight => {
@@ -312,7 +340,7 @@ impl Player {
             InteractionIntent::OpenMountInventory => {
                 let handle = self.vehicle.ok_or("not_mounted")?;
                 entities.resolve(handle)?;
-                self.entity_command(7, 0, out);
+                self.entity_command(PlayerCommand::OpenInventory, 0, out);
                 Ok(())
             }
             InteractionIntent::ReleaseAll => self.release_all(out),
@@ -804,7 +832,12 @@ impl Player {
         writer.byte(0);
         writer.var(sequence);
         out.push(PacketCommand::new(sb::USE_ITEM_ON, writer));
-        let result = self.use_block_result(hit, hand, world, content, inventory, entities, tick)?;
+        let item_id = held(inventory, hand).filter(|item| !item.empty()).map(|item| item.id);
+        let owner = item_id.and_then(|id| content.item_use_owner(id, true).ok())
+            .unwrap_or("block interaction");
+        let result = self.local_prediction(item_id, owner, |player| {
+            player.use_block_result(hit, hand, world, content, inventory, entities, tick)
+        }).unwrap_or(super::use_on::Outcome::ServerAuthoritative);
         self.last_interaction_result = Some(result.java_result());
         Ok(result)
     }
@@ -824,8 +857,10 @@ impl Player {
     ) -> Result<&'static str> {
         let result =
             self.use_block_on(hit, hand, world, content, inventory, entities, tick, out)?;
-        self.swing(hand, out);
-        self.visual.use_bump();
+        if result != super::use_on::Outcome::ServerAuthoritative {
+            self.swing(hand, out);
+            self.visual.use_bump();
+        }
         Ok(result.java_result())
     }
 
@@ -882,9 +917,13 @@ impl Player {
                     if self.game_mode == 3 {
                         Outcome::Pass
                     } else {
-                        self.entity_result(
-                            *handle, *point, hand, world, content, inventory, entities, tick,
-                        )?
+                        let owner = item.and_then(|item| content.item_use_owner(item.id, false).ok())
+                            .unwrap_or("entity interaction");
+                        self.local_prediction(item.map(|item| item.id), owner, |player| {
+                            player.entity_result(
+                                *handle, *point, hand, world, content, inventory, entities, tick,
+                            )
+                        }).unwrap_or(Outcome::ServerAuthoritative)
                     }
                 }
                 Some(Hit::Block(hit)) => {
@@ -942,19 +981,16 @@ impl Player {
                 writer.f32(self.yaw);
                 writer.f32(self.pitch);
                 out.push(PacketCommand::new(sb::USE_ITEM, writer));
-                let result = if self.on_cooldown(item, content, tick)? {
-                    Outcome::Pass
-                } else {
-                    self.air_result(
-                        hand,
-                        target.as_ref(),
-                        world,
-                        content,
-                        inventory,
-                        entities,
-                        tick,
-                    )?
-                };
+                let owner = content.item_use_owner(item.id, false).unwrap_or("item use");
+                let result = self.local_prediction(Some(item.id), owner, |player| {
+                    if player.on_cooldown(item, content, tick)? {
+                        Ok(Outcome::Pass)
+                    } else {
+                        player.air_result(
+                            hand, target.as_ref(), world, content, inventory, entities, tick,
+                        )
+                    }
+                }).unwrap_or(Outcome::ServerAuthoritative);
                 self.last_interaction_result = Some(result.java_result());
                 if let Outcome::Success {
                     swing,
@@ -1071,11 +1107,8 @@ impl Player {
         self.abort_break(out)?;
         self.stop_using(out)?;
         if self.sent_sprinting {
-            self.entity_command(4, 0, out);
+            self.entity_command(PlayerCommand::StopSprinting, 0, out);
             self.sent_sprinting = false;
-        }
-        if self.last_sent_input & 32 != 0 {
-            self.entity_command(1, 0, out);
         }
         self.sync_input(HeldInput::default(), out);
         self.last_input = HeldInput::default();
@@ -1139,6 +1172,172 @@ pub(super) fn write_lp_vec(w: &mut Writer, vector: [f64; 3]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn disconnects_tick_prediction_error_keeps_session_tick_packet() {
+        let (mut player, world, content, mut inventory, entities, _) =
+            disconnects_item_fixture("Item");
+        inventory.player.slots[36].as_mut().unwrap().components = Arc::new(BTreeMap::from([
+            ("minecraft:consumable".into(), serde_json::json!({
+                "sound": {}, "has_consume_particles": false
+            })),
+        ]));
+        player.pose_known = true;
+        player.using = Some(UsingItem { hand: 0, item_id: 1, slot_identity: 0,
+            duration: 32, remaining: 4, movement_factor: 1., can_sprint: true });
+        let mut packets = Vec::new();
+        player.tick(&world, &content, &inventory, &entities,
+            &BTreeSet::from(["use".into()]), 1, &mut packets).unwrap();
+        assert!(packets.iter().any(|packet| packet.id == sb::CLIENT_TICK_END));
+        assert!(packets.iter().any(|packet|
+            packet.id == sb::PLAYER_ACTION && packet.payload.0.first() == Some(&6)));
+    }
+
+    #[test]
+    fn disconnects_release_shift_uses_player_input_not_removed_command() {
+        let mut player = Player::new();
+        player.last_sent_input = 32;
+        let mut packets = Vec::new();
+        player.release_all(&mut packets).unwrap();
+        assert_eq!(packets.len(), 1);
+        assert_eq!(packets[0].id, sb::PLAYER_INPUT);
+        assert_eq!(packets[0].payload.0, [0]);
+    }
+
+    #[test]
+    fn disconnects_release_sprint_uses_26_3_stop_ordinal() {
+        let mut player = Player::new();
+        player.sent_sprinting = true;
+        let mut packets = Vec::new();
+        player.release_all(&mut packets).unwrap();
+        assert_eq!(packets.len(), 1);
+        assert_eq!(packets[0].id, sb::PLAYER_COMMAND);
+        assert_eq!(packets[0].payload.0, [0, 2, 0]);
+    }
+
+    #[test]
+    fn disconnects_glide_dispatch_emits_26_3_ordinal() {
+        let (mut player, world, content, mut inventory, entities, _) =
+            disconnects_item_fixture("Item");
+        let mut elytra = inventory.player.slots[36].take().unwrap();
+        elytra.count = 1;
+        elytra.components = Arc::new(BTreeMap::from([
+            ("minecraft:glider".into(), serde_json::json!({})),
+            ("minecraft:equippable".into(), serde_json::json!({"slot":"chest"})),
+        ]));
+        inventory.player.slots[6] = Some(elytra);
+        let mut packets = Vec::new();
+        player.perform(InteractionIntent::StartGliding, None, &world, &content,
+            &inventory, &entities, 0, &mut packets).unwrap();
+        assert_eq!(packets.len(), 1);
+        assert_eq!(packets[0].id, sb::PLAYER_COMMAND);
+        assert_eq!(packets[0].payload.0, [0, 6, 0]);
+    }
+
+    fn disconnects_item_fixture(owner: &str) -> (Player, World, Content, InventoryStore, EntityStore, BlockHit) {
+        use crate::protocol::world::{Chunk, Palette, Section, SurfaceHeightmap};
+        let mut world = World::new(0, 16);
+        let uniform = |size| Palette { bits: 0, values: vec![0], words: Vec::new(), size };
+        world.insert([0, 0], Chunk {
+            sections: vec![Arc::new(Section { blocks: uniform(4096), biomes: uniform(64),
+                non_empty_block_count: 0 })],
+            sky: BTreeMap::new(), block: BTreeMap::new(),
+            block_entities: crate::protocol::world::empty_block_entities(),
+            surface_heightmap: Arc::new(SurfaceHeightmap::new(16).unwrap()),
+            surface_heightmap_received: false,
+        }).unwrap();
+        let mut content = Content::test_cube();
+        content.item_names.insert(1, "test:held".into());
+        content.insert_test_item_interaction(1, owner, "Item", owner);
+        content.insert_test_item_components(1, BTreeMap::new());
+        content.set_registries(BTreeMap::from([
+            ("minecraft:item".into(), vec![
+                ("test:air".into(), Value::Null), ("test:held".into(), Value::Null),
+            ]),
+            ("minecraft:block".into(), vec![
+                ("minecraft:air".into(), Value::Null), ("test:cube".into(), Value::Null),
+            ]),
+        ]));
+        let mut inventory = InventoryStore::default();
+        inventory.player.slots[36] = Some(
+            crate::inventory::read_stack(&mut Reader::new(&[3, 1, 0, 0]), &content).unwrap()
+        );
+        let mut player = Player::new();
+        player.last_sent_input = 32; // Sneak bypasses block-use prediction.
+        let hit = BlockHit { position: [1, 1, 1], state: 0, face: 1,
+            point: [1.5, 2., 1.5], distance: 1., inside: false };
+        (player, world, content, inventory, EntityStore::new(), hit)
+    }
+
+    #[test]
+    fn disconnects_bone_meal_real_dispatch_is_server_authoritative() {
+        let (mut player, world, content, inventory, entities, hit) =
+            disconnects_item_fixture("BoneMealItem");
+        let result = player.use_block_on(&hit, 0, &world, &content, &inventory, &entities, 0, &mut Vec::new()).unwrap();
+        assert_eq!(result, super::super::use_on::Outcome::CLIENT);
+        assert!(player.take_use_prediction().is_none());
+        assert_eq!(inventory.player.slots[36].as_ref().unwrap().count, 3);
+    }
+
+    #[test]
+    fn disconnects_unknown_prediction_keeps_serverbound_packet() {
+        let (mut player, world, content, inventory, entities, hit) =
+            disconnects_item_fixture("UnmappedItem");
+        let mut packets = Vec::new();
+        for _ in 0..2 {
+            player.minecraft_use_item_on(&hit, 0, &world, &content, &inventory, &entities,
+                0, &mut packets).unwrap();
+        }
+        assert_eq!(packets.iter().filter(|packet| packet.id == sb::USE_ITEM_ON).count(), 2);
+        assert!(player.take_use_prediction().is_none());
+        assert_eq!(player.local_prediction_warnings.get(&Some(1)).unwrap().len(), 1);
+        assert!(!packets.iter().any(|packet| packet.id == sb::PUNCH));
+    }
+
+    #[test]
+    fn disconnects_unknown_block_prediction_keeps_ordinary_air_fallback() {
+        let (mut player, world, content, inventory, entities, hit) =
+            disconnects_item_fixture("UnmappedItem");
+        let mut packets = Vec::new();
+        player.use_target(Some(Hit::Block(hit)), 0, &world, &content, &inventory,
+            &entities, 0, &mut packets).unwrap();
+        assert_eq!(packets.iter().filter(|packet| packet.id == sb::USE_ITEM_ON).count(), 2);
+        assert_eq!(packets.iter().filter(|packet| packet.id == sb::USE_ITEM).count(), 1);
+    }
+
+    fn rejects_invalid_early_survival_placement(owner: &str, item: &str, face: i32) {
+        let (mut player, world, mut content, inventory, entities, mut hit) =
+            disconnects_item_fixture(owner);
+        content.item_names.insert(1, item.into());
+        hit.face = face;
+        let result = player.use_block_on(&hit, 0, &world, &content, &inventory, &entities,
+            0, &mut Vec::new()).unwrap();
+        assert_eq!(result, super::super::use_on::Outcome::Fail, "{owner}");
+        assert!(player.local_prediction_warnings.is_empty(), "{owner}");
+    }
+
+    #[test]
+    fn disconnects_hanging_owner_rejects_vertical_painting_without_fallback() {
+        rejects_invalid_early_survival_placement("HangingEntityItem", "minecraft:painting", 1);
+    }
+    #[test]
+    fn disconnects_minecart_owner_rejects_nonrail_without_fallback() {
+        rejects_invalid_early_survival_placement("MinecartItem", "minecraft:minecart", 1);
+    }
+    #[test]
+    fn disconnects_deferred_owners_keep_wire_action_without_prediction() {
+        for owner in ["CushionItem", "FireChargeItem", "EndCrystalItem"] {
+            let (mut player, world, content, inventory, entities, hit) =
+                disconnects_item_fixture(owner);
+            let mut packets = Vec::new();
+            let result = player.minecraft_use_item_on(&hit, 0, &world, &content,
+                &inventory, &entities, 0, &mut packets).unwrap();
+            assert_eq!(result, "ServerAuthoritative[]", "{owner}");
+            assert_eq!(packets.len(), 1, "{owner}");
+            assert_eq!(packets[0].id, sb::USE_ITEM_ON, "{owner}");
+            assert!(player.take_use_prediction().is_none(), "{owner}");
+        }
+    }
+
     #[test]
     fn local_mining_emits_four_tick_hits_and_one_completion_burst() {
         let mut content = Content::test_cube();

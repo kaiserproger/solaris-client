@@ -225,7 +225,14 @@ impl Session {
             r.done()?;
             // Admit the editor before inventory.apply changes screen/fence state.
             // Vanilla ignores an invalid entity without touching the current menu.
-            if !self.open_sign_editor(position, front)? {
+            let opened = match self.open_sign_editor(position, front) {
+                Ok(opened) => opened,
+                Err(error) => {
+                    self.player.warn_local_prediction(None, "Sign editor", &error);
+                    false
+                }
+            };
+            if !opened {
                 return Ok(());
             }
         }
@@ -1184,6 +1191,21 @@ mod tests {
         writer.i64(protocol::pack_pos(position));
         writer.var(i32::from(front));
         writer.0
+    }
+
+    #[test]
+    fn disconnects_sign_opening_error_is_local_but_malformed_packet_stays_fatal() {
+        let position = [-1, 3, -1];
+        let mut session = sign_session(position, "minecraft:sign");
+        session.receive_block(position, 1).unwrap();
+        session.ui = None;
+        let body = open_sign_bytes(position, true);
+        session.apply(Phase::Play, cb::OPEN_SIGN_EDITOR, &body).unwrap();
+        assert_eq!(session.phase, "play");
+        assert!(session.error.is_none());
+        let mut malformed = body;
+        malformed.push(0);
+        assert!(session.apply(Phase::Play, cb::OPEN_SIGN_EDITOR, &malformed).is_err());
     }
 
     #[test]

@@ -4,6 +4,33 @@
 
 Read ../SPECIFICATION.md (especially original §16–19, §23), ../COMPATIBILITY_MATRIX.md and the sole cursor in ../LONG_TERM_PLAN.md. A requirement is not an implemented tool. The integration evidence below records exercised preview behavior, not full-client acceptance. Obtain the live schemas, supported protocol revisions, limits and actual features from discovery; do not infer support from a proposed name or cached conversation.
 
+### Local interaction failures versus wire failures
+
+Local item/block/entity prediction and local editor opening are not connection
+admission. A missing prediction owner logs once per item/owner and leaves the
+already queued serverbound action intact; incomplete local effects/UI are
+discarded. The diagnostic interaction result is `ServerAuthoritative[]`, not a
+fabricated successful prediction. The server remains authoritative for growth,
+inventory debit and world changes. Genuine server-packet decoding errors still
+propagate through the session failure path.
+
+Focused regressions: `cargo test -p solaris-client --lib disconnects_` covers
+bone-meal dispatch, empty writable-book component decoding/editor opening,
+prediction/UI error isolation, and the 26.3 player-command ordinals. Sneak state
+is sent only in player input; glide uses action 6. `cargo test -p solaris-client
+--lib wire_263_` also covers real raid-omen entity metadata and all 106 simple
+option-less particle types from the local 26.3 registry. State-only/headless
+models must load these particle facts just like rendered models.
+
+`HangingEntityItem` (item frames, glow item frames, paintings) and `MinecartItem`
+have real local placement/debit owners; focused geometry and placement tests
+are under `player::use_on::placement::entity_items::tests`. Received hanging
+entities use their packet block anchor and synchronized direction for overlap
+checks. `CushionItem`, `FireChargeItem`, and `EndCrystalItem` remain known
+prediction gaps for rc.1: their wire action is sent without local prediction,
+and their unsupported local owner must not end the session.
+
+
 These are **proposed specification commands, not verified installed CLI**:
 
 ```text

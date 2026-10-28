@@ -127,6 +127,8 @@ pub(super) enum Outcome {
     Pass,
     Fail,
     TryEmptyHand,
+    /// The wire action was sent, but no local outcome could be predicted.
+    ServerAuthoritative,
     Success { swing: bool, item_interaction: bool },
 }
 impl Outcome {
@@ -150,6 +152,7 @@ impl Outcome {
             Self::Pass => "Pass[]",
             Self::TryEmptyHand => "TryEmptyHandInteraction[]",
             Self::Fail => "Fail[]",
+            Self::ServerAuthoritative => "ServerAuthoritative[]",
             Self::Success {
                 swing: true,
                 item_interaction: true,

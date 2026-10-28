@@ -249,10 +249,10 @@ impl UiState {
             self.text.language.plain(v.get("raw").unwrap_or(v))
         };
         let mut pages = Vec::new();
-        for p in content["pages"]
-            .as_array()
-            .ok_or("book_pages_not_observed")?
-        {
+        let observed_pages = content.get("pages")
+            .map(|value| value.as_array().ok_or("book_pages_not_observed"))
+            .transpose()?;
+        for p in observed_pages.map_or(&[][..], Vec::as_slice) {
             pages.push(raw(p)?);
         }
         if pages.is_empty() {
@@ -919,4 +919,26 @@ fn decorate(
     result.insert("translate".into(), json!(key));
     result.insert("with".into(), json!(args));
     Ok(Value::Object(result))
+}
+
+#[cfg(test)]
+mod disconnect_tests {
+    use super::*;
+
+    #[test]
+    fn disconnects_empty_book_packet_opens_writable_editor() {
+        let mut content = Content::test_cube();
+        content.creative_tabs_report = std::sync::Arc::from(br#"{"tabs":[]}"#.as_slice());
+        content.item_names.insert(1, "minecraft:writable_book".into());
+        content.insert_test_item_components(1, BTreeMap::new());
+        content.components.insert(1, "minecraft:writable_book_content".into());
+        // Stack count, item, added count, removed count, component id, zero pages.
+        let mut reader = Reader::new(&[1, 1, 1, 0, 1, 0]);
+        let stack = crate::inventory::read_stack(&mut reader, &content).unwrap();
+        reader.done().unwrap();
+        let mut ui = super::super::UiState::new_state(&content).unwrap();
+        ui.open_book(&stack, 36).unwrap();
+        assert!(matches!(ui.editor, Some(EditorState::Book { ref pages, writable: true, .. })
+            if pages == &[String::new()]));
+    }
 }

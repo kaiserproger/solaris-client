@@ -5,6 +5,8 @@ use super::survival::{
 use super::*;
 use crate::player::collision::Bounds;
 
+mod entity_items;
+
 #[cfg(test)]
 #[path = "armor_stand_tests.rs"]
 mod armor_stand_tests;
@@ -2332,6 +2334,14 @@ impl Player {
         let owner = source_tool_action(item, content)?.unwrap_or_else(|| short_class(owner));
         match owner {
             "Item" | "LeadItem" | "PlaceOnWaterBlockItem" => Ok(Outcome::Pass),
+            // Growth, effects and the inventory debit are server-authoritative.
+            "BoneMealItem" => Ok(Outcome::CLIENT),
+            "HangingEntityItem" => self.hanging_item_on(
+                hit, hand, world, content, inventory, entities, tick,
+            ),
+            "MinecartItem" => self.minecart_item_on(
+                hit, hand, world, content, inventory, entities, tick,
+            ),
             "DebugStickItem" | "SpawnEggItem" => Ok(Outcome::CLIENT),
             "ArmorStandItem" => {
                 // ArmorStandItem only asks BlockPlaceContext.getClickedPos, not canPlace.

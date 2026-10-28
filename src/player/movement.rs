@@ -146,11 +146,11 @@ impl Player {
         }
         if self.sprinting != self.sent_sprinting {
             // Hunger, collision and use effects can deny a held sprint key.
-            self.entity_command(if self.sprinting { 3 } else { 4 }, 0, out);
+            self.entity_command(
+                if self.sprinting { PlayerCommand::StartSprinting } else { PlayerCommand::StopSprinting },
+                0, out,
+            );
             self.sent_sprinting = self.sprinting;
-        }
-        if input.has(5) != self.last_input.has(5) {
-            self.entity_command(if input.has(5) { 0 } else { 1 }, 0, out);
         }
         self.swimming = if self.abilities.flying {
             false
@@ -173,7 +173,7 @@ impl Player {
         } else if jump_edge && !env.climbable && self.can_glide(inventory, tick) && env.water == 0.
         {
             self.gliding = true;
-            self.entity_command(8, 0, out);
+            self.entity_command(PlayerCommand::StartFallFlying, 0, out);
         }
         if self.gliding && (self.grounded || env.water > 0. || !self.can_glide(inventory, tick)) {
             self.gliding = false;

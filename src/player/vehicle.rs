@@ -370,7 +370,10 @@ impl Player {
             }
         }
         if self.sprinting != self.sent_sprinting {
-            self.entity_command(if self.sprinting { 3 } else { 4 }, 0, out);
+            self.entity_command(
+                if self.sprinting { PlayerCommand::StartSprinting } else { PlayerCommand::StopSprinting },
+                0, out,
+            );
             self.sent_sprinting = self.sprinting;
         }
         if !self.vehicle_controlled {
@@ -627,7 +630,7 @@ impl Player {
                     && !refuse
                 {
                     if let Some(strength) = v.charge_jump(input, self.last_input) {
-                        self.entity_command(5, strength, out);
+                        self.entity_command(PlayerCommand::StartRidingJump, strength, out);
                     }
                 } else {
                     v.riding_jump_scale = 0.;

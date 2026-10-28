@@ -37,6 +37,18 @@ pub(crate) use visual::camera_distance;
 static EMPTY_FEATURES: LazyLock<Arc<BTreeSet<String>>> =
     LazyLock::new(|| Arc::new(BTreeSet::new()));
 
+// ServerboundPlayerCommandPacket.Action, verified against the local 26.3 archive.
+// Sneak state belongs to PLAYER_INPUT, not this enum.
+#[derive(Clone, Copy)]
+#[repr(i32)]
+enum PlayerCommand {
+    StartSprinting = 1,
+    StopSprinting = 2,
+    StartRidingJump = 3,
+    OpenInventory = 5,
+    StartFallFlying = 6,
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Pose {
@@ -211,6 +223,7 @@ pub struct Player {
     enabled_features: Arc<BTreeSet<String>>,
     ordinary_ui: VecDeque<UiTrigger>,
     use_predictions: VecDeque<UsePrediction>,
+    local_prediction_warnings: BTreeMap<Option<u32>, BTreeSet<String>>,
     interaction_random: u64,
     interaction_gaussian: Option<f64>,
     pub auto_spin_ticks: u32,
@@ -305,6 +318,7 @@ impl Default for Player {
             enabled_features: Arc::clone(&EMPTY_FEATURES),
             ordinary_ui: VecDeque::with_capacity(16),
             use_predictions: VecDeque::with_capacity(256),
+            local_prediction_warnings: BTreeMap::new(),
             interaction_random: 0,
             interaction_gaussian: None,
             auto_spin_ticks: 0,
@@ -967,7 +981,15 @@ impl Player {
             self.movement_blocked = Some(e);
             self.velocity = [0.; 3];
         }
-        self.interaction_tick(world, content, inventory, entities, input, tick, out)?;
+        let item_id = self.using.as_ref().map(|using| using.item_id);
+        let owner = item_id.and_then(|id| content.item_use_owner(id, false).ok())
+            .unwrap_or("interaction tick");
+        if self.local_prediction(item_id, owner, |player| {
+            player.interaction_tick(world, content, inventory, entities, input, tick, out)
+        }).is_none() {
+            self.stop_using(out)?;
+            self.pending_use_release = None;
+        }
         self.visual_tick(previous_position, inventory);
         self.send_movement(out);
         self.last_input = input;
@@ -984,10 +1006,10 @@ impl Player {
             self.last_sent_input = input.flags;
         }
     }
-    fn entity_command(&self, action: i32, data: i32, out: &mut Vec<PacketCommand>) {
+    fn entity_command(&self, action: PlayerCommand, data: i32, out: &mut Vec<PacketCommand>) {
         let mut w = Writer::default();
         w.var(self.entity_id);
-        w.var(action);
+        w.var(action as i32);
         w.var(data);
         out.push(PacketCommand::new(sb::PLAYER_COMMAND, w));
     }
