@@ -9,6 +9,14 @@ fn fixture() -> (Player, World, Content, InventoryStore, EntityStore) {
     content.insert_test_block_interaction(1, false);
     content.insert_test_item_interaction(2, "ArmorStandItem", "Item", "ArmorStandItem");
     content.insert_test_item_components(2, BTreeMap::new());
+    content.set_registries(BTreeMap::from([(
+        "minecraft:item".into(),
+        vec![
+            ("minecraft:air".into(), Value::Null),
+            ("test:item".into(), Value::Null),
+            ("minecraft:armor_stand".into(), Value::Null),
+        ],
+    )]));
     content.insert_test_entity_dimensions("minecraft:armor_stand", [0.5, 1.975]);
     let mut world = World::new(0, 16);
     let palette = |size| Palette {
