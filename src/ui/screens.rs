@@ -382,6 +382,38 @@ impl UiState {
             Paint::Button,
         )
     }
+    pub(super) fn compact_button(
+        &mut self,
+        id: &str,
+        label: &str,
+        rect: [f32; 4],
+        action: NodeAction,
+        enabled: bool,
+        deny: Option<&'static str>,
+    ) -> Result<()> {
+        self.button(id, label, rect, action, enabled, deny)?;
+        let width = rect[2] - 8.;
+        if !self.text.can_render() || self.text.width(label, false)? <= width {
+            return Ok(());
+        }
+        let available = width - self.text.width("…", false)?;
+        let mut low = 0;
+        let mut high = label.chars().count();
+        while low < high {
+            let middle = low + (high - low).div_ceil(2);
+            let end = label.char_indices().nth(middle).map_or(label.len(), |(end, _)| end);
+            if self.text.width(&label[..end], false)? <= available {
+                low = middle;
+            } else {
+                high = middle - 1;
+            }
+        }
+        let end = label.char_indices().nth(low).map_or(label.len(), |(end, _)| end);
+        // Keep the complete accessible label; only the painted component is shortened.
+        self.nodes.last_mut().expect("button added above").component =
+            Some(std::sync::Arc::new(json!({"text":format!("{}…", &label[..end])})));
+        Ok(())
+    }
     pub(crate) fn edit_node(
         &mut self,
         id: &str,
@@ -423,9 +455,11 @@ impl UiState {
         let menu = inventory.menu();
         let layout = Layout::menu(menu)?;
         let has_recipe = self.screen != Screen::Creative && menu.kind.recipe_book().is_some();
-        let compact_recipe = has_recipe && self.recipe_open && self.width < layout.width + 180.;
+        let compact_recipe = has_recipe && self.recipe_open
+            && self.width < layout.width + super::catalogue::RECIPE_BOOK_WIDTH;
         let x = if has_recipe && self.recipe_open && !compact_recipe {
-            (self.width - layout.width - 180.) / 2. + 180.
+            (self.width - layout.width - super::catalogue::RECIPE_BOOK_WIDTH) / 2.
+                + super::catalogue::RECIPE_BOOK_WIDTH
         } else {
             (self.width - layout.width) / 2.
         };
@@ -435,7 +469,7 @@ impl UiState {
                 "recipe/book", "Recipes", [self.width - 54., 8., 50., 20.],
                 NodeAction::RecipeBook, true, None,
             )?;
-            self.recipe_panel(inventory, content, 30., y)?;
+            self.recipe_panel(inventory, content, super::catalogue::RECIPE_CATEGORY_WIDTH + 2., y)?;
             return Ok(());
         }
         let name = format!("gui/container/{}", menu.kind.name());
@@ -825,7 +859,7 @@ impl UiState {
         let tab_width = (self.width - 16.) / columns as f32;
         let tab_rows = descriptors.len().div_ceil(columns);
         for (position, (index, id, title)) in descriptors.into_iter().enumerate() {
-            self.button(
+            self.compact_button(
                 &format!("creative/tab/{id}"),
                 &self.text.language.plain(&title)?,
                 [
