@@ -13,7 +13,7 @@ env:
   # siblings; bump deliberately. The server must contain the SDK/WIT and the
   # `local_addr` listening-line change the singleplayer port discovery relies on.
   SOLARIS_REVISION: ab1fa2401944af42070e9faf38e04146c394679b
-  SOLARIS_PLUGINS_REVISION: 2e6d6869d6f58c5fb5a377038cea1f7f69485fb8
+  SOLARIS_PLUGINS_REVISION: 5ed6a00d572db67fa736bd62a260d89777150040
 
 permissions:
   contents: read
