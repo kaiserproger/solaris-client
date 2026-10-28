@@ -5,6 +5,7 @@ mod content_paths;
 pub mod entities;
 pub mod environment;
 mod far;
+mod frame_trace;
 mod headless;
 mod hotbar_wheel;
 pub mod inventory;
@@ -171,6 +172,7 @@ struct App {
     cursor_locked: bool,
     last_cursor: Option<(f64, f64)>,
     last_dialog_screen: bool,
+    pointer_inside: bool,
     debug_overlay: bool,
     shift_held: bool,
     hotbar_wheel: hotbar_wheel::HotbarWheel,
@@ -184,6 +186,8 @@ struct App {
     tick_cpu_ms: f64,
     events_cpu_ms: f64,
     publish_skipped: u64,
+    frame_trace: Option<frame_trace::FrameTrace>,
+    look_events: u32,
     captured_frame: Option<String>,
     pending_capture: Option<Request>,
     pending_tasks: Vec<(Request, minecraft::Task)>,
@@ -231,6 +235,7 @@ impl App {
             cursor_locked: false,
             last_cursor: None,
             last_dialog_screen: false,
+            pointer_inside: false,
             debug_overlay: false,
             shift_held: false,
             hotbar_wheel: hotbar_wheel::HotbarWheel::default(),
@@ -244,6 +249,8 @@ impl App {
             tick_cpu_ms: 0.,
             events_cpu_ms: 0.,
             publish_skipped: 0,
+            frame_trace: frame_trace::FrameTrace::from_env(),
+            look_events: 0,
             captured_frame: None,
             pending_capture: None,
             pending_tasks: Vec::new(),
@@ -306,7 +313,8 @@ impl App {
             .map(|w| w.inner_size())
             .unwrap_or(winit::dpi::PhysicalSize::new(1280, 720));
         json!({"focused":self.focused,"occluded":self.occluded,"width":size.width,"height":size.height,
-            "cursor_locked":self.cursor_locked,"native":self.window.is_some(),"offscreen":self.window.is_none(),
+            "cursor_locked":self.cursor_locked,"pointer_inside":self.pointer_inside,
+            "native":self.window.is_some(),"offscreen":self.window.is_none(),
             "renderable":self.renderer.is_some()&&size.width>0&&size.height>0&&!self.occluded})
     }
     fn release(&mut self, reason: &str) {
@@ -636,6 +644,10 @@ impl App {
             for (key, value) in session::TICK_DETAIL_NAMES.iter().zip(self.session.take_tick_detail()) {
                 render["cpu_session_tick_detail_ms"][*key] = json!(value);
             }
+            if let Some(trace) = &mut self.frame_trace {
+                trace.record(render, self.look_events);
+            }
+            self.look_events = 0;
             self.advance_cpu_ms = 0.;
             self.drain_cpu_ms = 0.;
             self.publish_cpu_ms = 0.;
@@ -838,6 +850,10 @@ impl ApplicationHandler for App {
                     self.session
                         .resize_ui(size.width, size.height, scale_factor);
                 }
+                self.publish_session();
+            }
+            WindowEvent::CursorEntered { .. } | WindowEvent::CursorLeft { .. } => {
+                self.pointer_inside = matches!(event, WindowEvent::CursorEntered { .. });
                 self.publish_session();
             }
             WindowEvent::CursorMoved { position, .. } if self.focused => {
@@ -1214,6 +1230,7 @@ impl ApplicationHandler for App {
                 let (yaw, pitch) = self.session.look_angles();
                 let yaw = yaw + delta.0 as f32 * scale;
                 let pitch = (pitch + delta.1 as f32 * scale).clamp(-89.9, 89.9);
+                self.look_events += 1;
                 self.manual(InputIntent::Look { yaw, pitch });
             }
         }
