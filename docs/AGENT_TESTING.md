@@ -837,3 +837,14 @@ runs discarded. A private compositor is not evidence of physical scanout or a
 reproduction of the owner's Mutter scheduling. The original baseline needs the
 same 8-bit native-Wayland surface-format correction as HEAD on RADV; retain that
 common delta in the executable provenance instead of claiming identical bytes.
+
+For cross-protocol integration comparisons, `--server-data` and `--client-data`
+select explicit content caches without changing the stopped-world fixture.
+Use one compatible server binary/configuration on both sides; an offline legacy
+server may also require `SOLARIS_LEGACY_CONTENT_CACHE`. These paths are retained
+in the result alongside binary hashes, rather than silently using the current
+checkout's content.
+For a versioned launcher bundle, extract it into a private directory and pass
+`--client-root` plus its `--client-data` directory. Set
+`SOLARIS_CLIENT_COLLISION_SHAPES` to that bundle's versioned facts file; do not
+modify the owner's default profile or relabel an older collision cache.

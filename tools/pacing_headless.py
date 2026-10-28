@@ -64,6 +64,9 @@ def main():
     p.add_argument('--out', type=Path, required=True)
     p.add_argument('--world', type=Path, default=ROOT / '.analysis/server/world')
     p.add_argument('--server', type=Path, default=WORK / 'targets/rc1/release/solaris-v2')
+    p.add_argument('--server-data', type=Path, default=Path('/home/kaiserroman/solaris/data/vanilla'))
+    p.add_argument('--client-data', type=Path, default=Path('/home/kaiserroman/solaris/data/vanilla'))
+    p.add_argument('--client-root', type=Path, help='private extracted launcher distribution root')
     p.add_argument('--prefix', type=Path, default=WORK / 'wt/shader-show/.analysis/cage-prefix')
     p.add_argument('--steps', type=int, default=24)
     p.add_argument('--gpu', choices=['nvidia', 'radeon'], default='nvidia')
@@ -79,6 +82,10 @@ def main():
               'server': str(a.server), 'server_sha256': hashlib.sha256(a.server.read_bytes()).hexdigest(),
               'native_wayland': True, 'display_scanout_verified': False,
               'gpu_requested': a.gpu,
+              'client_data': str(a.client_data), 'server_data': str(a.server_data),
+              'client_root': str(a.client_root or out / 'client-root'),
+              'collision_shapes': os.environ.get('SOLARIS_CLIENT_COLLISION_SHAPES'),
+              'legacy_content_cache': os.environ.get('SOLARIS_LEGACY_CONTENT_CACHE'),
               'route': {'steps': a.steps, 'ticks_per_step': 10, 'yaw_start': 0, 'yaw_step': 24, 'pitch': 60,
                         'warm_ticks': a.warm_ticks, 'look_settle_ticks': 12}}
     report['clients_start'] = subprocess.run(
@@ -121,6 +128,8 @@ def main():
         toml = re.sub(r'port = \d+', f'port = {port}', toml)
         toml = toml.replace(str(ROOT / '.analysis/server/world'), str(out / 'world'))
         toml = toml.replace(str(ROOT / '.analysis/server/plugins'), str(out / 'plugins'))
+        toml = re.sub(r'(?m)^vanilla_data_dir\s*=.*$',
+                      f'vanilla_data_dir = {json.dumps(str(a.server_data))}', toml)
         (out / 'server.toml').write_text(toml)
         server, _ = launch([str(a.server), '--config', str(out / 'server.toml')], env,
                            out / 'server.log', 'Solaris is listening')
@@ -128,8 +137,8 @@ def main():
         settings.write_text(json.dumps({'vsync': True, 'max_fps': 120}))
         env.update(WAYLAND_DISPLAY=wayland, VK_ICD_FILENAMES=f'/usr/share/vulkan/icd.d/{a.gpu}_icd.json',
                    SOLARIS_CLIENT_FRAME_TRACE=str(out / 'frames.tsv'), SOLARIS_CLIENT_SETTINGS=str(settings),
-                   SOLARIS_CLIENT_ROOT=str(out / 'client-root'),
-                   SOLARIS_CLIENT_DATA_DIR='/home/kaiserroman/solaris/data/vanilla',
+                   SOLARIS_CLIENT_ROOT=str(a.client_root or out / 'client-root'),
+                   SOLARIS_CLIENT_DATA_DIR=str(a.client_data),
                    SOLARIS_CLIENT_RESOURCE_ROOT=str(WORK / 'solaris-client/.analysis/resources'),
                    SOLARIS_CLIENT_ASSET_ROOT='/home/kaiserroman/.local/share/PrismLauncher/assets',
                    SOLARIS_CLIENT_ASSET_INDEX=str(WORK / 'solaris-client/.analysis/evidence/C00/asset-index-current.json'))
