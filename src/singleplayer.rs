@@ -664,6 +664,9 @@ fn spawn_server(
     cancel: &Cancel,
     events: Receiver<Event>,
 ) -> Result<Server, String> {
+    if cancel.cancelled() {
+        return Err("Cancelled".into());
+    }
     if let Some(parent) = log_path.parent() {
         fs::create_dir_all(parent).map_err(|e| format!("cannot create {}: {e}", parent.display()))?;
     }
