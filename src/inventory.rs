@@ -738,7 +738,7 @@ impl InventoryStore {
                 self.screen_open = true;
                 self.screen_instance += 1;
             }
-            96 => {
+            98 => {
                 let cursor = read_stack(r, content)?;
                 r.done()?;
                 self.received_cursor = Some(cursor.clone());
@@ -748,7 +748,7 @@ impl InventoryStore {
                 self.selected_slot = r.count(8)? as u8;
                 r.done()?;
             }
-            108 => {
+            110 => {
                 let index = r.count(42)?;
                 let stack = read_stack(r, content)?;
                 r.done()?;
