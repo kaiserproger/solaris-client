@@ -12,7 +12,7 @@ use std::{
     time::Instant,
 };
 
-const COLUMNS: [&str; 20] = [
+const COLUMNS: [&str; 26] = [
     "submitted_frame_interval_ms",
     "frame_wall_ms",
     "surface_acquire_ms",
@@ -33,6 +33,12 @@ const COLUMNS: [&str; 20] = [
     "render_thread_cpu_ms",
     "gpu_timestamps",
     "timestamp_missed_samples",
+    "cpu_client_drain_ms",
+    "cpu_client_tasks_ms",
+    "cpu_client_sync_window_ms",
+    "cpu_session_tick_ms",
+    "cpu_session_events_ms",
+    "cpu_session_tick_detail_ms",
 ];
 
 const QUEUED_FRAMES: usize = 4096;
@@ -164,7 +170,9 @@ mod tests {
             "queue_submit_ms":51.0,
             "render_thread_cpu_ms":3.0,
             "cpu_client_draw_ms":7.0,
-            "cpu_client_advance_ms":11.0
+            "cpu_client_advance_ms":11.0,
+            "cpu_session_events_ms":8.0,
+            "cpu_session_tick_detail_ms":{"events":2.0,"player":1.0}
         });
         trace.record(&render, 2);
         trace.record(&render, 4);
@@ -185,6 +193,11 @@ mod tests {
         assert_eq!(serde_json::from_str::<Value>(cell("gpu_timestamps")).unwrap(), gpu);
         assert_eq!(cell("queue_submit_ms"), "51.0");
         assert_eq!(cell("render_thread_cpu_ms"), "3.0");
+        assert_eq!(cell("cpu_session_events_ms"), "8.0");
+        assert_eq!(
+            serde_json::from_str::<Value>(cell("cpu_session_tick_detail_ms")).unwrap(),
+            json!({"events":2.0,"player":1.0})
+        );
         assert_eq!(cells[1], "42");
         let second: Vec<_> = lines[1].split('\t').collect();
         assert_eq!(&second[COLUMNS.len() + 3..], &["321", "1", "7", "11"]);

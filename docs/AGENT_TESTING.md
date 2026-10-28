@@ -790,6 +790,10 @@ renderer thread CPU. `gpu_timestamps` is a single JSON cell containing completed
 GPU pass durations and its own frame ID: join by that ID, not by the enclosing
 submission row, because readback is asynchronous. CPU phase wall durations are
 not GPU execution durations; queue/acquire/present waits must remain separate.
+Owner advance attribution also retains request drain, task completion, native
+window synchronization, session events and ticks. The JSON
+`cpu_session_tick_detail_ms` cell preserves the existing per-tick phase totals;
+these are nested wall durations, not additional independent frame time.
 `previous_trace_record_ms` measures serialization and nonblocking enqueue from
 the preceding recorded frame; that observer cost falls in the current interval.
 File writes run on a dedicated thread behind a bounded 4096-row queue, never
