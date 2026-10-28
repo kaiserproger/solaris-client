@@ -1,6 +1,7 @@
 //! Source-specific nonliving presentation. Shared mesh emission and item baking have one owner.
 mod display_snapshot;
 mod items;
+mod frame;
 mod kernels;
 mod painting;
 mod projectiles;
@@ -100,3 +101,44 @@ fn textured_quad(
     )
 }
 pub(crate) use items::append_observed_item;
+
+#[expect(clippy::too_many_arguments, reason = "Shares the scene extraction inputs without a second render-state owner")]
+pub(crate) fn append(
+    store: &mut Store,
+    slot: usize,
+    models: &Models,
+    content: &Content,
+    origin: [f64; 3],
+    tick: u64,
+    partial: f32,
+    light_source: &dyn Fn([f64; 3]) -> Result<Option<[f32; 2]>>,
+    out: &mut DynamicGeometry,
+) -> Result<Handled> {
+    if !matches!(store.slots[slot].type_name.as_str(),
+        "minecraft:painting" | "minecraft:item_frame" | "minecraft:glow_item_frame") {
+        return Ok(Handled::Unhandled);
+    }
+    let vertex_start = out.vertices.len();
+    let index_starts = out.indices.each_ref().map(Vec::len);
+    let result = (|| {
+        if store.slots[slot].type_name == "minecraft:painting" {
+            return painting::append(&store.slots[slot], store, models,
+                content, origin, tick, partial, light_source, out);
+        }
+        let entity = &store.slots[slot];
+        let (dimensions, scale) = models.dimensions(entity)?;
+        let Some(light) = p::entity_light(entity, models, tick, partial,
+            dimensions, scale, light_source)? else {
+            return Ok(Handled::PendingLighting);
+        };
+        frame::append(entity, models, &mut store.special_render_cache,
+            &mut store.items, content, origin, tick, partial, light, out)
+    })();
+    if result.is_err() {
+        out.vertices.truncate(vertex_start);
+        for (indices, start) in out.indices.iter_mut().zip(index_starts) {
+            indices.truncate(start);
+        }
+    }
+    result
+}

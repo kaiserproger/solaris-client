@@ -400,10 +400,6 @@ pub fn append(
         } else {
             store.ids[&visible[index]]
         };
-        if store.slots[slot].binding.is_none() {
-            let binding = material(store, &models, &store.slots[slot], content);
-            store.slots[slot].binding = Some(binding);
-        }
         let entity = &store.slots[slot];
         let distance = entity
             .presented_transform(tick, partial)
@@ -422,6 +418,28 @@ pub fn append(
         ) {
             continue;
         }
+        let start = out.vertices.len();
+        match super::render_special::append(store, slot, &models, content, origin,
+            tick, partial, light_source, out) {
+            Ok(super::render_special::Handled::Unhandled) => {}
+            Ok(super::render_special::Handled::Rendered | super::render_special::Handled::NoGeometry) => {
+                if out.vertices.len() > start {
+                    stats.submitted += 1;
+                    store.slots[slot].submitted_revision = Some(store.revision);
+                }
+                continue;
+            }
+            Ok(super::render_special::Handled::PendingLighting) => {
+                stats.lighting_pending += 1;
+                continue;
+            }
+            Ok(super::render_special::Handled::PendingWorld) => continue,
+            Err(reason) => {
+                stats.unrendered.insert(store.slots[slot].type_name.clone(), reason);
+                continue;
+            }
+        }
+        let entity = &store.slots[slot];
         let (dimensions, scale) = match models.dimensions(entity) {
             Ok(value) => value,
             Err(reason) => {
@@ -449,7 +467,11 @@ pub fn append(
         {
             stats.profile_textures_pending += 1;
         }
-        let start = out.vertices.len();
+        if store.slots[slot].binding.is_none() {
+            let binding = material(store, &models, &store.slots[slot], content);
+            store.slots[slot].binding = Some(binding);
+        }
+        let entity = &store.slots[slot];
         match entity.binding.as_ref().unwrap() {
             Ok(binding) => {
                 let rig = models.rig(&binding.rig);
@@ -488,6 +510,9 @@ pub fn append(
                             * Mat4::from_rotation_y((180. - t.yaw).to_radians())
                             * Mat4::from_rotation_z(-t.pitch.to_radians())
                             * Mat4::from_scale(Vec3::new(-1., -1., 1.))
+                            // Authored rigs place feet at y=24 pixels. Convert
+                            // that baseline around the cart's 6-pixel roll pivot.
+                            * Mat4::from_translation(Vec3::new(0., -18. / 16., 0.))
                     }
                     RootStyle::Object => {
                         Mat4::from_translation(relative) * Mat4::from_rotation_y(t.yaw.to_radians())
@@ -1038,7 +1063,6 @@ fn append_item_entity(
     let accessor = match e.type_name.as_str() {
         "minecraft:item" => "DATA_ITEM",
         "minecraft:item_display" => "DATA_ITEM_STACK_ID",
-        "minecraft:item_frame" | "minecraft:glow_item_frame" => "DATA_ITEM",
         _ => return Ok(false),
     };
     let Some(Metadata::Item(stack)) = value(models, e, accessor) else {

@@ -30,6 +30,17 @@ checks. `CushionItem`, `FireChargeItem`, and `EndCrystalItem` remain known
 prediction gaps for rc.1: their wire action is sent without local prediction,
 and their unsupported local owner must not end the session.
 
+`cargo test -p solaris-client --lib entity_render_rc1_` feeds actual received
+ADD_ENTITY packets into scene extraction with owned model/texture fixtures:
+empty frame/glow-frame bodies, painting mesh at its packet anchor, and minecart
+vertices above the rail. These checks are independent of whether the server
+created the entity through item placement or `/summon`. Special hanging meshes
+use synchronized direction, packet block anchors, and the user's resource-pack
+models/textures; minecart roots convert the authored feet-at-y24 model space.
+The pure frame/painting orientation tests are under `entities::render_special`.
+Nonempty CPU geometry is not graphical acceptance: windowed evidence must
+separately check both placed and summoned entities against a visible control.
+
 
 These are **proposed specification commands, not verified installed CLI**:
 
