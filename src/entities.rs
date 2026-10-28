@@ -1,5 +1,6 @@
 //! Native protocol-777 remote presentation. Session remains the local physics/health owner.
 //! Derived model data is explicitly activated; no Java process is used by the client.
+use crate::protocol::packet_ids::play::clientbound as cb;
 mod analog;
 mod block_components;
 mod blocks;
@@ -739,12 +740,12 @@ impl Store {
         content: &Content,
         tick: u64,
     ) -> Result<bool> {
-        if id == 70 || id == 71 {
+        if id == cb::PLAYER_INFO_REMOVE || id == cb::PLAYER_INFO_UPDATE {
             self.apply_player_info(id, r)?;
             return Ok(true);
         }
         match id {
-            1 => {
+            cb::ADD_ENTITY => {
                 let entity_id = r.var()?;
                 let uuid = metadata::uuid(r)?;
                 let kind = r.count(65535)? as u32;
@@ -864,7 +865,7 @@ impl Store {
                 }
                 self.event(json!({"type":"entity_spawned","handle":handle,"uuid":uuid,"entity_type":name,"origin":"server_observed"}));
             }
-            2 => {
+            cb::ANIMATE => {
                 let target = r.var()?;
                 let action = r.u8()?;
                 r.done()?;
@@ -876,7 +877,7 @@ impl Store {
                 }
                 self.event(json!({"type":"entity_animation","entity":target,"animation":action,"tick":tick.to_string(),"origin":"server_observed"}));
             }
-            34 => {
+            cb::ENTITY_EVENT => {
                 let target = r.i32()?;
                 let event = r.u8()?;
                 r.done()?;
@@ -896,9 +897,9 @@ impl Store {
                 }
                 self.event(json!({"type":"entity_status","entity":target,"status":event,"origin":"server_observed"}));
             }
-            54 | 55 | 57 => {
+            cb::MOVE_ENTITY_POS | cb::MOVE_ENTITY_POS_ROT | cb::MOVE_ENTITY_ROT => {
                 let target = r.var()?;
-                let (delta, ground) = if id == 57 {
+                let (delta, ground) = if id == cb::MOVE_ENTITY_ROT {
                     (None, r.bool()?)
                 } else {
                     let props = r.var()?;
@@ -915,7 +916,7 @@ impl Store {
                     }
                     (Some(delta), props & 1 != 0)
                 };
-                let rotation = if id != 54 {
+                let rotation = if id != cb::MOVE_ENTITY_POS {
                     Some((degrees(r.u8()?), degrees(r.u8()?)))
                 } else {
                     None
@@ -936,7 +937,7 @@ impl Store {
                     self.move_entity(target, transform, None, ground, tick, false);
                 }
             }
-            35 => {
+            cb::ENTITY_POSITION_SYNC => {
                 let target = r.var()?;
                 let position = match r.var()? {
                     0 => [r.f64()?, r.f64()?, r.f64()?],
@@ -976,7 +977,7 @@ impl Store {
                     false,
                 );
             }
-            78 => {
+            cb::REMOVE_ENTITIES => {
                 let n = r.count(MAX_ENTITIES)?;
                 let ids = (0..n).map(|_| r.var()).collect::<Result<Vec<_>>>()?;
                 r.done()?;
@@ -985,7 +986,7 @@ impl Store {
                     self.remove(id);
                 }
             }
-            85 => {
+            cb::ROTATE_HEAD => {
                 let target = r.var()?;
                 let head = degrees(r.u8()?);
                 r.done()?;
@@ -997,7 +998,7 @@ impl Store {
                     self.move_entity(target, t, None, ground, tick, false);
                 }
             }
-            101 => {
+            cb::SET_ENTITY_DATA => {
                 let target = r.var()?;
                 let models = self
                     .models
@@ -1055,7 +1056,7 @@ impl Store {
                     self.spatial_padding = self.spatial_padding.max(extent);
                 }
             }
-            102 => {
+            cb::SET_ENTITY_LINK => {
                 let target = r.i32()?;
                 let holder = r.i32()?;
                 r.done()?;
@@ -1081,7 +1082,7 @@ impl Store {
                     e.leash_holder_id = if holder == 0 { None } else { Some(holder) };
                 }
             }
-            103 => {
+            cb::SET_ENTITY_MOTION => {
                 let target = r.var()?;
                 let velocity = read_velocity(r)?;
                 r.done()?;
@@ -1092,7 +1093,7 @@ impl Store {
                     e.revision = revision;
                 }
             }
-            104 => {
+            cb::SET_EQUIPMENT => {
                 let target = r.var()?;
                 let mut updates = Vec::with_capacity(8);
                 let mut seen = 0u16;
@@ -1125,7 +1126,7 @@ impl Store {
                     e.binding = None;
                 }
             }
-            109 => {
+            cb::SET_PASSENGERS => {
                 let vehicle = r.var()?;
                 let n = r.count(MAX_ENTITIES)?;
                 let ids = (0..n).map(|_| r.var()).collect::<Result<Vec<_>>>()?;
@@ -1185,7 +1186,7 @@ impl Store {
                     }
                 }
             }
-            79 => {
+            cb::REMOVE_MOB_EFFECT => {
                 let target = r.var()?;
                 let effect = r.count(65535)? as u32;
                 r.done()?;
@@ -1194,7 +1195,7 @@ impl Store {
                     e.effects.remove(&effect);
                 }
             }
-            135 => {
+            cb::UPDATE_MOB_EFFECT => {
                 let target = r.var()?;
                 let effect = r.count(65535)? as u32;
                 let amplifier = r.count(255)? as u32;
@@ -1220,7 +1221,7 @@ impl Store {
                     );
                 }
             }
-            134 => {
+            cb::UPDATE_ATTRIBUTES => {
                 let target = r.var()?;
                 let count = r.count(128)?;
                 let mut attrs = BTreeMap::new();
@@ -1265,7 +1266,7 @@ impl Store {
                     e.attributes.extend(attrs);
                 }
             }
-            25 => {
+            cb::DAMAGE_EVENT => {
                 let target = r.var()?;
                 let damage_type = r.count(65535)?;
                 let cause = r.var()?.checked_sub(1).ok_or("damage cause id underflow")?;
@@ -1288,7 +1289,7 @@ impl Store {
                 }
                 self.event(json!({"type":"entity_damage","entity":target,"damage_type":damage_type,"cause":cause,"direct":direct,"source":source,"origin":"server_observed","health_confirmation_required":true}));
             }
-            43 => {
+            cb::HURT_ANIMATION => {
                 let target = r.var()?;
                 let yaw = r.f32()?;
                 r.done()?;
@@ -1301,7 +1302,7 @@ impl Store {
                     }
                 }
             }
-            127 => {
+            cb::TAKE_ITEM_ENTITY => {
                 let item = r.var()?;
                 let collector = r.var()?;
                 let count = r.count(1_000_000)?;
@@ -1309,7 +1310,7 @@ impl Store {
                 self.revision += 1;
                 self.event(json!({"type":"item_take","item_entity_id":item,"collector_entity_id":collector,"count":count,"origin":"server_observed","inventory_confirmation_required":true}));
             }
-            6 => {
+            cb::BLOCK_ENTITY_DATA => {
                 let p = metadata::position(r.i64()?);
                 let kind = r.count(65535)? as u32;
                 let start = r.offset;
@@ -1325,7 +1326,7 @@ impl Store {
                     self.apply_block_entity(p, kind, data, raw_nbt, None, content, tick)?;
                 }
             }
-            7 => {
+            cb::BLOCK_EVENT => {
                 let p = metadata::position(r.i64()?);
                 let action = r.u8()?;
                 let parameter = r.u8()?;
@@ -1341,7 +1342,7 @@ impl Store {
                 }
                 self.event(json!({"type":"block_entity_event","position":p,"action":action,"parameter":parameter,"block_type_id":block,"origin":"server_observed"}));
             }
-            56 => {
+            cb::MOVE_MINECART_ALONG_TRACK => {
                 let target = r.var()?;
                 let count = r.count(4096)?;
                 let mut steps = Vec::with_capacity(count);
@@ -1381,7 +1382,7 @@ impl Store {
                     }
                 }
             }
-            128 => {
+            cb::TELEPORT_ENTITY => {
                 let target = r.var()?;
                 let mut position = [r.f64()?, r.f64()?, r.f64()?];
                 let mut velocity = [r.f64()?, r.f64()?, r.f64()?];
@@ -1437,7 +1438,7 @@ impl Store {
                     );
                 }
             }
-            138 => {
+            cb::PROJECTILE_POWER => {
                 let target = r.var()?;
                 let power = r.f64()?;
                 r.done()?;

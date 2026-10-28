@@ -243,7 +243,7 @@ impl Store {
         }
     }
     pub(super) fn apply_player_info(&mut self, id: i32, r: &mut Reader<'_>) -> Result<()> {
-        if id == 70 {
+        if id == crate::protocol::packet_ids::play::clientbound::PLAYER_INFO_REMOVE {
             let count = r.count(MAX_PROFILES)?;
             let mut ids = BTreeSet::new();
             for _ in 0..count {

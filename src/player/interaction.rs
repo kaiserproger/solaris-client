@@ -1,3 +1,4 @@
+use crate::protocol::packet_ids::play::serverbound as sb;
 use super::collision::{self, Bounds};
 use super::*;
 use crate::inventory::Stack;
@@ -256,14 +257,14 @@ impl Player {
                         let mut w = Writer::default();
                         w.i64(protocol::pack_pos(hit.position));
                         w.byte(u8::from(include_data));
-                        out.push(PacketCommand::new(36, w));
+                        out.push(PacketCommand::new(sb::PICK_ITEM_FROM_BLOCK, w));
                     }
                     Some(Hit::Entity { handle, .. }) => {
                         entities.resolve(handle)?;
                         let mut w = Writer::default();
                         w.var(handle.network_id);
                         w.byte(u8::from(include_data));
-                        out.push(PacketCommand::new(37, w));
+                        out.push(PacketCommand::new(sb::PICK_ITEM_FROM_ENTITY, w));
                     }
                     None => {}
                 }
@@ -304,7 +305,7 @@ impl Player {
                     self.abilities.flying = !self.abilities.flying;
                     let mut w = Writer::default();
                     w.byte(if self.abilities.flying { 2 } else { 0 });
-                    out.push(PacketCommand::new(40, w));
+                    out.push(PacketCommand::new(sb::PLAYER_ABILITIES, w));
                 }
                 Ok(())
             }
@@ -433,7 +434,7 @@ impl Player {
             if let Some(Hit::Entity { handle, .. }) = target {
                 let mut w = Writer::default();
                 w.var(handle.network_id.checked_add(1).ok_or("spectator entity id overflow")?);
-                out.push(PacketCommand::new(63, w));
+                out.push(PacketCommand::new(sb::SPECTATOR_ACTION, w));
             }
             return Ok(());
         }
@@ -451,7 +452,7 @@ impl Player {
                 entities.resolve(handle)?;
                 let mut w = Writer::default();
                 w.var(handle.network_id);
-                out.push(PacketCommand::new(1, w));
+                out.push(PacketCommand::new(sb::ATTACK, w));
                 self.attack_ticks = 0;
                 self.swing(0, out);
             }
@@ -802,7 +803,7 @@ impl Player {
         writer.byte(u8::from(hit.inside));
         writer.byte(0);
         writer.var(sequence);
-        out.push(PacketCommand::new(66, writer));
+        out.push(PacketCommand::new(sb::USE_ITEM_ON, writer));
         let result = self.use_block_result(hit, hand, world, content, inventory, entities, tick)?;
         self.last_interaction_result = Some(result.java_result());
         Ok(result)
@@ -877,7 +878,7 @@ impl Player {
                         std::array::from_fn(|axis| point[axis] - entity.position[axis]),
                     );
                     writer.byte(u8::from(self.last_sent_input & 32 != 0));
-                    out.push(PacketCommand::new(26, writer));
+                    out.push(PacketCommand::new(sb::INTERACT, writer));
                     if self.game_mode == 3 {
                         Outcome::Pass
                     } else {
@@ -940,7 +941,7 @@ impl Player {
                 writer.var(sequence);
                 writer.f32(self.yaw);
                 writer.f32(self.pitch);
-                out.push(PacketCommand::new(67, writer));
+                out.push(PacketCommand::new(sb::USE_ITEM, writer));
                 let result = if self.on_cooldown(item, content, tick)? {
                     Outcome::Pass
                 } else {
@@ -1044,12 +1045,12 @@ impl Player {
         w.i64(protocol::pack_pos(position));
         w.var(face);
         w.var(sequence);
-        out.push(PacketCommand::new(41, w));
+        out.push(PacketCommand::new(sb::PLAYER_ACTION, w));
         Ok(())
     }
     pub(super) fn swing(&self, hand: u8, out: &mut Vec<PacketCommand>) {
         self.visual.swing(hand);
-        out.push(PacketCommand::new(46, Writer::default()));
+        out.push(PacketCommand::new(sb::PUNCH, Writer::default()));
     }
     fn abort_break(&mut self, out: &mut Vec<PacketCommand>) -> Result<()> {
         if let Some(b) = self.breaking.take() {

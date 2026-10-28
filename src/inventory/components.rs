@@ -1,4 +1,4 @@
-//! Target 26.1.2 component stream values, expressed in persistent Codec/HashOps types.
+//! Target 26.3 component stream values, expressed in persistent Codec/HashOps types.
 //! Registration and field order are sourced from pinned DataComponents and component javap.
 use super::{Stack, Tag as H, nbt, read_template_depth};
 use crate::protocol::{Reader, Result, content::Content};
@@ -165,8 +165,15 @@ pub(super) fn read_retained(
         Ok(persistent)
     };
     let value = match name {
-        "minecraft:use_remainder" => template(r)?,
+        "minecraft:use_remainder" | "minecraft:sulfur_cube_content" => template(r)?,
         "minecraft:charged_projectiles" | "minecraft:bundle_contents" => list(r, template)?,
+        "minecraft:pot_decorations" => {
+            let mut sides = Vec::new();
+            for side in ["back", "left", "right", "front"] {
+                opt(r, &mut sides, side, &mut template)?;
+            }
+            H::Map(sides)
+        }
         "minecraft:container" => {
             let count = r.count(256)?;
             let mut entries = Vec::new();
@@ -221,7 +228,7 @@ fn read_value(r: &mut Reader<'_>, c: &Content, name: &str, depth: u8) -> Result<
         | "additional_trade_cost" => integer(r)?,
         "minimum_attack_charge" | "potion_duration_scale" => float(r)?,
         "dyed_color" | "map_color" => H::Int(r.i32()?),
-        "unbreakable" | "creative_slot_lock" | "glider" => H::Map(vec![]),
+        "unbreakable" | "creative_slot_lock" | "glider" | "waxed" => H::Map(vec![]),
         "intangible_projectile" => {
             let _ = nbt::read(r)?;
             H::Map(vec![])
@@ -232,6 +239,19 @@ fn read_value(r: &mut Reader<'_>, c: &Content, name: &str, depth: u8) -> Result<
         | "container_loot" | "recipes" => nbt::read(r)?,
         "custom_name" | "item_name" => text(r)?,
         "lore" => list(r, text)?,
+        "block_transformer" => holder_registry(r, c, "minecraft:block_transformer")?,
+        "provides_pottery_pattern" => holder_registry(r, c, "minecraft:decorated_pot_pattern")?,
+        "villager_food" => H::record([("nutrition", integer(r)?)]),
+        "compostable" => H::record([("layers", resolvable(r, false)?)]),
+        "cooking_fuel" | "brewing_fuel" => H::record([
+            (if name == "cooking_fuel" { "burn_time" } else { "uses" }, resolvable(r, false)?),
+            ("speed_multiplier", resolvable(r, true)?),
+        ]),
+        "mob_visibility" => H::record([
+            ("targeting_entity_types", holder_set(r, c, "minecraft:entity_type")?),
+            ("visibility", float(r)?),
+        ]),
+        "sign_text_front" | "sign_text_back" => sign_text(r)?,
         "rarity" => enum_value(r, &["common", "uncommon", "rare", "epic"])?,
         "dye"
         | "base_color"
@@ -240,7 +260,7 @@ fn read_value(r: &mut Reader<'_>, c: &Content, name: &str, depth: u8) -> Result<
         | "sheep/color"
         | "shulker/color"
         | "tropical_fish/base_color"
-        | "tropical_fish/pattern_color" => enum_value(r, COLORS)?,
+        | "tropical_fish/pattern_color" | "cushion/color" => enum_value(r, COLORS)?,
         "fox/variant" => enum_value(r, &["red", "snow"])?,
         "salmon/size" => enum_value(r, &["small", "medium", "large"])?,
         "parrot/variant" => enum_value(r, &["red_blue", "blue", "green", "yellow_blue", "gray"])?,
@@ -389,7 +409,7 @@ fn read_value(r: &mut Reader<'_>, c: &Content, name: &str, depth: u8) -> Result<
             }
             H::Map(f)
         }
-        "swing_animation" => {
+        "attack_animation" | "interact_animation" => {
             let mut f = vec![];
             optional(
                 &mut f,
@@ -439,7 +459,6 @@ fn read_value(r: &mut Reader<'_>, c: &Content, name: &str, depth: u8) -> Result<
             }
             H::Map(f)
         }
-        "pot_decorations" => list(r, |r| holder_registry(r, c, "minecraft:item"))?,
         "provides_banner_patterns" => holder_set(r, c, "minecraft:banner_pattern")?,
         "break_sound" => sound(r, c)?,
         "lodestone_tracker" => {
@@ -762,6 +781,32 @@ fn read_complex(r: &mut Reader<'_>, c: &Content, name: &str, depth: u8) -> Resul
         _ => return Err(format!("unknown target component {name}")),
     })
 }
+// ResolvableValue's Either selector is true for a constant; integer constants
+// use fixed INT (not VAR_INT), while references are resource identifiers.
+fn resolvable(r: &mut Reader<'_>, is_float: bool) -> Result<H> {
+    if !r.bool()? {
+        string(r)
+    } else if is_float {
+        float(r)
+    } else {
+        Ok(H::Int(r.i32()?))
+    }
+}
+fn sign_text(r: &mut Reader<'_>) -> Result<H> {
+    let lines = |r: &mut Reader<'_>| -> Result<H> {
+        let mut values = Vec::with_capacity(4);
+        for _ in 0..4 {
+            values.push(text(r)?);
+        }
+        Ok(H::List(values))
+    };
+    let mut fields = vec![];
+    put(&mut fields, "messages", lines(r)?);
+    opt(r, &mut fields, "filtered_messages", lines)?;
+    optional(&mut fields, "color", enum_value(r, COLORS)?, H::string("black"));
+    optional(&mut fields, "has_glowing_text", boolean(r)?, H::Bool(false));
+    Ok(H::Map(fields))
+}
 fn filterable(r: &mut Reader<'_>, mut read: impl FnMut(&mut Reader<'_>) -> Result<H>) -> Result<H> {
     let raw = read(r)?;
     let mut f = vec![(H::string("raw"), raw)];
@@ -908,3 +953,7 @@ pub(super) fn trim_pattern(r: &mut Reader<'_>, c: &Content) -> Result<H> {
         ]))
     })
 }
+
+#[cfg(test)]
+#[path = "components_263_tests.rs"]
+mod tests_263;

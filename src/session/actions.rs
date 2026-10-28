@@ -1,3 +1,4 @@
+use crate::protocol::packet_ids::play::serverbound as sb;
 use super::*;
 use crate::{
     entities::Handle,
@@ -28,7 +29,7 @@ impl Session {
                 if self.phase == "play" {
                     let mut w = Writer::default();
                     w.0.extend(i16::from(slot).to_be_bytes());
-                    self.send(53, w)?;
+                    self.send(sb::SET_CARRIED_ITEM, w)?;
                 }
             }
             InputIntent::Key { key, pressed } => {
@@ -297,8 +298,8 @@ impl Session {
             &mut self.commands,
         )?;
         let started = self.commands[start..].iter().any(|command| {
-            command.id == 1
-                || (command.id == 41
+            command.id == sb::ATTACK
+                || (command.id == sb::PLAYER_ACTION
                     && matches!(
                         crate::protocol::Reader::new(&command.payload.0).var(),
                         Ok(0 | 2 | 7)
@@ -642,7 +643,7 @@ impl Session {
             UiCommand::Connect { address, username } => {
                 self.connect(&address, &username)?;
             }
-            UiCommand::Shutdown => return Err("client_shutdown_requested".into()),
+            UiCommand::Shutdown => self.shutdown_requested = true,
             UiCommand::PlayWorld { dir_name } => self.start_local_world(&dir_name)?,
             UiCommand::CancelLocalStart => self.cancel_local_start(),
             UiCommand::OpenUrl(_) => {

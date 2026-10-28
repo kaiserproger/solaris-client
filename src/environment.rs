@@ -4,6 +4,7 @@
 //! FogRenderer and its six environment classes, SkyRenderer and EndFlashState.
 //! Dimension/biome/timeline values are received registry facts, never dimension
 //! names mapped to fabricated legacy day/color tables. Parent owns epochs.
+use crate::protocol::packet_ids::play::clientbound as cb;
 mod attributes;
 pub(crate) mod biome;
 mod fading;
@@ -447,15 +448,15 @@ impl Environment {
         content: &Content,
         tick: u64,
     ) -> Result<bool> {
-        if !matches!(id, 39 | 115 | 130 | 131) {
+        if !matches!(id, cb::GAME_EVENT | cb::SET_TIME | cb::TICKING_STATE | cb::TICKING_STEP) {
             return Ok(false);
         }
-        if id == 39 && !matches!(r.bytes.get(r.offset), Some(1 | 2 | 7 | 8)) {
+        if id == cb::GAME_EVENT && !matches!(r.bytes.get(r.offset), Some(1 | 2 | 7 | 8)) {
             return Ok(false);
         }
         self.advance(tick, self.partial);
         match id {
-            39 => {
+            cb::GAME_EVENT => {
                 let event = r.u8()?;
                 let v = r.f32()?.clamp(0., 1.);
                 match event {
@@ -466,7 +467,7 @@ impl Environment {
                     _ => unreachable!(),
                 }
             }
-            115 => {
+            cb::SET_TIME => {
                 let time = r.i64()?;
                 let count = r.count(1024)?;
                 let mut updates = Vec::with_capacity(count);
@@ -503,7 +504,7 @@ impl Environment {
                         .expect("configured clock checked before commit") = c;
                 }
             }
-            130 => {
+            cb::TICKING_STATE => {
                 let rate = r.f32()?;
                 let frozen = r.bool()?;
                 if !rate.is_finite() || rate <= 0. {
@@ -512,7 +513,7 @@ impl Environment {
                 self.tick_rate = rate;
                 self.frozen = frozen;
             }
-            131 => {
+            cb::TICKING_STEP => {
                 self.steps = r.count(i32::MAX as usize)? as u32;
             }
             _ => unreachable!(),

@@ -1,3 +1,6 @@
+use crate::protocol::packet_ids::play::serverbound as sb;
+use crate::protocol::packet_ids::play::clientbound as cb;
+use crate::protocol::packet_ids::{login, configuration};
 use super::*;
 use crate::protocol::{self, world::Chunk, Reader};
 impl Session {
@@ -19,8 +22,8 @@ impl Session {
         let mut r = Reader::new(bytes);
         match phase {
             Phase::Login => match id {
-                0 => return Err(format!("login disconnect: {}", r.string(32767)?)),
-                2 => {
+                login::clientbound::LOGIN_DISCONNECT => return Err(format!("login disconnect: {}", r.string(32767)?)),
+                login::clientbound::LOGIN_FINISHED => {
                     let uuid = uuid::Uuid::from_slice(r.take(16)?).map_err(|error| error.to_string())?.to_string();
                     self.player.uuid = Some(Arc::from(uuid));
                     r.string(16)?;
@@ -29,13 +32,13 @@ impl Session {
                     r.done()?; self.phase = "configuration".into();
                     eprintln!("session startup: configuration");
                 }
-                3 => { r.count(protocol::MAX_FRAME)?; r.done()?; }
-                4 | 5 => {}
+                login::clientbound::LOGIN_COMPRESSION => { r.count(protocol::MAX_FRAME)?; r.done()?; }
+                login::clientbound::CUSTOM_QUERY | login::clientbound::COOKIE_REQUEST => {}
                 _ => return Err(format!("unsupported mandatory Login packet {id}")),
             },
             Phase::Configuration => match id {
-                2 => return Err(format!("configuration disconnect: {}", r.nbt()?)),
-                3 => {
+                configuration::clientbound::DISCONNECT => return Err(format!("configuration disconnect: {}", r.nbt()?)),
+                configuration::clientbound::FINISH_CONFIGURATION => {
                     r.done()?;
                     let content = self.content.as_mut().ok_or("content unavailable")?;
                     content.set_registries(std::mem::take(&mut self.registries));
@@ -48,7 +51,7 @@ impl Session {
                     self.phase = "play".into();
                     eprintln!("session startup: play");
                 }
-                7 => {
+                configuration::clientbound::REGISTRY_DATA => {
                     let registry = r.string(32767)?;
                     let n = r.count(65536)?;
                     if self.registries.len() >= 128 && !self.registries.contains_key(&registry) { return Err("registry collection bound".into()); }
@@ -63,7 +66,7 @@ impl Session {
                     self.entities.configure_registry(&registry, &entries)?;
                     self.registries.insert(registry, entries);
                 }
-                13 => {
+                configuration::clientbound::UPDATE_ENABLED_FEATURES => {
                     let mut features = BTreeSet::new();
                     for _ in 0..r.count(1024)? {
                         let feature = r.string(32767)?;
@@ -72,27 +75,27 @@ impl Session {
                     }
                     r.done()?; self.features = Arc::new(features);
                 }
-                14 => {
+                configuration::clientbound::UPDATE_TAGS => {
                     let tags = protocol::read_registry_tags(&mut r)?;
                     for (registry, values) in &tags { self.environment.configure_tags(registry, values)?; }
                     self.registry_tags = tags;
                 }
-                15 => { for _ in 0..r.count(1024)? { r.string(32767)?; r.string(32767)?; r.string(32767)?; } r.done()?; }
-                4 => { r.i64()?; r.done()?; }
-                5 => { r.i32()?; r.done()?; }
-                0 | 6 => {}
-                1 => self.custom_payload(&mut r)?,
-                8 | 11 | 16 | 17 | 18 => { *self.ignored_presentation.entry(id).or_default() += 1; }
-                10 => {
+                configuration::clientbound::SELECT_KNOWN_PACKS => { for _ in 0..r.count(1024)? { r.string(32767)?; r.string(32767)?; r.string(32767)?; } r.done()?; }
+                configuration::clientbound::KEEP_ALIVE => { r.i64()?; r.done()?; }
+                configuration::clientbound::PING => { r.i32()?; r.done()?; }
+                configuration::clientbound::COOKIE_REQUEST | configuration::clientbound::RESET_CHAT => {}
+                configuration::clientbound::CUSTOM_PAYLOAD => self.custom_payload(&mut r)?,
+                configuration::clientbound::RESOURCE_PACK_POP | configuration::clientbound::STORE_COOKIE | configuration::clientbound::CUSTOM_REPORT_DETAILS | configuration::clientbound::SERVER_LINKS | configuration::clientbound::CLEAR_DIALOG => { *self.ignored_presentation.entry(id).or_default() += 1; }
+                configuration::clientbound::POST_EFFECTS => {
                     for _ in 0..r.count(1024)? {
                         r.string(32767)?;
                     }
                     r.done()?;
                     *self.ignored_presentation.entry(id).or_default() += 1;
                 }
-                9 => return Err("server resource-pack activation unsupported; refusing ambiguous mandatory content".into()),
-                12 => return Err("server transfer unsupported".into()),
-                19 | 20 => return Err("configuration dialog/code-of-conduct requires unsupported human UI".into()),
+                configuration::clientbound::RESOURCE_PACK_PUSH => return Err("server resource-pack activation unsupported; refusing ambiguous mandatory content".into()),
+                configuration::clientbound::TRANSFER => return Err("server transfer unsupported".into()),
+                configuration::clientbound::SHOW_DIALOG | configuration::clientbound::CODE_OF_CONDUCT => return Err("configuration dialog/code-of-conduct requires unsupported human UI".into()),
                 _ => return Err(format!("unknown mandatory Configuration packet {id}")),
             },
             Phase::Play => self.play(id, &mut r)?,
@@ -216,7 +219,7 @@ impl Session {
         }
     }
     fn play(&mut self, id: i32, r: &mut Reader<'_>) -> Result<()> {
-        if id == 61 {
+        if id == cb::OPEN_SIGN_EDITOR {
             let position = protocol::unpack_pos(r.i64()?);
             let front = r.var()? == 1;
             r.done()?;
@@ -239,7 +242,7 @@ impl Session {
         {
             self.environment.publish_world(&mut self.world)?;
             self.server_frozen = self.environment.frozen;
-            if id == 131 {
+            if id == cb::TICKING_STEP {
                 self.step_ticks = Reader::new(r.bytes).var()?;
             }
             handled = true;
@@ -248,7 +251,7 @@ impl Session {
             .player
             .apply(id, &mut Reader::new(r.bytes), content, self.client_tick)?
         {
-            if id == 106 || id == 69 {
+            if id == cb::SET_HEALTH || id == cb::PLAYER_COMBAT_KILL {
                 self.health_version += 1;
             }
             self.player.drain_commands(&mut self.commands);
@@ -273,7 +276,7 @@ impl Session {
             }
         }
         if handled {
-            if id == 4 {
+            if id == cb::BLOCK_CHANGED_ACK {
                 self.reconcile_ack(Reader::new(r.bytes).var()?)?;
             }
             if !self.commands.is_empty() {
@@ -283,10 +286,10 @@ impl Session {
             return Ok(());
         }
         match id {
-            0 | 12 | 45 => {}
-            62 => { r.i32()?; r.done()?; } // Pong is sent immediately by the socket owner.
-            32 => return Err(format!("Play disconnect: {}", r.nbt()?)),
-            50 => {
+            cb::BUNDLE_DELIMITER | cb::CHUNK_BATCH_START | cb::KEEP_ALIVE => {}
+            cb::PING => { r.i32()?; r.done()?; } // Pong is sent immediately by the socket owner.
+            cb::DISCONNECT => return Err(format!("Play disconnect: {}", r.nbt()?)),
+            cb::LOGIN => {
                 self.player.entity_id = r.i32()?;
                 self.entities.own_id = Some(self.player.entity_id);
                 r.bool()?;
@@ -309,7 +312,7 @@ impl Session {
                         .set_local_player(self.player.entity_id, uuid)?;
                 }
             }
-            84 => {
+            cb::RESPAWN => {
                 self.spawn_info(r)?;
                 let keep = r.u8()?;
                 r.done()?;
@@ -321,7 +324,7 @@ impl Session {
                 self.inventory.close();
                 self.keys.clear();
             }
-            46 => {
+            cb::LEVEL_CHUNK_WITH_LIGHT => {
                 if self.world.height <= 0 {
                     return Err("chunk before dimension registry activated".into());
                 }
@@ -385,14 +388,14 @@ impl Session {
                 }
                 self.ingest_far_chunk(position);
             }
-            49 => {
+            cb::LIGHT_UPDATE => {
                 let position = [r.var()?, r.var()?];
                 self.world.update_light(position, r)?;
                 if let Some(terrain) = &mut self.terrain {
                     terrain.invalidate_chunk(&self.world, position)?;
                 }
             }
-            38 => {
+            cb::FORGET_LEVEL_CHUNK => {
                 let packed = r.i64()?;
                 let position = [packed as i32, (packed >> 32) as i32];
                 r.done()?;
@@ -410,13 +413,13 @@ impl Session {
                     terrain.invalidate_chunk(&self.world, position)?;
                 }
             }
-            8 => {
+            cb::BLOCK_UPDATE => {
                 let position = protocol::unpack_pos(r.i64()?);
                 let state = r.count(1_000_000)? as u32;
                 r.done()?;
                 self.receive_block(position, state)?;
             }
-            86 => {
+            cb::SECTION_BLOCKS_UPDATE => {
                 let packed = r.i64()?;
                 let sx = (packed >> 42) as i32;
                 let sy = ((packed << 44) >> 44) as i32;
@@ -434,14 +437,14 @@ impl Session {
                 }
                 r.done()?;
             }
-            11 => {
+            cb::CHUNK_BATCH_FINISHED => {
                 r.var()?;
                 r.done()?;
                 let mut w = Writer::default();
                 w.f32(4.);
-                self.send(11, w)?;
+                self.send(sb::CHUNK_BATCH_RECEIVED, w)?;
             }
-            39 => {
+            cb::GAME_EVENT => {
                 let event = r.u8()?;
                 let value = r.f32()?;
                 r.done()?;
@@ -453,7 +456,7 @@ impl Session {
                 }
             }
             // 26.3 ClientboundLevelEvent: raw i32, BlockPos, raw i32, bool.
-            47 => {
+            cb::LEVEL_EVENT => {
                 let event = r.i32()?;
                 let position = protocol::unpack_pos(r.i64()?);
                 let data = r.i32()?;
@@ -467,7 +470,7 @@ impl Session {
                     "presentation_supported":presented}),
                 );
             }
-            119 => {
+            cb::SOUND => {
                 let sound = self.read_sound(r)?;
                 let source = r.count(16)?;
                 let position = [
@@ -491,7 +494,7 @@ impl Session {
                 }
                 self.event(json!({"type":"sound","sound":sound,"source":source,"position":position,"origin":"server_observed"}));
             }
-            118 => {
+            cb::SOUND_ENTITY => {
                 let sound = self.read_sound(r)?;
                 let source = r.count(16)?;
                 let entity = r.var()?;
@@ -521,13 +524,13 @@ impl Session {
                     );
                 }
             }
-            121 => {
+            cb::STOP_SOUND => {
                 if let Some(audio) = &self.audio {
                     audio.stop();
                 }
                 self.event(json!({"type":"sound_stop","policy":"all_voices_stopped_bounded_C02"}));
             }
-            120 => {
+            cb::START_CONFIGURATION => {
                 self.phase = "configuration".into();
                 self.loader.reset();
                 self.far.disconnect();
@@ -558,23 +561,23 @@ impl Session {
                     audio.stop();
                 }
             }
-            82 => return Err("Play resource-pack activation unsupported".into()),
-            132 => return Err("server transfer unsupported".into()),
-            21 => {
+            cb::RESOURCE_PACK_PUSH => return Err("Play resource-pack activation unsupported".into()),
+            cb::TRANSFER => return Err("server transfer unsupported".into()),
+            cb::COOKIE_REQUEST => {
                 let key = r.string(32767)?;
                 r.done()?;
                 let mut w = Writer::default();
                 w.string(&key);
                 w.byte(0);
-                self.send(21, w)?;
+                self.send(sb::COOKIE_RESPONSE, w)?;
             }
-            24 => self.custom_payload(r)?,
-            122 => {
+            cb::CUSTOM_PAYLOAD => self.custom_payload(r)?,
+            cb::STORE_COOKIE => {
                 r.string(32767)?;
                 r.array(5120)?;
                 r.done()?;
             }
-            137 => {
+            cb::UPDATE_TAGS => {
                 let tags = protocol::read_registry_tags(&mut Reader::new(r.bytes))?;
                 for (registry, values) in &tags {
                     self.environment.configure_tags(registry, values)?;
@@ -586,7 +589,7 @@ impl Session {
             // ClientboundBlockDestruction layout (26.1.2 Play id 5, verified
             // against packet 8 handler above: varint breaker-id, BlockPos i64
             // via protocol::unpack_pos, u8 stage): store 0..=9, remove on >= 10.
-            5 => {
+            cb::BLOCK_DESTRUCTION => {
                 let breaker = r.var()?;
                 let position = protocol::unpack_pos(r.i64()?);
                 let stage = r.u8()?;
@@ -598,10 +601,10 @@ impl Session {
             // bools, doubles/floats, count, registry particle) is counted, not
             // rendered: particle presentation is unsupported (local use/block
             // predictions already emit unsupported_local_particle_presentation).
-            2 | 3 | 9 | 10 | 13 | 14 | 15 | 16 | 23 | 26 | 27 | 28 | 29 | 30 | 31 | 33 | 34
-            | 44 | 72 | 75 | 76 | 77 | 80 | 85 | 87 | 88 | 89 | 90 | 91 | 92 | 93 | 94 | 96
-            | 97 | 99 | 100 | 101 | 102 | 104 | 108 | 111 | 112 | 113 | 114 | 116 | 117 | 124
-            | 125 | 126 | 128 | 129 | 133 | 136 | 138 | 139 | 140 | 141 | 142 | 143 => {
+            cb::ANIMATE | cb::AWARD_STATS | cb::BOSS_EVENT | cb::CHANGE_DIFFICULTY | cb::CHUNKS_BIOMES | cb::CLEAR_TITLES | cb::COMMAND_SUGGESTIONS | cb::COMMANDS | cb::CUSTOM_CHAT_COMPLETIONS | cb::DEBUG_BLOCK_VALUE | cb::DEBUG_CHUNK_VALUE | cb::DEBUG_ENTITY_VALUE | cb::DEBUG_EVENT | cb::DEBUG_SAMPLE | cb::DELETE_CHAT | cb::DISGUISED_CHAT | cb::ENTITY_EVENT
+            | cb::INITIALIZE_BORDER | cb::PLAYER_LOOK_AT | cb::RESET_SCORE | cb::ROTATE_HEAD | cb::SELECT_ADVANCEMENTS_TAB | cb::SERVER_DATA | cb::SET_ACTION_BAR_TEXT | cb::SET_BORDER_CENTER | cb::SET_BORDER_LERP_SIZE | cb::SET_BORDER_SIZE | cb::SET_BORDER_WARNING_DELAY | cb::SET_BORDER_WARNING_DISTANCE | cb::SET_CHUNK_CACHE_CENTER
+            | cb::SET_CHUNK_CACHE_RADIUS | cb::SET_DEFAULT_SPAWN_POSITION | cb::SET_DISPLAY_OBJECTIVE | cb::SET_ENTITY_DATA | cb::SET_ENTITY_LINK | cb::SET_EQUIPMENT | cb::SET_OBJECTIVE | cb::SET_PLAYER_TEAM | cb::SET_SCORE | cb::SET_SIMULATION_DISTANCE | cb::SET_SUBTITLE_TEXT | cb::SET_TITLE_TEXT | cb::SET_TITLES_ANIMATION | cb::SYSTEM_CHAT
+            | cb::TAB_LIST | cb::TAG_QUERY | cb::TELEPORT_ENTITY | cb::TEST_INSTANCE_BLOCK_STATUS | cb::UPDATE_ADVANCEMENTS | cb::PROJECTILE_POWER | cb::CUSTOM_REPORT_DETAILS | cb::SERVER_LINKS | cb::WAYPOINT | cb::CLEAR_DIALOG | cb::SHOW_DIALOG | cb::ADD_TRANSIENT_BLOCK | cb::GAME_RULE_VALUES | cb::LEVEL_PARTICLES | cb::LOW_DISK_SPACE_WARNING | cb::OPEN_BOOK | cb::PONG_RESPONSE | cb::PLAYER_COMBAT_END | cb::PLAYER_COMBAT_ENTER | cb::RESOURCE_PACK_POP | cb::POST_EFFECTS | cb::SWING_ANIMATION => {
                 *self.ignored_presentation.entry(id).or_default() += 1;
             }
             _ => return Err(format!("unknown mandatory Play packet {id}")),

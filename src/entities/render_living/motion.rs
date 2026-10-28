@@ -11,12 +11,19 @@ pub(crate) struct MethodFact {
 pub(crate) struct MotionFacts {
     pub class: String,
     pub is_mob: bool,
-    pub walk_uses_y: bool,
+    walk_uses_y: WalkVertical,
     pub methods: BTreeMap<String, MethodFact>,
     pub head_rule: Option<HeadRule>,
     pub body_head_rule: Option<BodyHeadRule>,
     pub body_rule: Option<BodyRule>,
     pub walk_rule: Option<WalkRule>,
+}
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum WalkVertical {
+    Never,
+    Always,
+    BodyEquipped,
 }
 #[derive(Debug, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -74,6 +81,13 @@ pub(crate) enum WalkRule {
     Creaking,
 }
 impl MotionFacts {
+    pub fn walk_uses_y(&self, entity: &Entity) -> bool {
+        match self.walk_uses_y {
+            WalkVertical::Never => false,
+            WalkVertical::Always => true,
+            WalkVertical::BodyEquipped => entity.equipment_value(6).is_some_and(|stack| stack.count > 0),
+        }
+    }
     pub fn max_head_yaw(&self, models: &Models, entity: &Entity) -> Option<f32> {
         self.head_rule.as_ref().map(|rule| match rule {
             HeadRule::Fixed { value } => *value,

@@ -19,6 +19,20 @@ State mode does not load resource packs, localization, fonts, atlases, render ri
 
 The previous adjacent-snow failure was premature lifecycle completion during the ordinary destroy delay. Headless inventory failures were stale pre-synchronization UI contexts and screen publication that depended on rendering; synchronization now follows ordinary inventory effects and received-state ticks. Entity listing, visible wait, approach, pig feeding, and one received-health-confirmed attack have runtime evidence; repeated combat/drop collection remains under verification on the unchanged shared profile. This is not full-client acceptance. C03 scale/performance and remaining C04 completeness remain deferred without acceptance or scope deletion. C00–C02 acceptance is unchanged.
 
+The 2026-10-28 protocol-777 rc.1 cutover is a **scoped compatibility result**,
+not a stage advancement: all 255 Login/Configuration/Play IDs match the explicit
+26.3 report; changed component/advancement/entity codecs have authored exact-byte
+regressions, and all 161 entity schemas use verified 26.3 facts. The r4-pinned
+client passes the real-window native lifecycle plus ordinary axe stripping and
+hoe tilling, reconnect persistence, 64 grounded settling ticks without
+rubber-band, a known-lit slab/stair/leaf/wall capture and unsignalled normal Quit.
+Exact binary/server identities, fixtures, review and receipts are linked from
+`docs/AGENT_TESTING.md`. Xvfb/lavapipe output is not physical scanout or a vanilla
+AO oracle; zero-soak is not long-session evidence. Commands/other explicitly
+unsupported presentation and the four added entity visual families remain
+unaccepted, and inherited lint/GPU-environment issues remain in `BUGS.md`.
+C00–C02 acceptance and the sole P0 cursor above are intentionally unchanged.
+
 ## Gate and evidence policy
 
 Each stage supplies working vertical behavior. Unit tests, prepared fixtures and a window alone do not substitute for gameplay, GPU/audio or service evidence. Preserve source workload/settings after A/B starts. Parent records exact tree/build/locks, platform/device/backend, server/oracle, input and packet/event traces, assertion results, raw metrics, frame/resource/state IDs and actual audio sink. Native onscreen evidence is required where specified. No accepted row without a receipt. Unavailable external prerequisites stay explicit and prohibit the associated completeness claim.

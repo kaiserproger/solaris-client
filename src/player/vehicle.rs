@@ -1,5 +1,6 @@
 //! Source-derived controlled mounts. Minecarts and non-controlling passengers use received
 //! entity interpolation; they are never run through a guessed boat/horse simulator.
+use crate::protocol::packet_ids::play::serverbound as sb;
 use super::*;
 use crate::entities::Metadata;
 
@@ -478,7 +479,7 @@ impl Player {
                 let mut w = Writer::default();
                 w.byte(u8::from((input.has(3) && !input.has(2)) || input.has(0)));
                 w.byte(u8::from((input.has(2) && !input.has(3)) || input.has(0)));
-                out.push(PacketCommand::new(35, w));
+                out.push(PacketCommand::new(sb::PADDLE_BOAT, w));
                 let wanted = prepared_move(&mut v);
                 collision::gather(
                     world,
@@ -1145,7 +1146,7 @@ impl Player {
                     0.12 * math::cos(f64::from(phase * 1.5)) * 2. * motion.walk_speed.min(0.25),
                 );
             }
-            Some("net.minecraft.world.entity.monster.Slime") => {
+            Some("net.minecraft.world.entity.monster.cubemob.AbstractCubeMob") => {
                 let size = integer(entities, handle, "ID_SIZE", 1)?.max(1);
                 point = [0., f64::from(height) - 0.015625 * f64::from(size), 0.];
             }
@@ -1635,7 +1636,7 @@ fn write_vehicle(p: [f64; 3], yaw: f32, pitch: f32, grounded: bool, out: &mut Ve
     w.f32(yaw);
     w.f32(pitch);
     w.byte(u8::from(grounded));
-    out.push(PacketCommand::new(34, w));
+    out.push(PacketCommand::new(sb::MOVE_VEHICLE, w));
 }
 fn boat_water_above(world: &World, content: &Content, b: Bounds, last_y: f64) -> Result<f32> {
     let end = (b.max[1] - last_y).ceil() as i32;

@@ -496,11 +496,34 @@ impl Default for ResourceLimits {
         Self {
             max_source_bytes: 32 << 20,
             max_texture_dimension: 4096,
-            max_decoded_bytes: 256 << 20,
+            // Complete vanilla 26.3 needs 285,022,348 CPU bytes while
+            // preprocessing its indexed sprites; the atlas itself still fits 256 MiB.
+            max_decoded_bytes: 512 << 20,
             max_atlas_bytes: 256 << 20,
-            max_reload_bytes: 512 << 20,
+            max_reload_bytes: 1024 << 20,
             max_resources: 32768,
         }
+    }
+}
+impl ResourceLimits {
+    fn check_sprite_preprocessing(
+        &self,
+        name: &str,
+        image_bytes: usize,
+        animation_bytes: usize,
+        atlas_bytes: usize,
+    ) -> Result<()> {
+        let peak = image_bytes
+            .checked_mul(5)
+            .and_then(|bytes| bytes.checked_add(animation_bytes))
+            .and_then(|bytes| bytes.checked_add(atlas_bytes));
+        if peak.is_none_or(|bytes| bytes > self.max_decoded_bytes) {
+            return Err(format!(
+                "sprite preprocessing CPU peak byte budget exceeded: {name}, peak={peak:?}, limit={}",
+                self.max_decoded_bytes
+            ));
+        }
+        Ok(())
     }
 }
 #[derive(Clone)]
@@ -2585,15 +2608,12 @@ impl Atlas {
                 "minecraft:missingno" => missing_texture(),
                 _ => decode_texture(source, name)?,
             };
-            if image
-                .rgba
-                .len()
-                .checked_mul(5)
-                .and_then(|v| v.checked_add(animation_bytes + (layers as usize + 1) * mip_bytes))
-                .is_none_or(|v| v > source.limits.max_decoded_bytes)
-            {
-                return Err("sprite preprocessing CPU peak byte budget exceeded".into());
-            }
+            source.limits.check_sprite_preprocessing(
+                name,
+                image.rgba.len(),
+                animation_bytes,
+                (layers as usize + 1) * mip_bytes,
+            )?;
             let (_, path) = split_id(name)?;
             let metadata = if name == "solaris:white" || name == "minecraft:missingno" {
                 Value::Null
@@ -3068,6 +3088,19 @@ mod tests {
             7
         );
     }
+    #[test]
+    fn vanilla_26_3_atlas_preprocessing_fits_default_cpu_budget() {
+        // Authored dimensions/accounting reproduce the complete vanilla 26.3
+        // atlas's peak at an indexed Realms sprite, without embedding its pixels.
+        let limits = ResourceLimits::default();
+        limits
+            .check_sprite_preprocessing("test:large_sprite", 780 * 608 * 4, 7_364_236, 268_173_312)
+            .unwrap();
+        assert!(limits
+            .check_sprite_preprocessing("test:oversized", usize::MAX, 0, 0)
+            .is_err());
+    }
+
     #[test]
     fn namespace_and_path_boundaries_reject_escape() {
         for id in [

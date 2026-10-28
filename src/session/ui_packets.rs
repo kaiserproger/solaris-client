@@ -1,4 +1,5 @@
 //! Target 26.3 UI wire layouts; semantic admission remains in the UI/inventory owners.
+use crate::protocol::packet_ids::play::serverbound as sb;
 use crate::{
     inventory::PacketCommand,
     protocol::{self, nbt::Nbt, Result, Writer},
@@ -28,19 +29,19 @@ pub(super) fn chat(
     writer.var(last_seen.offset);
     writer.0.extend_from_slice(&last_seen.acknowledged);
     writer.byte(last_seen.checksum);
-    Ok(PacketCommand::new(9, writer))
+    Ok(PacketCommand::new(sb::CHAT, writer))
 }
 
 pub(super) fn unsigned_command(command: &str) -> Result<PacketCommand> {
     let mut writer = Writer::default();
     utf(&mut writer, command, 32767)?;
-    Ok(PacketCommand::new(7, writer))
+    Ok(PacketCommand::new(sb::CHAT_COMMAND, writer))
 }
 
 pub(super) fn chat_ack(offset: i32) -> PacketCommand {
     let mut writer = Writer::default();
     writer.var(offset);
-    PacketCommand::new(6, writer)
+    PacketCommand::new(sb::CHAT_ACK, writer)
 }
 
 pub(super) fn sign(position: [i32; 3], front: bool, lines: &[String; 4]) -> Result<PacketCommand> {
@@ -50,7 +51,7 @@ pub(super) fn sign(position: [i32; 3], front: bool, lines: &[String; 4]) -> Resu
         utf(&mut writer, line, 384)?;
     }
     writer.var(i32::from(front));
-    Ok(PacketCommand::new(62, writer))
+    Ok(PacketCommand::new(sb::SIGN_UPDATE, writer))
 }
 
 pub(super) fn book(slot: i32, pages: &[String], title: Option<&str>) -> Result<PacketCommand> {
@@ -67,17 +68,17 @@ pub(super) fn book(slot: i32, pages: &[String], title: Option<&str>) -> Result<P
     if let Some(title) = title {
         utf(&mut writer, title, 32)?;
     }
-    Ok(PacketCommand::new(24, writer))
+    Ok(PacketCommand::new(sb::EDIT_BOOK, writer))
 }
 
 pub(super) fn command_block(edit: &CommandEdit) -> Result<PacketCommand> {
     let mut writer = Writer::default();
     let id = if let Some(entity_id) = edit.entity_id {
         writer.var(entity_id);
-        56
+        sb::SET_COMMAND_MINECART
     } else {
         writer.i64(protocol::pack_pos(edit.pos));
-        55
+        sb::SET_COMMAND_BLOCK
     };
     utf(&mut writer, &edit.command, 32767)?;
     if edit.entity_id.is_some() {
@@ -123,7 +124,7 @@ pub(super) fn structure(edit: &StructureEdit) -> Result<PacketCommand> {
             | (u8::from(edit.show_box) << 2)
             | (u8::from(edit.strict) << 3),
     );
-    Ok(PacketCommand::new(60, writer))
+    Ok(PacketCommand::new(sb::SET_STRUCTURE_BLOCK, writer))
 }
 
 pub(super) fn jigsaw(edit: &JigsawEdit) -> Result<PacketCommand> {
@@ -136,7 +137,7 @@ pub(super) fn jigsaw(edit: &JigsawEdit) -> Result<PacketCommand> {
     utf(&mut writer, &edit.joint, 32767)?;
     writer.var(edit.selection_priority);
     writer.var(edit.placement_priority);
-    Ok(PacketCommand::new(59, writer))
+    Ok(PacketCommand::new(sb::SET_JIGSAW_BLOCK, writer))
 }
 
 pub(super) fn generate_jigsaw(position: [i32; 3], levels: i32, keep: bool) -> PacketCommand {
@@ -144,7 +145,7 @@ pub(super) fn generate_jigsaw(position: [i32; 3], levels: i32, keep: bool) -> Pa
     writer.i64(protocol::pack_pos(position));
     writer.var(levels);
     writer.byte(u8::from(keep));
-    PacketCommand::new(27, writer)
+    PacketCommand::new(sb::JIGSAW_GENERATE, writer)
 }
 
 /// `ServerboundCustomClickActionPacket` (play id 68): Identifier, then the optional NBT payload
@@ -162,13 +163,13 @@ pub(super) fn custom_click(id: &str, payload: Option<&Nbt>) -> Result<PacketComm
     utf(&mut writer, &protocol::parse_identifier(id)?, 32767)?;
     writer.var(body.0.len() as i32);
     writer.0.extend(body.0);
-    Ok(PacketCommand::new(68, writer))
+    Ok(PacketCommand::new(sb::CUSTOM_CLICK_ACTION, writer))
 }
 
 pub(super) fn respawn() -> PacketCommand {
     let mut writer = Writer::default();
     writer.var(0);
-    PacketCommand::new(12, writer)
+    PacketCommand::new(sb::CLIENT_COMMAND, writer)
 }
 
 pub(super) fn request_statistics() -> PacketCommand {
@@ -176,7 +177,7 @@ pub(super) fn request_statistics() -> PacketCommand {
     // ordinal 1, encoded by FriendlyByteBuf.writeEnum as a VarInt (26.1.2 javap).
     let mut writer = Writer::default();
     writer.var(1);
-    PacketCommand::new(12, writer)
+    PacketCommand::new(sb::CLIENT_COMMAND, writer)
 }
 
 pub(super) fn seen_advancements(tab: Option<&str>) -> PacketCommand {
@@ -192,7 +193,7 @@ pub(super) fn seen_advancements(tab: Option<&str>) -> PacketCommand {
         }
         None => writer.var(1),
     }
-    PacketCommand::new(51, writer)
+    PacketCommand::new(sb::SEEN_ADVANCEMENTS, writer)
 }
 
 #[cfg(test)]

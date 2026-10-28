@@ -151,7 +151,7 @@ impl Models {
     fn parse() -> Result<Document> {
         let doc: Document = serde_json::from_str(ENTITY_FACTS)
             .map_err(|e| format!("solaris entity facts schema: {e}"))?;
-        if doc.schema != FACTS_SCHEMA || doc.game_version != "26.1.2" {
+        if doc.schema != FACTS_SCHEMA || doc.game_version != "26.3" {
             return Err("solaris entity facts source/target mismatch".into());
         }
         if doc.entities.len() > 1024 || doc.poses.len() != 18 {
@@ -179,8 +179,8 @@ impl Models {
         Ok(doc)
     }
     fn check_registry(doc: &Document, content: &Content) -> Result<()> {
-        for name in doc.entities.keys() {
-            if !content.entity_names.values().any(|candidate| candidate == name) {
+        for (name, schema) in &doc.entities {
+            if content.entity_names.get(&schema.protocol_id) != Some(name) {
                 return Err(format!("entity registry/facts mismatch for {name}"));
             }
         }
@@ -469,7 +469,7 @@ impl Models {
                 .and_then(|variants| variants.get(&number("DATA_TYPE").unwrap_or(1)))
                 .and_then(|fields| fields.get("boundingBoxScale"))
                 .ok_or("source salmon numeric variant missing")?,
-            Some("net.minecraft.world.entity.monster.Slime") => {
+            Some("net.minecraft.world.entity.monster.cubemob.AbstractCubeMob") => {
                 number("ID_SIZE").unwrap_or(1) as f32
             }
             Some("net.minecraft.world.entity.monster.Phantom") => {
@@ -536,12 +536,12 @@ mod tests {
     #[test]
     fn embedded_entity_facts_parse_and_carry_no_geometry() {
         let doc = Models::parse().unwrap();
-        assert_eq!(doc.entities.len(), 157);
+        assert_eq!(doc.entities.len(), 161);
         assert_eq!(doc.motion.len(), doc.entities.len());
         assert_eq!(doc.families.len(), 129);
         assert_eq!(doc.default_skins.len(), 18);
         let zombie = &doc.entities["minecraft:zombie"];
-        assert_eq!(zombie.protocol_id, 150);
+        assert_eq!(zombie.protocol_id, 154);
         assert!(zombie.dimension_constants.contains_key("BABY_DIMENSIONS"));
         assert!(
             ENTITY_FACTS.len() < 1 << 20,
@@ -553,6 +553,98 @@ mod tests {
                 "{geometry} in entity facts"
             );
         }
+    }
+
+    #[test]
+    fn wire_263_slime_metadata_uses_regenerated_accessor_schema() {
+        use crate::protocol::{Reader, Writer, packet_ids::play::clientbound as cb};
+        let doc = Models::parse().unwrap();
+        assert_eq!(doc.game_version, "26.3");
+        assert_eq!(doc.entities["minecraft:slime"].accessors["ID_SIZE"], [18, 1]);
+        let mut content = Content::test_cube();
+        content.entity_names = doc.entities.iter()
+            .map(|(name, schema)| (schema.protocol_id, name.clone())).collect();
+        content.item_names.insert(0, "test:body".into());
+        content.insert_test_item_components(0, BTreeMap::new());
+        let models = std::sync::Arc::new(Models::load_state(&content).unwrap());
+        let mut store = super::super::Store::default();
+        store.activate_models(std::sync::Arc::clone(&models));
+        let mut spawn = Writer::default();
+        spawn.var(1);
+        spawn.0.extend_from_slice(&[0; 16]); // UUID
+        spawn.var(120); // reports/registries.json: minecraft:slime
+        spawn.0.extend_from_slice(&[0; 29]); // xyz, zero LP Vec3, rotations, spawn data
+        assert!(store.apply(cb::ADD_ENTITY, &mut Reader::new(&spawn.0), &content, 1).unwrap());
+        // entity=1, accessor=18, INT serializer=1, size=4, end=255.
+        assert!(store.apply(cb::SET_ENTITY_DATA, &mut Reader::new(&[1, 18, 1, 4, 255]), &content, 2).unwrap());
+        assert_eq!(store.get(1).unwrap().metadata[&18].int(), Some(4));
+        assert_eq!(models.dimensions(store.get(1).unwrap()).unwrap().1, 4.);
+        // 26.3 SulfurCube's vertical walk animation is hasBodyItem(), not the
+        // removed FlyingAnimal interface or a fabricated constant.
+        let sulfur = &models.motion["minecraft:sulfur_cube"];
+        assert!(!sulfur.walk_uses_y(store.get(1).unwrap()));
+        let body = crate::inventory::read_stack(&mut Reader::new(&[1, 0, 0, 0]), &content).unwrap();
+        store.get_mut(1).unwrap().equipment[6] = Some(body);
+        assert!(sulfur.walk_uses_y(store.get(1).unwrap()));
+        store.get_mut(1).unwrap().equipment[6] = None;
+        assert!(!sulfur.walk_uses_y(store.get(1).unwrap()));
+    }
+
+    #[test]
+    fn regression_263_cushion_and_painting_metadata() {
+        use crate::protocol::{Reader, Writer};
+        let doc = Models::parse().unwrap();
+        assert_eq!(doc.entities["minecraft:cushion"].accessors["DATA_COLOR"], [8, 43]);
+        let mut content = Content::test_cube();
+        content.entity_names = doc.entities.iter()
+            .map(|(name, schema)| (schema.protocol_id, name.clone())).collect();
+        content.set_registries(BTreeMap::from([("minecraft:painting_variant".into(),
+            (0..3).map(|id| (format!("test:painting_{id}"), serde_json::json!({}))).collect())]));
+        let models = Models::load_state(&content).unwrap();
+        let mut reader = Reader::new(&[8, 43, 14, 255]);
+        let values = super::super::metadata::decode(&mut reader, &content, &models).unwrap();
+        reader.done().unwrap();
+        assert_eq!(values[&8].serializer_id(), 43);
+        assert_eq!(values[&8].int(), Some(14));
+        let mut reader = Reader::new(&[9, 34, 1, 255]);
+        let values = super::super::metadata::decode(&mut reader, &content, &models).unwrap();
+        reader.done().unwrap();
+        assert_eq!(values[&9].serializer_id(), 34);
+        assert_eq!(values[&9].int(), Some(0), "holder reference 1 names registry entry 0");
+        let last = content.registry_entries("minecraft:painting_variant").unwrap().len() as i32;
+        let mut packet = Writer::default();
+        packet.0.extend_from_slice(&[9, 34]);
+        packet.var(last);
+        packet.0.push(255);
+        let mut reader = Reader::new(&packet.0);
+        let values = super::super::metadata::decode(&mut reader, &content, &models).unwrap();
+        reader.done().unwrap();
+        assert_eq!(values[&9].int(), Some(last - 1));
+        let mut packet = Writer::default();
+        packet.0.extend_from_slice(&[9, 34, 0, 2, 3]); // inline holder, width, height
+        packet.string("test:painting");
+        packet.0.extend_from_slice(&[1, 8, 0, 1, b'T', 1, 8, 0, 1, b'A', 10, 0, 5, 255]);
+        let mut reader = Reader::new(&packet.0);
+        let values = super::super::metadata::decode(&mut reader, &content, &models).unwrap();
+        reader.done().unwrap();
+        assert_eq!(values[&9].serializer_id(), 34);
+        assert_eq!(values[&9].int(), None);
+        assert_eq!(values[&10].int(), Some(5), "inline holder consumes exactly its fields");
+        let value = serde_json::to_value(&values[&9]).unwrap();
+        assert_eq!(value["value"]["width"], 2);
+        assert_eq!(value["value"]["height"], 3);
+        assert_eq!(value["value"]["asset_id"], "test:painting");
+        assert_eq!(value["value"]["title"], "T");
+        assert_eq!(value["value"]["author"], "A");
+    }
+
+    #[test]
+    fn entity_schema_rejects_same_names_at_stale_protocol_ids() {
+        let doc = Models::parse().unwrap();
+        let mut content = Content::test_cube();
+        content.entity_names = doc.entities.iter()
+            .map(|(name, schema)| (schema.protocol_id + 1, name.clone())).collect();
+        assert!(Models::check_registry(&doc, &content).is_err());
     }
 
     #[test]

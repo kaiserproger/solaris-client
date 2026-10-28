@@ -376,7 +376,7 @@ pub(crate) fn tick(
                     baby: p::boolean(models, entity, "DATA_BABY_ID"),
                     visually_swimming: p::number(models, entity, "DATA_POSE") == Some(3),
                     in_water: in_water == Some(true),
-                    uses_y_for_walk: facts.walk_uses_y,
+                    uses_y_for_walk: facts.walk_uses_y(entity),
                     rotation_changed_before_base_tick: transform.yaw != source.previous_yaw,
                     is_mob: facts.is_mob,
                     first_passenger_is_mob,

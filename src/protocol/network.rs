@@ -1,4 +1,5 @@
 use super::{extract, frame, Reader, Result, Writer, MAX_FRAME};
+use super::packet_ids::{login, configuration, play};
 use parking_lot::Mutex;
 use std::{
     io::{Read, Write},
@@ -44,20 +45,6 @@ impl Event {
     }
 }
 const MAX_INBOUND_BACKLOG_BYTES: usize = 64 * 1024 * 1024;
-mod configuration {
-    pub const CLIENTBOUND_COOKIE_REQUEST: i32 = 0;
-    pub const CLIENTBOUND_FINISH: i32 = 3;
-    pub const CLIENTBOUND_KEEP_ALIVE: i32 = 4;
-    pub const CLIENTBOUND_PING: i32 = 5;
-    pub const CLIENTBOUND_SELECT_KNOWN_PACKS: i32 = 15;
-
-    pub const SERVERBOUND_CLIENT_INFORMATION: i32 = 0;
-    pub const SERVERBOUND_COOKIE_RESPONSE: i32 = 1;
-    pub const SERVERBOUND_FINISH: i32 = 3;
-    pub const SERVERBOUND_KEEP_ALIVE: i32 = 4;
-    pub const SERVERBOUND_PONG: i32 = 5;
-    pub const SERVERBOUND_SELECT_KNOWN_PACKS: i32 = 7;
-}
 /// Outbound packets the session may queue ahead of the I/O owner. The session
 /// emits a few packets per tick and the owner drains continuously, so reaching
 /// this means the writer is genuinely stalled (TCP backpressure, the same
@@ -313,7 +300,7 @@ fn run(
     let mut login = Writer::default();
     login.string(&username);
     login.0.extend(offline_uuid(&username));
-    write(&mut socket, 0, &login.0, None)?;
+    write(&mut socket, login::serverbound::HELLO, &login.0, None)?;
     let mut phase = Phase::Login;
     let mut compression = None;
     let mut buffer = Vec::with_capacity(65536);
@@ -323,9 +310,9 @@ fn run(
         let radius = state.view_distance.load(Ordering::Acquire);
         if phase != Phase::Login && advertised_radius != Some(radius) {
             let id = if phase == Phase::Configuration {
-                configuration::SERVERBOUND_CLIENT_INFORMATION
+                configuration::serverbound::CLIENT_INFORMATION
             } else {
-                0x0e
+                play::serverbound::CLIENT_INFORMATION
             };
             write(&mut socket, id, &client_information(radius), compression)?;
             advertised_radius = Some(radius);
@@ -338,45 +325,78 @@ fn run(
             let original = phase;
             let radius = state.view_distance.load(Ordering::Acquire);
             if phase == Phase::Login {
-                match id {1=>return Err("online-mode encryption requires official authentication; offline profile refused".into()),3=>{let mut r=Reader::new(&body);let threshold=r.count(MAX_FRAME)?;r.done()?;compression=Some(threshold);},2=>{write(&mut socket,3,&[],compression)?;phase=Phase::Configuration;write(&mut socket,0,&client_information(radius),compression)?;advertised_radius=Some(radius);},4=>{let mut r=Reader::new(&body);let query=r.var()?;let _channel=r.string(32767)?;let mut w=Writer::default();w.var(query);w.byte(0);write(&mut socket,2,&w.0,compression)?},5=>{let mut r=Reader::new(&body);let key=r.string(32767)?;let mut w=Writer::default();w.string(&key);w.byte(0);write(&mut socket,4,&w.0,compression)?},0=>{},_=>return Err(format!("unknown mandatory Login packet {id}"))}
+                match id {
+                    login::clientbound::HELLO => return Err("online-mode encryption requires official authentication; offline profile refused".into()),
+                    login::clientbound::LOGIN_COMPRESSION => {
+                        let mut r = Reader::new(&body);
+                        let threshold = r.count(MAX_FRAME)?;
+                        r.done()?;
+                        compression = Some(threshold);
+                    }
+                    login::clientbound::LOGIN_FINISHED => {
+                        write(&mut socket, login::serverbound::LOGIN_ACKNOWLEDGED, &[], compression)?;
+                        phase = Phase::Configuration;
+                        write(&mut socket, configuration::serverbound::CLIENT_INFORMATION, &client_information(radius), compression)?;
+                        advertised_radius = Some(radius);
+                    }
+                    login::clientbound::CUSTOM_QUERY => {
+                        let mut r = Reader::new(&body);
+                        let query = r.var()?;
+                        let _channel = r.string(32767)?;
+                        let mut w = Writer::default();
+                        w.var(query);
+                        w.byte(0);
+                        write(&mut socket, login::serverbound::CUSTOM_QUERY_ANSWER, &w.0, compression)?;
+                    }
+                    login::clientbound::COOKIE_REQUEST => {
+                        let mut r = Reader::new(&body);
+                        let key = r.string(32767)?;
+                        let mut w = Writer::default();
+                        w.string(&key);
+                        w.byte(0);
+                        write(&mut socket, login::serverbound::COOKIE_RESPONSE, &w.0, compression)?;
+                    }
+                    login::clientbound::LOGIN_DISCONNECT => {}
+                    _ => return Err(format!("unknown mandatory Login packet {id}")),
+                }
             }
             if original == Phase::Configuration {
                 match id {
-                    configuration::CLIENTBOUND_FINISH => {
+                    configuration::clientbound::FINISH_CONFIGURATION => {
                         write(
                             &mut socket,
-                            configuration::SERVERBOUND_FINISH,
+                            configuration::serverbound::FINISH_CONFIGURATION,
                             &[],
                             compression,
                         )?;
                         phase = Phase::Play
                     }
-                    configuration::CLIENTBOUND_KEEP_ALIVE => write(
+                    configuration::clientbound::KEEP_ALIVE => write(
                         &mut socket,
-                        configuration::SERVERBOUND_KEEP_ALIVE,
+                        configuration::serverbound::KEEP_ALIVE,
                         &body,
                         compression,
                     )?,
-                    configuration::CLIENTBOUND_PING => write(
+                    configuration::clientbound::PING => write(
                         &mut socket,
-                        configuration::SERVERBOUND_PONG,
+                        configuration::serverbound::PONG,
                         &body,
                         compression,
                     )?,
-                    configuration::CLIENTBOUND_SELECT_KNOWN_PACKS => write(
+                    configuration::clientbound::SELECT_KNOWN_PACKS => write(
                         &mut socket,
-                        configuration::SERVERBOUND_SELECT_KNOWN_PACKS,
+                        configuration::serverbound::SELECT_KNOWN_PACKS,
                         &[0],
                         compression,
                     )?,
                     // A Loader probe is answered here, in packet order, so the hello
                     // is written before the KnownPacks reply the server waits behind.
-                    1 if matches!(Reader::new(&body).string(32767), Ok(ref channel) if channel == "solaris:loader/probe") => {
+                    configuration::clientbound::CUSTOM_PAYLOAD if matches!(Reader::new(&body).string(32767), Ok(ref channel) if channel == "solaris:loader/probe") => {
                         let mut w = Writer::default();
                         w.string("solaris:loader/hello");
-                        write(&mut socket, 2, &w.0, compression)?
+                        write(&mut socket, configuration::serverbound::CUSTOM_PAYLOAD, &w.0, compression)?
                     }
-                    configuration::CLIENTBOUND_COOKIE_REQUEST => {
+                    configuration::clientbound::COOKIE_REQUEST => {
                         let mut r = Reader::new(&body);
                         let key = r.string(32767)?;
                         let mut w = Writer::default();
@@ -384,7 +404,7 @@ fn run(
                         w.byte(0);
                         write(
                             &mut socket,
-                            configuration::SERVERBOUND_COOKIE_RESPONSE,
+                            configuration::serverbound::COOKIE_RESPONSE,
                             &w.0,
                             compression,
                         )?
@@ -394,12 +414,12 @@ fn run(
             }
             if original == Phase::Play {
                 match id {
-                    45 => write(&mut socket, 28, &body, compression)?,
-                    62 => write(&mut socket, 45, &body, compression)?,
-                    120 => {
-                        write(&mut socket, 16, &[], compression)?;
+                    play::clientbound::KEEP_ALIVE => write(&mut socket, play::serverbound::KEEP_ALIVE, &body, compression)?,
+                    play::clientbound::PING => write(&mut socket, play::serverbound::PONG, &body, compression)?,
+                    play::clientbound::START_CONFIGURATION => {
+                        write(&mut socket, play::serverbound::CONFIGURATION_ACKNOWLEDGED, &[], compression)?;
                         phase = Phase::Configuration;
-                        write(&mut socket, 0, &client_information(radius), compression)?;
+                        write(&mut socket, configuration::serverbound::CLIENT_INFORMATION, &client_information(radius), compression)?;
                         advertised_radius = Some(radius);
                     }
                     _ => {}
@@ -407,7 +427,7 @@ fn run(
             }
             let terminal = matches!(
                 (original, id),
-                (Phase::Login, 0) | (Phase::Configuration, 2 | 12) | (Phase::Play, 32 | 132)
+                (Phase::Login, login::clientbound::LOGIN_DISCONNECT) | (Phase::Configuration, configuration::clientbound::DISCONNECT | configuration::clientbound::TRANSFER) | (Phase::Play, play::clientbound::DISCONNECT | play::clientbound::TRANSFER)
             );
             if terminal {
                 *state.urgent.lock() = Some(Event::Packet(original, id, body));
@@ -439,51 +459,6 @@ fn run(
     Ok(())
 }
 
-    #[test]
-    fn configuration_packet_ids_match_26_3_report() {
-        assert_eq!(
-            [
-                ("cookie_request", 0), ("custom_payload", 1), ("disconnect", 2),
-                ("finish_configuration", 3), ("keep_alive", 4), ("ping", 5),
-                ("reset_chat", 6), ("registry_data", 7), ("resource_pack_pop", 8),
-                ("resource_pack_push", 9), ("post_effects", 10), ("store_cookie", 11),
-                ("transfer", 12), ("update_enabled_features", 13), ("update_tags", 14),
-                ("select_known_packs", 15), ("custom_report_details", 16),
-                ("server_links", 17), ("clear_dialog", 18), ("show_dialog", 19),
-                ("code_of_conduct", 20),
-            ],
-            [
-                ("cookie_request", configuration::CLIENTBOUND_COOKIE_REQUEST),
-                ("custom_payload", 1), ("disconnect", 2),
-                ("finish_configuration", configuration::CLIENTBOUND_FINISH),
-                ("keep_alive", configuration::CLIENTBOUND_KEEP_ALIVE),
-                ("ping", configuration::CLIENTBOUND_PING), ("reset_chat", 6),
-                ("registry_data", 7), ("resource_pack_pop", 8), ("resource_pack_push", 9),
-                ("post_effects", 10), ("store_cookie", 11), ("transfer", 12),
-                ("update_enabled_features", 13), ("update_tags", 14),
-                ("select_known_packs", configuration::CLIENTBOUND_SELECT_KNOWN_PACKS),
-                ("custom_report_details", 16), ("server_links", 17), ("clear_dialog", 18),
-                ("show_dialog", 19), ("code_of_conduct", 20),
-            ]
-        );
-        assert_eq!(
-            [
-                ("client_information", configuration::SERVERBOUND_CLIENT_INFORMATION),
-                ("cookie_response", configuration::SERVERBOUND_COOKIE_RESPONSE),
-                ("custom_payload", 2), ("finish_configuration", configuration::SERVERBOUND_FINISH),
-                ("keep_alive", configuration::SERVERBOUND_KEEP_ALIVE),
-                ("pong", configuration::SERVERBOUND_PONG), ("resource_pack", 6),
-                ("select_known_packs", configuration::SERVERBOUND_SELECT_KNOWN_PACKS),
-                ("custom_click_action", 8), ("accept_code_of_conduct", 9),
-            ],
-            [
-                ("client_information", 0), ("cookie_response", 1), ("custom_payload", 2),
-                ("finish_configuration", 3), ("keep_alive", 4), ("pong", 5),
-                ("resource_pack", 6), ("select_known_packs", 7),
-                ("custom_click_action", 8), ("accept_code_of_conduct", 9),
-            ]
-        );
-    }
 fn client_information(view_distance: u8) -> Vec<u8> {
     let mut w = Writer::default();
     w.string("en_us");

@@ -1,6 +1,7 @@
 //! Server-observed inventory lifetimes and source client-side menu prediction.
 //! Wire contracts: target Clientbound*Container*, MenuType, ContainerInput,
 //! ItemStack and ServerboundContainerClickPacket classes (26.1.2).
+use crate::protocol::packet_ids::play::clientbound as cb;
 use crate::protocol::{Reader, Result, Writer, content::Content};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -11,6 +12,8 @@ mod components;
 mod menu_data;
 mod persistent;
 mod receive;
+#[cfg(test)]
+mod wire_263_tests;
 pub use actions::MenuButton;
 pub use menu_data::{DisplayStack, ItemCost, Recipe, StonecutterRecipe, Trade, Trades};
 pub mod nbt;
@@ -584,7 +587,7 @@ impl InventoryStore {
             return Ok(true);
         }
         match id {
-            17 => {
+            cb::CONTAINER_CLOSE => {
                 let container = r.var()?;
                 r.done()?;
                 if self.menu().id == container {
@@ -592,7 +595,7 @@ impl InventoryStore {
                 }
                 return Ok(true);
             }
-            18 => {
+            cb::CONTAINER_SET_CONTENT => {
                 let container = r.var()?;
                 let state = r.var()?;
                 let n = r.count(256)?;
@@ -646,7 +649,7 @@ impl InventoryStore {
                     }
                 }
             }
-            19 => {
+            cb::CONTAINER_SET_DATA => {
                 let container = r.var()?;
                 let key = r.i16()?;
                 let value = i32::from(r.i16()?);
@@ -664,7 +667,7 @@ impl InventoryStore {
                         .insert(key, value);
                 }
             }
-            20 => {
+            cb::CONTAINER_SET_SLOT => {
                 let container = r.var()?;
                 let state = r.var()?;
                 let slot = r.i16()?;
@@ -706,7 +709,7 @@ impl InventoryStore {
                     }
                 }
             }
-            60 => {
+            cb::OPEN_SCREEN => {
                 let container = r.var()?;
                 if container <= 0 {
                     return Err("open screen container ID must be positive".into());
@@ -730,7 +733,7 @@ impl InventoryStore {
                 self.screen_open = true;
                 self.screen_instance += 1;
             }
-            61 => {
+            cb::OPEN_SIGN_EDITOR => {
                 let pos = crate::protocol::unpack_pos(r.i64()?);
                 let front = r.var()? == 1;
                 r.done()?;
@@ -738,17 +741,17 @@ impl InventoryStore {
                 self.screen_open = true;
                 self.screen_instance += 1;
             }
-            98 => {
+            cb::SET_CURSOR_ITEM => {
                 let cursor = read_stack(r, content)?;
                 r.done()?;
                 self.received_cursor = Some(cursor.clone());
                 self.cursor = Some(cursor);
             }
-            107 => {
+            cb::SET_HELD_SLOT => {
                 self.selected_slot = r.count(8)? as u8;
                 r.done()?;
             }
-            110 => {
+            cb::SET_PLAYER_INVENTORY => {
                 let index = r.count(42)?;
                 let stack = read_stack(r, content)?;
                 r.done()?;
@@ -1207,6 +1210,6 @@ mod tests {
         let mut store = InventoryStore::default();
         assert!(store.apply(107, &mut Reader::new(&[3]), &Content::test_cube()).unwrap());
         assert_eq!(store.selected_slot, 3);
-        assert!(!store.apply(105, &mut Reader::new(&[3]), &Content::test_cube()).unwrap());
+        assert!(!store.apply(cb::SET_ENTITY_MOTION, &mut Reader::new(&[3]), &Content::test_cube()).unwrap());
     }
 }

@@ -65,7 +65,7 @@ fn fixture() -> (Models, Entity) {
         submitted_revision: None,
     };
     let facts: render_living::MotionFacts = serde_json::from_value(json!({
-        "class":"authored.fixture", "is_mob":true, "walk_uses_y":false, "methods":{},
+        "class":"authored.fixture", "is_mob":true, "walk_uses_y":"never", "methods":{},
         "body_rule":"standard", "walk_rule":"standard",
         "head_rule":{"kind":"fixed","value":75.0},
         "body_head_rule":{"kind":"fixed","value":75.0}

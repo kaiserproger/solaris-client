@@ -2,70 +2,57 @@
 
 ## CLIENT-LINT-001 — inherited strict Clippy debt (open, quarantined)
 
-Baseline `65a7f76` and the client-input changes both report **428 library
-diagnostics** under `cargo clippy --release -p solaris-client --all-targets --
--D warnings`. The changed tree also reports 452 library-test diagnostics; the
-baseline run stopped after the library, so no baseline library-test total is
-claimed. Commands ran under the required `mem-run.sh -m 6G` envelope.
+The 2026-10-28 protocol-777 cutover and the known-green full-suite baseline
+`f5ac9a4` both report **428 library / 452 library-test errors** under:
 
-Coordinator Bump263Server approved retaining existing debt provided touched
-paths introduce no new diagnostics. The five touched Rust paths have the same
-diagnostic message multiset as the baseline (13 total, zero additions):
+```sh
+cargo clippy --release -p solaris-client --all-targets --message-format=json -- -D warnings
+```
 
-| Baseline source location | Exact diagnostic |
-|---|---|
-| `src/render.rs:226` | field `instance` is never read |
-| `src/render.rs:157` | needlessly taken reference of left operand |
-| `src/render.rs:931` | this function has too many arguments (11/7) |
-| `src/session/observation.rs:333` | this `if` statement can be collapsed |
-| `src/session/observation.rs:737` | this `if` statement can be collapsed |
-| `src/session/observation.rs:962` | you seem to want to iterate on a map's values |
-| `src/session/observation.rs:1097` | float equality check without `.abs()` |
-| `src/session/observation.rs:1102` | float equality check without `.abs()` |
-| `src/lib.rs:668` | this `if` statement can be collapsed |
-| `src/lib.rs:1219` | unneeded `return` statement |
-| `src/lib.rs:971` | this `if` statement can be collapsed |
-| `src/lib.rs:1226` | this `if` statement can be collapsed |
-| `src/lib.rs:1246` | this `if` statement can be collapsed |
+Both commands used the same toolchain/build-support environment and the required
+`mem-run.sh -m 12G` envelope. The complete multiset of **(lint code, primary source
+path)** is identical: 973 primary spans, zero additions and zero removals.
+New placement-test module ordering and sign-decoder needless-borrow diagnostics
+were corrected rather than added to this quarantine.
 
-Other existing crate-wide failures include `unused_imports`, `dead_code`,
-`private_interfaces`, and Clippy style/correctness diagnostics outside these
-paths; they are not suppressed or declared fixed by the pacing patch. Exact
-local receipts are `.analysis/clippy-base.log`, `.analysis/clippy.log`, and
-`.analysis/clippy-comparison.json`. To reproduce the baseline without changing
-the working tree, archive `65a7f76` into an ignored directory and run the same
-strict command there with the same toolchain and build-support environment.
+Exact local receipts are `.analysis/native263/clippy-baseline.jsonl`,
+`.analysis/native263/final-lint-correction.log` and
+`.analysis/native263/clippy-final-comparison.json`. Existing failures include
+`unused_imports`, `dead_code`, `private_interfaces` and Clippy diagnostics; none
+are suppressed or declared fixed. Earlier `65a7f76` comparison receipts remain
+historical evidence in `.analysis/clippy-base.log` and `.analysis/clippy.log`.
+Strict Clippy is **not green**.
 
-This quarantine is not a claim that strict Clippy is green or that the client
-input/pacing behavior has passed graphical acceptance.
+## CLIENT-TEST-001 — historical graphics-preset assertion (superseded)
 
-## CLIENT-TEST-001 — default graphics-preset cycle assertion (open, quarantined)
+The earlier `65a7f76` receipt recorded
+`ui::state::client_settings_tests::cycles_wrap_and_clamp` failing because the
+assertion expected `"medium"` after advancing the default Medium preset.
+The current complete workspace run passes that same test and all ordinary
+tests: **627 client-library + 6 CLI + 90 launcher + 1 path test**, zero failures.
+The two ignored client tests are the existing
+`motion::tests::bench_motion_cost` and the explicitly external-data
+`protocol::packet_ids::tests::all_packet_ids_match_26_3_report`.
+The latter was run separately against the explicit local 26.3 report: one
+passing test, all 255 packet IDs checked. No assertion was weakened or skipped
+to obtain the ordinary suite result. Receipt:
+`.analysis/native263/final-acceptance.log`; final sign-decoder closure cleanup
+additionally passes all five component regressions in
+`.analysis/native263/final-lint-correction.log`.
 
-`ui::state::client_settings_tests::cycles_wrap_and_clamp` fails at
-`src/ui/state.rs:4093`: `next_setting_value("graphics_preset", None)` returns
-`"high"`, while the assertion expects `"medium"`. The implementation first
-resolves the default preset (`Medium`) and then advances the cycle, so the
-assertion disagrees with the existing implementation. Neither behavior nor
-assertion is changed by the pointer/pacing slice.
+## CLIENT-GPU-001 — default-driver parallel GPU-test SIGSEGV (open)
 
-The complete `src/ui/state.rs` and `src/render/graphics.rs` files are byte-identical
-to `65a7f76` (SHA-256 `b865dddfe033d8c85090cbf8aad4989b62d0612a3d3a67b07fed61e30118ccbb`
-and `1cb49f45f5b22a097c0ff9ea1ed7cc18f9eb233710afbf4246e9fb873ca4bd55`,
-respectively). This records provenance, not a baseline test execution.
-No assertion is weakened or skipped. Reproduce with
-`cargo test -p solaris-client --lib -- --test-threads=1` under `mem-run.sh -m 6G`.
+The earlier validation history already recorded a parallel GPU-suite SIGSEGV
+before this cutover. The reported new SIGSEGV is retained verbatim in
+`.analysis/native263/historical-gpu-segv.log`. This is classified as a
+pre-existing/environment-dependent GPU-test failure, not a demonstrated new
+protocol regression or a claimed driver fix. The exact driver/concurrency
+cause remains unproven.
 
-Far-program tests additionally require the local, non-committed
-`tests/fixtures/far-program-seed81.zlib` produced by the server's
-`lod_program_exports_without_the_seed` test with `SOLARIS_LOD_PROGRAM_FIXTURE`.
-The local fixture used here has SHA-256
-`60027474361e68ca68c4f55c95ac6e5a0b9d019e1d4eb8220c38bac048fb263f`.
-Missing this prerequisite fails three tests; it is not addressed by dropping
-their coverage. The default parallel GPU-test run also terminated with SIGSEGV;
-the serial run completed and exposed the actual individual failures.
-With the real fixture installed and the tooltip length regression corrected, the
-complete serial run finished with **597 passed, 1 failed, 1 ignored**; only the
-preset-cycle assertion above remains red. Exact receipt:
-`.analysis/tests-final.log`. The focused window-policy test command passes all
-three tests; FPS averaging, FIFO mode selection and F3 formatting also pass in
-the complete serial run.
+The complete current workspace suite passes with
+`VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/radeon_icd.json` (receipt above).
+The generic GPU implementation/dependencies were unchanged against `f5ac9a4`;
+protocol-specific inline painting presentation is separately regression-tested.
+This driver-qualified green result does not establish every backend or physical
+display scanout. Windowed lifecycle evidence uses an isolated Xvfb/lavapipe
+surface and is labeled accordingly.

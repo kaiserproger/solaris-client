@@ -1,10 +1,18 @@
 # Compatibility and acceptance matrix
 
-Target: Minecraft Java Edition **26.1.2**. Protocol number/layouts must come from local version-specific wire-probe/javap evidence and `compatibility.lock`, never memory. Proposed spec API/CLI versions are not existence claims.
+Target: Minecraft Java Edition **26.3**, protocol **777**. Protocol number/layouts must come from local version-specific wire-probe/javap evidence and `compatibility.lock`, never memory. Proposed spec API/CLI versions are not existence claims.
 
 Rows begin `not_started`; integration updates only against exact receipts. C00/C01/C02 stage gates below now have exercised parent receipts and independent read-only review; broader domain and completeness rows are not implicitly accepted by those gates. Status progression is `not_started → implemented → oracle_verified → integrated → accepted`; `unsupported` is an honest development condition but cannot close a mandatory gate. Record supported variants, test/scenario IDs, oracle, platform/backend, target build/settings, source IDs and artifact links on every promotion.
 
 This matrix includes all §4 mandatory domains, §18 automation groups, §23 acceptance IDs, P01–P10, stage gates, platform/service/server/out-of-scope rows. The full line-level register in [SPECIFICATION.md](SPECIFICATION.md) remains mandatory for detailed subfeatures and every other clause. Enumerate actual version-specific entity/container/model/packet families in audit receipts before claiming completeness; family grouping never waives difficult exceptions.
+
+The 26.3 preview centralizes all 255 Login/Configuration/Play IDs (both
+directions) in `src/protocol/packet_ids.rs`. Its one report-backed test compares
+the actual sender/dispatch constants by packet name. Authored byte regressions
+cover corrected inventory routes, advancement positions and the new/changed
+26.3 component streams. Commands and other explicitly unsupported presentation
+packets remain unsupported; neither a complete ID table nor initial Play proves
+all packet behavior or any mandatory domain below.
 
 | Class | Stable/semantic ID | Required coverage or declared boundary | Authority | Status | Variants / test IDs / evidence |
 |---|---|---|---|---|---|

@@ -87,6 +87,74 @@ worktree's `.analysis/army-frame-trace.tsv` and `army-frame-summary.json`.
 
 A missing biome sample never ends the session: after a long `/tp` the camera sits among chunks that have not arrived, and the environment blend simply drops unloaded samples (none loaded = the dimension's biome-less attributes; unloaded camera chunk or sky light = no rain fog) until the chunk arrives, as the vanilla client does. `environment biome sample unloaded` was the pre-fix terminal error for `/tp @s 518 130 64.5` from x 118; the fixed client survived 118→518→900→118 teleports on the local server (`.analysis/tpbiome/`).
 
+### 26.3 protocol and resource gate
+
+The preview targets **26.3 / protocol 777**. Login, Configuration and Play
+senders/dispatch use the named constants in `src/protocol/packet_ids.rs`.
+Run the one table test against the exact locally verified report:
+
+```sh
+SOLARIS_CLIENT_PACKETS_REPORT=/path/to/26.3/reports/packets.json \
+CARGO_INCREMENTAL=0 /home/kaiserroman/solaris/.analysis/tools/mem-run.sh -m 12G \
+env RUSTC_WRAPPER= cargo test -p solaris-client --lib protocol::packet_ids::tests::all_packet_ids_match_26_3_report -- --ignored --exact --nocapture
+```
+
+The test covers all 255 names in both directions. It is explicitly ignored in
+the ordinary suite because the report contains local Mojang-derived data.
+Run it separately with the explicit environment path above; unset, unreadable
+or invalid input fails clearly. There is no implicit path search or successful
+skip. Release receipts count the ignored acceptance gate separately from the
+ordinary passing tests.
+This checks IDs, not layout or feature completeness. Authored exact-byte tests
+separately cover inventory routes, PositionedAdvancement coordinates after the
+complete holder, and the new/changed item-component streams. Embedded entity
+accessor/registry/attribute tables are regenerated for all 161 26.3 types;
+same-name/stale-ID tables reject instead of weakening admission. Retaining the
+129 existing authored render families does not accept the four new visual
+families or establish vanilla animation parity.
+
+Use the official 26.3 asset index **34**, not an older locally available index.
+The complete base resources fit the existing 256 MiB atlas cap, but retained
+animations plus sprite preprocessing exceed the former 256 MiB decoded-CPU cap.
+The bounded defaults are now 512 MiB decoded CPU and 1024 MiB across a two-
+generation reload; atlas GPU bytes remain capped at 256 MiB. Preprocessing
+checks its prospective allocation, including retained bytes, before allocating.
+Do not trim indexed base textures to conceal a budget failure. Launcher content
+is pinned to `solaris-content-26.3-r4` (2,691,397-byte archive); r3 does not pass
+the integrated server's current tag check.
+
+The 2026-10-28 local rc.1 acceptance used the canonical release-tree
+`tools.harness run native-lifecycle --release --client native --windowed
+--timeout-seconds 600 --soak-seconds 0`, with an isolated Xvfb/lavapipe window,
+the full verified index-34 assets and matching 26.3 content/facts.
+The local wrapper `.analysis/native263/manual_session.py` retains fresh MCP
+schemas and labels operator clear/fill/teleport/give fixtures separately from
+ordinary axe/hoe actions. The original lifecycle still exercises Play,
+reconnect, chat, death and respawn.
+
+Matching-binary receipt:
+`../release/.analysis/validation/20261028T114626-native-lifecycle-7eh70up9/result.json`.
+Client SHA-256:
+`10acdd213179d69cea11a6f8740b6d444d427952e6e1c3bd7629ee3062a0bd4e`.
+Server SHA-256:
+`3d65f95698b60f8ee45dfd356ce97667f26d546768b9e0980dc41dcf42bdd9ab`.
+Ordinary stripping and tilling survive reconnect; 64 acknowledged settling
+ticks show grounded lowered farmland without correction or rubber-band.
+`screenshots/manual263-lit-slabs-stairs-leaves-walls-try43.png` was visually
+reviewed: lit wall, slabs/stairs, cutout leaves, torch/glowstone and stripped log.
+Geometry has zero pending/running jobs and the local air sample has block light
+11. The normal semantic Title-screen Quit action exits with code 0 and no signal
+(`manual263-clean-exit.json`); Session owns the request and App consumes it for
+both physical and automation input.
+
+These are scoped functional receipts, not a 30-minute soak, physical hardware
+scanout, exhaustive lighting completeness or vanilla AO oracle comparison.
+The capture honestly retains `source_sampling_complete=false` and cumulative
+unknown light samples outside the local known-lit fixture. The ordinary suite
+and separate 255-ID report gate are recorded in
+`.analysis/native263/final-acceptance.log`; inherited strict-lint and
+default-driver GPU-test failures remain explicit in `BUGS.md`.
+
 ### Native10 bounded Loader resources and navigation
 
 The Native10 source and integrated executable add the generic Loader sections `items`, `world_selection`, `world_previews` and `sounds` alongside views/actions/assets. This is **not full Settlements or graphical acceptance**: `.analysis/native10/handoff.json` records the exact executable, remaining live-package prerequisites and windowed receipts. `.analysis/native10/integrated-proof.json` records 27 focused Loader tests and nine navigation tests; scoped receipts also exercise actual Content model/atlas activation and the existing native audio mixer.

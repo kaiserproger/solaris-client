@@ -51,25 +51,8 @@ fn source_tool_action(
 }
 
 #[cfg(test)]
-mod transformer_tests {
-    use super::*;
-
-    #[test]
-    fn block_transformers_select_tool_predictions() {
-        assert_eq!(
-            transformer_action(Some(&serde_json::json!("minecraft:axe"))),
-            Some("BlockTransformerAxe")
-        );
-        assert_eq!(
-            transformer_action(Some(&serde_json::json!("minecraft:hoe"))),
-            Some("BlockTransformerHoe")
-        );
-        assert_eq!(
-            transformer_action(Some(&serde_json::json!("minecraft:shovel"))),
-            Some("BlockTransformerShovel")
-        );
-    }
-}
+#[path = "placement_tests.rs"]
+mod transformer_tests;
 
 fn set(content: &Content, state: u32, key: &str, value: impl AsRef<str>) -> Result<u32> {
     content.with_state_property(state, key, value.as_ref())

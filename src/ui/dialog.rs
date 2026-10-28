@@ -11,6 +11,7 @@
 //!   confirmation: `no`, multi_action: `exit_action`) and closes only if `can_close_with_escape`;
 //! * a new dialog replaces the shown one and keeps the original screen to return to.
 //! Not implemented (vanilla extras): the "custom screen" warning button and button tooltips.
+use crate::protocol::packet_ids::play::clientbound as cb;
 use super::state::{NodeAction, Paint, Screen, UiCommand, UiEffects, UiState};
 use crate::protocol::{Reader, Result, nbt::Nbt};
 use serde_json::{Value, json};
@@ -727,11 +728,11 @@ impl UiState {
     /// vanilla decoder; unsupported dialog types are ignored and reported through observation.
     pub(crate) fn apply_dialog_packet(&mut self, id: i32, r: &mut Reader<'_>) -> Result<()> {
         match id {
-            142 => {
+            cb::CLEAR_DIALOG => {
                 r.done()?;
                 self.clear_server_dialog();
             }
-            143 => {
+            cb::SHOW_DIALOG => {
                 let holder = r.var()?;
                 if holder != 0 {
                     // Registry dialogs need the configuration `dialog` registry; not decoded here.

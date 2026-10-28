@@ -1,4 +1,5 @@
 //! One packet-applied session authority shared by native and offscreen application owners.
+use crate::protocol::packet_ids::play::serverbound as sb;
 mod actions;
 mod block_effects;
 mod block_motion;
@@ -140,6 +141,8 @@ pub struct Session {
     /// Native shell lifecycle is opt-in for windowed clients; headless probes
     /// keep their existing protocol-only disconnect behavior.
     title_allowed: bool,
+    /// UI requests are consumed by the application owner, regardless of input origin.
+    shutdown_requested: bool,
     /// F3 overlay mirror: the App owner holds the real flag (physical F3 key
     /// + `minecraft_toggle_debug_overlay` intercept); the session mirrors it
     /// here so `minecraft_observation` (which the session builds) can publish
@@ -215,6 +218,7 @@ impl Session {
             server_frozen: false,
             step_ticks: 0,
             title_allowed: false,
+            shutdown_requested: false,
             debug_overlay_pending: false,
             render_distance: UiState::DEFAULT_RENDER_DISTANCE,
             fov_deg: UiState::DEFAULT_FOV_DEG,
@@ -280,6 +284,9 @@ impl Session {
     }
     pub fn enable_native_shell(&mut self) {
         self.title_allowed = true;
+    }
+    pub(crate) fn take_shutdown_request(&mut self) -> bool {
+        std::mem::take(&mut self.shutdown_requested)
     }
     pub fn shell_screen_active(&self) -> bool {
         self.ui.as_ref().is_some_and(UiState::shell_screen_active)
@@ -690,12 +697,12 @@ impl Session {
         let mut body = Writer::default();
         body.string(channel);
         body.0.extend(payload);
-        self.send(0x16, body)
+        self.send(sb::CUSTOM_PAYLOAD, body)
     }
     fn send_loader(&self, outgoing: crate::loader::Outgoing) -> Result<()> {
         let id = match self.phase.as_str() {
-            "configuration" => 0x02,
-            "play" => 0x16,
+            "configuration" => crate::protocol::packet_ids::configuration::serverbound::CUSTOM_PAYLOAD,
+            "play" => sb::CUSTOM_PAYLOAD,
             _ => return Err("Loader payload requires live Configuration or Play".into()),
         };
         let mut payload = Writer::default();
@@ -1434,6 +1441,43 @@ mod cpu_hotpath_tests {
         app.debug_overlay = false;
         app.publish_session();
         assert!(!has_debug(&app), "the disabling publication must remove old debug nodes");
+    }
+
+    #[test]
+    fn regression_263_semantic_title_quit_reaches_application_owner() {
+        let options = crate::Options {
+            automation: false, bind: "127.0.0.1:0".parse().unwrap(),
+            artifacts: ".analysis/native263-quit-regression".into(), headless: Some(true),
+            runtime_dir: ".analysis/native263-quit-regression/runtime".into(),
+            profile: "fixture".into(), server: None, direct_join: false, username: None,
+            width: 1280, height: 720, fullscreen: false,
+        };
+        let mut app = crate::App::new(options, Arc::new(|| {})).unwrap();
+        let mut content = Content::test_cube();
+        content.creative_tabs_report = Arc::from(br#"{"tabs":[]}"#.as_slice());
+        content.insert_test_font("minecraft:default", &json!({"providers":[]}));
+        content.insert_test_resource("assets/minecraft/lang/en_us.json", b"{}");
+        let mut ui = UiState::new(&content).unwrap();
+        ui.enter_title(None, None).unwrap();
+        app.session.ui = Some(ui);
+        app.session.content = Some(content);
+        app.session.phase = "disconnected".into();
+        let (reply, receive) = std::sync::mpsc::sync_channel(1);
+        app.sender.try_send(crate::api::Request {
+            command: Command::Minecraft {
+                name: "minecraft_click_screen_button".into(),
+                arguments: json!({"expected_screen_class":"net.minecraft.client.gui.screens.TitleScreen",
+                    "expected_title":"Solaris","button_label":"Quit Game"}),
+            },
+            reply,
+            expected_connection_epoch: None,
+            expected_dimension_epoch: None,
+            automation_fence: None,
+            cancelled: None,
+        }).unwrap();
+        app.advance();
+        receive.try_recv().unwrap().expect("Quit is an application request, not an automation error");
+        assert!(app.shutdown, "semantic and physical Quit must reach the same application owner");
     }
 }
 

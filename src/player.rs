@@ -2,6 +2,8 @@
 //! Source pin: verified 26.1.2 client archive, ignored `.analysis/player-research/*.javap`,
 //! C02 LocalPlayer/LivingEntity bytecode and entity-models PositionMoveRotation/Relative.
 //! Prediction never writes received world blocks, inventory or remote entities.
+use crate::protocol::packet_ids::play::serverbound as sb;
+use crate::protocol::packet_ids::play::clientbound as cb;
 mod adventure;
 mod block_sounds;
 pub(crate) mod collision;
@@ -609,13 +611,13 @@ impl Player {
     ) -> Result<bool> {
         let start = r.offset;
         match id {
-            4 => {
+            cb::BLOCK_CHANGED_ACK => {
                 self.ack_sequence = r.var()?;
                 if self.ack_sequence > self.sequence {
                     return Err("future_prediction_acknowledgement".into());
                 }
             }
-            73 => {
+            cb::PLAYER_POSITION => {
                 let teleport = r.var()?;
                 let position = [r.f64()?, r.f64()?, r.f64()?];
                 let velocity = [r.f64()?, r.f64()?, r.f64()?];
@@ -626,18 +628,18 @@ impl Player {
                 self.correct(position, velocity, yaw, pitch, flags)?;
                 self.pending_teleport = Some((teleport, self.position, self.yaw, self.pitch));
             }
-            74 => {
+            cb::PLAYER_ROTATION => {
                 self.yaw = r.f32()?;
                 self.pitch = r.f32()?.clamp(-90., 90.);
                 self.pose_revision = self.pose_revision.wrapping_add(1);
             }
-            58 => {
+            cb::MOVE_VEHICLE => {
                 let position = [r.f64()?, r.f64()?, r.f64()?];
                 let yaw = r.f32()?;
                 let pitch = r.f32()?;
                 self.correct_vehicle(position, yaw, pitch)?;
             }
-            65 => {
+            cb::PLAYER_ABILITIES => {
                 let flags = r.u8()?;
                 self.abilities.invulnerable = flags & 1 != 0;
                 self.abilities.flying = flags & 2 != 0;
@@ -649,14 +651,14 @@ impl Player {
                     return Err("negative_ability_speed".into());
                 }
             }
-            103 | 134 | 135 | 79 => {
+            cb::SET_ENTITY_MOTION | cb::UPDATE_ATTRIBUTES | cb::UPDATE_MOB_EFFECT | cb::REMOVE_MOB_EFFECT => {
                 if r.var()? != self.entity_id {
                     r.offset = start;
                     return Ok(false);
                 }
                 match id {
-                    103 => self.velocity = read_velocity(r)?,
-                    134 => {
+                    cb::SET_ENTITY_MOTION => self.velocity = read_velocity(r)?,
+                    cb::UPDATE_ATTRIBUTES => {
                         let count = r.count(128)?;
                         for _ in 0..count {
                             let index = r.count(65536)? as i32;
@@ -694,7 +696,7 @@ impl Player {
                             );
                         }
                     }
-                    135 => {
+                    cb::UPDATE_MOB_EFFECT => {
                         let index = r.count(65536)? as i32;
                         let name = content
                             .registry_name("minecraft:mob_effect", index)?
@@ -725,7 +727,7 @@ impl Player {
                             },
                         );
                     }
-                    79 => {
+                    cb::REMOVE_MOB_EFFECT => {
                         let index = r.count(65536)? as i32;
                         let name = content.registry_name("minecraft:mob_effect", index)?;
                         self.effects.remove(name);
@@ -733,7 +735,7 @@ impl Player {
                     _ => unreachable!(),
                 }
             }
-            22 => {
+            cb::COOLDOWN => {
                 let group = r.string(32767)?;
                 let duration = r.count(i32::MAX as usize)? as u64;
                 if duration == 0 {
@@ -745,17 +747,17 @@ impl Player {
                     self.cooldowns.insert(group, tick.saturating_add(duration));
                 }
             }
-            105 => {
+            cb::SET_EXPERIENCE => {
                 self.experience_progress = r.f32()?;
                 self.experience_level = r.var()?;
                 self.experience_total = r.var()?;
             }
-            106 => {
+            cb::SET_HEALTH => {
                 self.health = Some(r.f32()?);
                 self.food = Some(r.var()?);
                 self.saturation = Some(r.f32()?);
             }
-            25 => {
+            cb::DAMAGE_EVENT => {
                 if r.var()? != self.entity_id {
                     r.offset = start;
                     return Ok(false);
@@ -774,7 +776,7 @@ impl Player {
                 // LivingEntity.handleDamageEvent restarts hurtTime without changing hurtDir.
                 self.hurt_tick = Some(tick);
             }
-            43 => {
+            cb::HURT_ANIMATION => {
                 if r.var()? != self.entity_id {
                     r.offset = start;
                     return Ok(false);
@@ -784,7 +786,7 @@ impl Player {
                 self.hurt_direction = direction;
                 self.hurt_tick = Some(tick);
             }
-            69 => {
+            cb::PLAYER_COMBAT_KILL => {
                 if r.var()? != self.entity_id {
                     r.offset = start;
                     return Ok(false);
@@ -792,7 +794,7 @@ impl Player {
                 self.death_message = Some(r.nbt()?);
                 self.health = Some(0.);
             }
-            36 => {
+            cb::EXPLODE => {
                 // ClientboundExplodePacket (26.1.2): Vec3 center, float radius, INT block
                 // count, Optional<Vec3> player knockback, then particle/sound/weighted
                 // block-particle presentation. ClientPacketListener.handleExplosion applies
@@ -811,7 +813,7 @@ impl Player {
                 }
                 return Ok(true);
             }
-            95 => {
+            cb::SET_CAMERA => {
                 self.camera_entity = Some(r.var()?);
             }
             _ => return Ok(false),
@@ -897,8 +899,8 @@ impl Player {
             }
             w.f32(yaw);
             w.f32(pitch);
-            out.push(PacketCommand::new(0, w));
-            out.push(PacketCommand::new(44, Writer::default()));
+            out.push(PacketCommand::new(sb::ACCEPT_TELEPORTATION, w));
+            out.push(PacketCommand::new(sb::PLAYER_LOADED, Writer::default()));
             self.full_movement(out);
         }
         self.drain_vehicle_correction(out);
@@ -911,7 +913,7 @@ impl Player {
         w.f32(self.yaw);
         w.f32(self.pitch);
         w.byte(u8::from(self.grounded) | (u8::from(self.horizontal_collision) << 1));
-        out.push(PacketCommand::new(31, w));
+        out.push(PacketCommand::new(sb::MOVE_PLAYER_POS_ROT, w));
         self.last_sent_position = self.position;
         self.last_sent_yaw = self.yaw;
         self.last_sent_pitch = self.pitch;
@@ -971,14 +973,14 @@ impl Player {
         self.last_input = input;
         self.attack_ticks = self.attack_ticks.saturating_add(1);
         self.pose_revision = self.pose_revision.wrapping_add(1);
-        out.push(PacketCommand::new(13, Writer::default()));
+        out.push(PacketCommand::new(sb::CLIENT_TICK_END, Writer::default()));
         Ok(())
     }
     fn sync_input(&mut self, input: HeldInput, out: &mut Vec<PacketCommand>) {
         if input.flags != self.last_sent_input {
             let mut w = Writer::default();
             w.byte(input.flags);
-            out.push(PacketCommand::new(43, w));
+            out.push(PacketCommand::new(sb::PLAYER_INPUT, w));
             self.last_sent_input = input.flags;
         }
     }
@@ -987,7 +989,7 @@ impl Player {
         w.var(self.entity_id);
         w.var(action);
         w.var(data);
-        out.push(PacketCommand::new(42, w));
+        out.push(PacketCommand::new(sb::PLAYER_COMMAND, w));
     }
     fn send_movement(&mut self, out: &mut Vec<PacketCommand>) {
         self.position_reminder = self.position_reminder.saturating_add(1);
@@ -1002,7 +1004,7 @@ impl Player {
             w.f32(self.yaw);
             w.f32(self.pitch);
             w.byte(u8::from(self.grounded) | (u8::from(self.horizontal_collision) << 1));
-            out.push(PacketCommand::new(32, w));
+            out.push(PacketCommand::new(sb::MOVE_PLAYER_ROT, w));
             return;
         }
         if position && rotation {
@@ -1014,15 +1016,15 @@ impl Player {
             for p in self.position {
                 w.f64(p);
             }
-            30
+            sb::MOVE_PLAYER_POS
         } else if rotation {
             w.f32(self.yaw);
             w.f32(self.pitch);
-            32
+            sb::MOVE_PLAYER_ROT
         } else if self.grounded != self.last_sent_grounded
             || self.horizontal_collision != self.last_sent_collision
         {
-            33
+            sb::MOVE_PLAYER_STATUS_ONLY
         } else {
             return;
         };

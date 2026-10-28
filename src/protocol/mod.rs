@@ -1,7 +1,8 @@
-//! Bounded 26.1.2 client wire adapter. IDs are audited in ignored C02 evidence.
+//! Bounded Minecraft Java 26.3 client wire adapter.
 use flate2::{Compression, read::ZlibDecoder, write::ZlibEncoder};
 use serde_json::{Map, Value};
 use std::io::{Read, Write};
+pub mod packet_ids;
 pub const MAX_FRAME: usize = 8 * 1024 * 1024;
 pub type Result<T, E = String> = std::result::Result<T, E>;
 pub(crate) fn parse_identifier(id: &str) -> Result<String> {

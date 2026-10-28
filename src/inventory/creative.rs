@@ -1,4 +1,5 @@
 //! The creative screen uses ordinary set-slot packets, never container-click hashes.
+use crate::protocol::packet_ids::play::serverbound as sb;
 use super::{InventoryStore, Prediction, normalized};
 use crate::{
     inventory::{MenuKind, PacketCommand, Stack, UiContext},
@@ -9,7 +10,7 @@ fn packet(slot: i16, stack: &Stack) -> Result<PacketCommand> {
     let mut w = Writer::default();
     w.0.extend(slot.to_be_bytes());
     stack.write(&mut w)?;
-    Ok(PacketCommand::new(57, w))
+    Ok(PacketCommand::new(sb::SET_CREATIVE_MODE_SLOT, w))
 }
 impl InventoryStore {
     pub(super) fn validate_creative_item(&self, stack: &Stack, content: &Content) -> Result<()> {

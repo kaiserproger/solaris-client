@@ -1,4 +1,4 @@
-//! Serializer IDs are exported from the local 26.1.2 EntityDataSerializers registry.
+//! Serializer IDs are exported from the local 26.3 EntityDataSerializers registry.
 use crate::{
     inventory::{self, Stack},
     protocol::{Reader, Result, content::Content},
@@ -37,7 +37,9 @@ pub enum Metadata {
     Vector([f32; 3]),
     Quaternion([f32; 4]),
     Profile(Value),
+    InlinePaintingVariant(Value),
     Arm(u8),
+    DyeColor(u8),
 }
 impl Metadata {
     pub fn serializer_id(&self) -> u32 {
@@ -68,14 +70,16 @@ impl Metadata {
             Self::Vector(_) => 39,
             Self::Quaternion(_) => 40,
             Self::Profile(_) => 41,
+            Self::InlinePaintingVariant(_) => 34,
             Self::Arm(_) => 42,
+            Self::DyeColor(_) => 43,
         }
     }
     pub fn int(&self) -> Option<i32> {
         match self {
             Self::Byte(v) => Some(i32::from(*v)),
             Self::Int(v) => Some(*v),
-            Self::Pose(v) | Self::Arm(v) | Self::Direction(v) => Some(i32::from(*v)),
+            Self::Pose(v) | Self::Arm(v) | Self::Direction(v) | Self::DyeColor(v) => Some(i32::from(*v)),
             Self::State { id, .. } | Self::Registry { id, .. } => i32::try_from(*id).ok(),
             _ => None,
         }
@@ -159,7 +163,7 @@ pub fn decode(
                 Metadata::OptionalUnsignedInt(n.checked_sub(1))
             }
             20 => Metadata::Pose(r.count(17)? as u8),
-            21..=32 | 34 => Metadata::Registry {
+            21..=32 => Metadata::Registry {
                 serializer: serializer as u32,
                 id: unsigned(r)?,
             },
@@ -168,6 +172,24 @@ pub fn decode(
             } else {
                 None
             }),
+            34 => {
+                let holder = r.count(1_000_001)?;
+                if holder != 0 {
+                    Metadata::Registry { serializer: 34, id: holder as u32 - 1 }
+                } else {
+                    let mut variant = json!({
+                        "width": r.var()?,
+                        "height": r.var()?,
+                        "asset_id": r.string(32767)?,
+                    });
+                    for field in ["title", "author"] {
+                        if r.bool()? {
+                            variant[field] = r.nbt()?;
+                        }
+                    }
+                    Metadata::InlinePaintingVariant(variant)
+                }
+            }
             35..=38 => Metadata::State {
                 serializer: serializer as u32,
                 id: unsigned(r)?,
@@ -176,6 +198,7 @@ pub fn decode(
             40 => Metadata::Quaternion([r.f32()?, r.f32()?, r.f32()?, r.f32()?]),
             41 => Metadata::Profile(inventory::read_profile(r)?),
             42 => Metadata::Arm(r.count(1)? as u8),
+            43 => Metadata::DyeColor(r.count(15)? as u8),
             _ => {
                 return Err(format!(
                     "unknown mandatory entity metadata serializer {serializer}"

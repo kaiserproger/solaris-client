@@ -1,3 +1,4 @@
+use crate::protocol::packet_ids::play::clientbound as cb;
 use super::{InventoryStore, Menu, MenuKind, StonecutterRecipe, Trades, components, menu_data};
 use crate::protocol::{Reader, Result, content::Content};
 use serde_json::json;
@@ -12,7 +13,7 @@ impl InventoryStore {
         content: &Content,
     ) -> Result<bool> {
         match id {
-            41 => {
+            cb::MOUNT_SCREEN_OPEN => {
                 let container = r.var()?;
                 let columns = r.count(5)? as u8;
                 let entity = r.i32()?;
@@ -36,7 +37,7 @@ impl InventoryStore {
                 self.ghost_recipe = None;
                 self.ghost_recipe_stacks.clear();
             }
-            52 => {
+            cb::MERCHANT_OFFERS => {
                 let container = r.var()?;
                 let trades = Arc::new(Trades::read(r, content)?);
                 r.done()?;
@@ -57,7 +58,7 @@ impl InventoryStore {
                     menu.refresh_active_offer()?;
                 }
             }
-            63 => {
+            cb::PLACE_GHOST_RECIPE => {
                 let container = r.var()?;
                 let mut stacks = Vec::new();
                 let display = menu_data::recipe_display(r, content, &mut stacks)?;
@@ -67,7 +68,7 @@ impl InventoryStore {
                     self.ghost_recipe_stacks = stacks;
                 }
             }
-            136 => {
+            cb::RECIPE_BOOK_ADD => {
                 let count = r.count(65536)?;
                 let mut entries = BTreeMap::new();
                 for _ in 0..count {
@@ -84,7 +85,7 @@ impl InventoryStore {
                     self.recipes.extend(entries);
                 }
             }
-            76 => {
+            cb::RECIPE_BOOK_REMOVE => {
                 let count = r.count(65536)?;
                 let mut ids = Vec::with_capacity(count);
                 for _ in 0..count {
@@ -95,7 +96,7 @@ impl InventoryStore {
                     self.recipes.remove(&id);
                 }
             }
-            77 => {
+            cb::RECIPE_BOOK_SETTINGS => {
                 let mut settings = [(false, false); 4];
                 for settings in &mut settings {
                     *settings = (r.bool()?, r.bool()?);
@@ -103,14 +104,14 @@ impl InventoryStore {
                 r.done()?;
                 self.recipe_book_settings = settings;
             }
-            103 => {
+            cb::SET_EXPERIENCE => {
                 r.f32()?;
                 let level = r.var()?;
                 r.var()?;
                 r.done()?;
                 self.experience_level = level;
             }
-            133 => {
+            cb::UPDATE_RECIPES => {
                 let mut sets = BTreeMap::new();
                 for _ in 0..r.count(65536)? {
                     let name = r.string(32767)?;

@@ -396,12 +396,6 @@ impl App {
         }
         let old_screen = self.session.screen();
         if let Err(e) = self.session.input(intent) {
-            if e.contains("client_shutdown_requested") {
-                // Title Quit button: window close belongs to the App owner.
-                self.shutdown = true;
-                self.publish_session();
-                return;
-            }
             eprintln!("input: {e}");
         }
         if old_screen != self.session.screen() {
@@ -739,6 +733,7 @@ impl App {
             self.complete_tasks();
             self.tasks_cpu_ms += tasks_start.elapsed().as_secs_f64() * 1000.;
         }
+        self.shutdown |= self.session.take_shutdown_request();
         let sync_start = Instant::now();
         self.sync_native_window();
         self.sync_cpu_ms += sync_start.elapsed().as_secs_f64() * 1000.;
@@ -1171,7 +1166,7 @@ impl ApplicationHandler for App {
                     })
                     .chain(synthesized_up.then_some(crate::ui::PointerPhase::Up));
                     for edge in edges {
-                        if let Err(e) = self.session.command(Command::Input(InputIntent::Ui {
+                        let _ = self.session.command(Command::Input(InputIntent::Ui {
                             intent: crate::ui::UiIntent::Pointer {
                                 phase: edge,
                                 x,
@@ -1182,11 +1177,7 @@ impl ApplicationHandler for App {
                                     ..Default::default()
                                 },
                             },
-                        })) && e.contains("client_shutdown_requested")
-                        {
-                            // Title Quit button: window close belongs to the App owner.
-                            self.shutdown = true;
-                        }
+                        }));
                     }
                     self.publish_session();
                 }

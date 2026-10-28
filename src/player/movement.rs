@@ -1,3 +1,4 @@
+use crate::protocol::packet_ids::play::serverbound as sb;
 use super::collision;
 use super::*;
 use crate::inventory::Stack;
@@ -1082,7 +1083,7 @@ impl Player {
     fn send_abilities(&self, out: &mut Vec<PacketCommand>) {
         let mut w = Writer::default();
         w.byte(if self.abilities.flying { 2 } else { 0 });
-        out.push(PacketCommand::new(40, w));
+        out.push(PacketCommand::new(sb::PLAYER_ABILITIES, w));
     }
 }
 fn next_damage_breaks(stack: &Stack) -> bool {

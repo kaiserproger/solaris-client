@@ -11,21 +11,28 @@ pub(super) fn append(
     light_source: &dyn Fn([f64; 3]) -> Result<Option<[f32; 2]>>,
     out: &mut DynamicGeometry,
 ) -> Result<Handled> {
-    let id = p::number(models, e, "DATA_PAINTING_VARIANT_ID").unwrap_or(0);
-    let registry = "minecraft:painting_variant";
-    let (name, observed) = store
-        .registries
-        .get(registry)
-        .and_then(|entries| entries.get(id as usize))
-        .ok_or("painting variant registry unavailable")?;
-    let variant = if observed.is_null() {
-        models
-            .builtin_variants
-            .get(registry)
-            .and_then(|entries| entries.get(name))
-            .ok_or("painting source variant unavailable")?
+    let (name, variant) = if let Some(Metadata::InlinePaintingVariant(variant)) =
+        p::value(models, e, "DATA_PAINTING_VARIANT_ID")
+    {
+        (variant["asset_id"].as_str().ok_or("painting asset unavailable")?, variant)
     } else {
-        observed
+        let id = p::number(models, e, "DATA_PAINTING_VARIANT_ID").unwrap_or(0);
+        let registry = "minecraft:painting_variant";
+        let (name, observed) = store
+            .registries
+            .get(registry)
+            .and_then(|entries| entries.get(id as usize))
+            .ok_or("painting variant registry unavailable")?;
+        let variant = if observed.is_null() {
+            models
+                .builtin_variants
+                .get(registry)
+                .and_then(|entries| entries.get(name))
+                .ok_or("painting source variant unavailable")?
+        } else {
+            observed
+        };
+        (name.as_str(), variant)
     };
     let width = variant["width"]
         .as_u64()

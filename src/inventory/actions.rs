@@ -1,3 +1,4 @@
+use crate::protocol::packet_ids::play::serverbound as sb;
 use super::{InventoryStore, Menu, MenuKind, PacketCommand, Stack, UiContext};
 use crate::{
     protocol::{Result, Writer, content::Content},
@@ -420,7 +421,7 @@ impl InventoryStore {
                 self.player_slot_identities[slot as usize].wrapping_add(1);
         }
         self.revision += 1;
-        Ok(vec![PacketCommand::new(57, w)])
+        Ok(vec![PacketCommand::new(sb::SET_CREATIVE_MODE_SLOT, w)])
     }
     pub fn execute(&mut self, intent: &UiIntent, content: &Content) -> Result<Vec<PacketCommand>> {
         self.execute_gesture(std::slice::from_ref(intent), content)
@@ -478,7 +479,7 @@ impl InventoryStore {
                     let mut w = Writer::default();
                     w.var(self.menu().id);
                     self.close();
-                    return Ok(vec![PacketCommand::new(19, w)]);
+                    return Ok(vec![PacketCommand::new(sb::CONTAINER_CLOSE, w)]);
                 }
                 _ => {}
             }
@@ -590,7 +591,7 @@ impl Prediction<'_> {
                 self.select_bundle(index, *selected)?;
                 w.var(*slot as i32);
                 w.var(*selected);
-                commands.push(PacketCommand::new(3, w));
+                commands.push(PacketCommand::new(sb::BUNDLE_ITEM_SELECTED, w));
             }
             UiIntent::ClickSlot {
                 slot, button, mode, ..
@@ -603,7 +604,7 @@ impl Prediction<'_> {
                         let mut selected = Writer::default();
                         selected.var(*slot as i32);
                         selected.var(-1);
-                        commands.push(PacketCommand::new(3, selected));
+                        commands.push(PacketCommand::new(sb::BUNDLE_ITEM_SELECTED, selected));
                     }
                 }
                 if self.source.creative_screen {
@@ -641,7 +642,7 @@ impl Prediction<'_> {
                         toggle.var(container);
                         toggle.byte(u8::from(enabled));
                         self.menu.data.insert(*slot, i32::from(!enabled));
-                        commands.push(PacketCommand::new(20, toggle));
+                        commands.push(PacketCommand::new(sb::CONTAINER_SLOT_STATE_CHANGED, toggle));
                     }
                 }
                 self.click(*slot, *button, *mode)?;
@@ -668,7 +669,7 @@ impl Prediction<'_> {
                     hashed(stack.as_ref().ok_or("changed slot unknown")?, &mut w)?;
                 }
                 hashed(&self.cursor, &mut w)?;
-                commands.push(PacketCommand::new(18, w));
+                commands.push(PacketCommand::new(sb::CONTAINER_CLICK, w));
             }
             UiIntent::MenuButton { button, .. } => {
                 // InventoryMenu has no local button behavior. Source still sends
@@ -680,7 +681,7 @@ impl Prediction<'_> {
                     }
                     w.var(container);
                     w.var(*button);
-                    commands.push(PacketCommand::new(17, w));
+                    commands.push(PacketCommand::new(sb::CONTAINER_BUTTON_CLICK, w));
                     return Ok(());
                 }
                 let allowed = self
@@ -695,11 +696,11 @@ impl Prediction<'_> {
                 if self.menu.kind == MenuKind::Merchant {
                     self.select_trade(*button as usize)?;
                     w.var(*button);
-                    commands.push(PacketCommand::new(52, w));
+                    commands.push(PacketCommand::new(sb::SELECT_TRADE, w));
                 } else {
                     w.var(container);
                     w.var(*button);
-                    commands.push(PacketCommand::new(17, w));
+                    commands.push(PacketCommand::new(sb::CONTAINER_BUTTON_CLICK, w));
                     self.predict_button(*button)?;
                 }
             }
@@ -715,7 +716,7 @@ impl Prediction<'_> {
                 w.var(container);
                 w.byte(u8::from(*enabled));
                 self.menu.data.insert(*slot, i32::from(!*enabled));
-                commands.push(PacketCommand::new(20, w));
+                commands.push(PacketCommand::new(sb::CONTAINER_SLOT_STATE_CHANGED, w));
             }
             UiIntent::Rename { text, .. } => {
                 if self.menu.kind != MenuKind::Anvil {
@@ -731,7 +732,7 @@ impl Prediction<'_> {
                 self.menu.anvil_name = Some(text.clone());
                 self.recompute_anvil()?;
                 w.string(&text);
-                commands.push(PacketCommand::new(49, w));
+                commands.push(PacketCommand::new(sb::RENAME_ITEM, w));
             }
             UiIntent::PlaceRecipe {
                 display_id,
@@ -746,7 +747,7 @@ impl Prediction<'_> {
                 w.var(container);
                 w.var(*display_id);
                 w.byte(u8::from(*craft_all));
-                commands.push(PacketCommand::new(39, w));
+                commands.push(PacketCommand::new(sb::PLACE_RECIPE, w));
             }
             UiIntent::RecipeBook { open, filter, .. } => {
                 w.var(
@@ -757,7 +758,7 @@ impl Prediction<'_> {
                 );
                 w.byte(u8::from(*open));
                 w.byte(u8::from(*filter));
-                commands.push(PacketCommand::new(47, w));
+                commands.push(PacketCommand::new(sb::RECIPE_BOOK_CHANGE_SETTINGS, w));
             }
             UiIntent::CreativeSlot {
                 slot,
@@ -783,7 +784,7 @@ impl Prediction<'_> {
                 if *slot >= 0 {
                     self.set(*slot as usize, stack, true);
                 }
-                commands.push(PacketCommand::new(57, w));
+                commands.push(PacketCommand::new(sb::SET_CREATIVE_MODE_SLOT, w));
             }
             UiIntent::Beacon {
                 primary, secondary, ..
@@ -824,10 +825,10 @@ impl Prediction<'_> {
                 if let Some(id) = secondary {
                     w.var(*id);
                 }
-                commands.push(PacketCommand::new(53, w));
+                commands.push(PacketCommand::new(sb::SET_BEACON, w));
                 let mut close = Writer::default();
                 close.var(container);
-                commands.push(PacketCommand::new(19, close));
+                commands.push(PacketCommand::new(sb::CONTAINER_CLOSE, close));
             }
             _ => return Err("not an inventory gesture intent".into()),
         }

@@ -1,4 +1,5 @@
 //! Presentation-only packets. IDs: C00 packet-ids.json; codecs: pinned 26.1.2 javap in .analysis/ui-contract.
+use crate::protocol::packet_ids::play::clientbound as cb;
 use super::{
     render::{Painter, TextSink, WorldPainter},
     state::{EditorState, Screen, UiState},
@@ -297,14 +298,14 @@ impl UiState {
         // Returning false does not advance the reader, so another owner can consume its own packet.
         if !matches!(
             id,
-            3 | 9 | 14 | 31 | 33 | 52 | 66 | 69 | 87 | 114 | 116 | 117 | 124 | 125 | 133 | 142 | 143
+            cb::AWARD_STATS | cb::BOSS_EVENT | cb::CLEAR_TITLES | cb::DELETE_CHAT | cb::DISGUISED_CHAT | cb::MAP_ITEM_DATA | cb::PLAYER_CHAT | cb::PLAYER_COMBAT_KILL | cb::SELECT_ADVANCEMENTS_TAB | cb::SET_SUBTITLE_TEXT | cb::SET_TITLE_TEXT | cb::SET_TITLES_ANIMATION | cb::SYSTEM_CHAT | cb::TAB_LIST | cb::UPDATE_ADVANCEMENTS | cb::CLEAR_DIALOG | cb::SHOW_DIALOG
         ) {
             return Ok(false);
         }
         match id {
-            142 | 143 => self.apply_dialog_packet(id, r)?,
-            3 => self.statistics.apply(r, content)?,
-            9 => {
+            cb::CLEAR_DIALOG | cb::SHOW_DIALOG => self.apply_dialog_packet(id, r)?,
+            cb::AWARD_STATS => self.statistics.apply(r, content)?,
+            cb::BOSS_EVENT => {
                 let key = uuid(r)?;
                 let op = r.var()?;
                 match op {
@@ -359,7 +360,7 @@ impl UiState {
                     _ => return Err("boss_operation_bound".into()),
                 }
             }
-            14 => {
+            cb::CLEAR_TITLES => {
                 let reset = r.bool()?;
                 self.title = None;
                 self.subtitle = None;
@@ -367,20 +368,20 @@ impl UiState {
                     self.title_timing = [10, 70, 20];
                 }
             }
-            31 => {
+            cb::DELETE_CHAT => {
                 let signature = self.read_signature(r)?;
                 self.chat
                     .retain(|line| line.signature.as_ref() != Some(&signature));
                 self.last_seen.ignore_pending(&signature);
             }
-            33 => {
+            cb::DISGUISED_CHAT => {
                 let message = r.nbt()?;
                 let bound = read_chat_bound(r, content)?;
                 let component = decorate(message, bound)?;
                 self.push_chat(component, None, None, false)?;
             }
-            52 => self.read_map(r, content)?,
-            66 => {
+            cb::MAP_ITEM_DATA => self.read_map(r, content)?,
+            cb::PLAYER_CHAT => {
                 let global = r.var()?;
                 if global != self.chat_expected_index {
                     return Err("chat_global_index_out_of_order".into());
@@ -487,20 +488,20 @@ impl UiState {
                         .ok_or("chat_sequence_exhausted")?;
                 }
             }
-            69 => {
+            cb::PLAYER_COMBAT_KILL => {
                 let _player = r.var()?;
                 self.death = Some(r.nbt()?);
                 self.transition(Screen::Death);
             }
-            87 => self.read_advancement_tab(r)?,
-            114 => {
+            cb::SELECT_ADVANCEMENTS_TAB => self.read_advancement_tab(r)?,
+            cb::SET_SUBTITLE_TEXT => {
                 self.subtitle = Some(r.nbt()?);
             }
-            116 => {
+            cb::SET_TITLE_TEXT => {
                 self.title = Some(r.nbt()?);
                 self.title_started = self.tick;
             }
-            117 => {
+            cb::SET_TITLES_ANIMATION => {
                 let times = [r.i32()?, r.i32()?, r.i32()?];
                 for (i, t) in times.into_iter().enumerate() {
                     if t >= 0 {
@@ -508,7 +509,7 @@ impl UiState {
                     }
                 }
             }
-            124 => {
+            cb::SYSTEM_CHAT => {
                 let component = r.nbt()?;
                 let overlay = r.bool()?;
                 if overlay {
@@ -518,11 +519,11 @@ impl UiState {
                     self.push_chat(component, None, None, false)?;
                 }
             }
-            125 => {
+            cb::TAB_LIST => {
                 self.tab_header = Some(r.nbt()?);
                 self.tab_footer = Some(r.nbt()?);
             }
-            133 => self.read_advancements(r, content)?,
+            cb::UPDATE_ADVANCEMENTS => self.read_advancements(r, content)?,
             _ => unreachable!(),
         }
         r.done()?;
@@ -702,7 +703,6 @@ impl UiState {
                 if a.flags & 1 != 0 {
                     a.background = Some(r.string(32767)?);
                 }
-                a.position = [r.f32()?, r.f32()?];
             }
             for _ in 0..r.count(4096)? {
                 let mut group = Vec::new();
@@ -712,6 +712,9 @@ impl UiState {
                 a.requirements.push(group);
             }
             a.telemetry = r.bool()?;
+            // 26.3 PositionedAdvancement carries position after the holder,
+            // independent of whether that holder has display information.
+            a.position = [r.f32()?, r.f32()?];
             added.push((id, a));
         }
         let mut removed = Vec::new();
