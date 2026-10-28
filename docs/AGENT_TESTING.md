@@ -753,3 +753,20 @@ presentation-call time. Submission is not physical display scanout evidence.
 Mouse-look must use the ordinary Session input path, release an automation
 controller on human input, and defer its expensive observation publication to
 the next owner tick/frame rather than rebuilding it at mouse polling frequency.
+
+The opt-in TSV also records visibility/sort, command encoding, completion
+collection, encoder finish, queue submission, present wall/thread CPU and total
+renderer thread CPU. `gpu_timestamps` is a single JSON cell containing completed
+GPU pass durations and its own frame ID: join by that ID, not by the enclosing
+submission row, because readback is asynchronous. CPU phase wall durations are
+not GPU execution durations; queue/acquire/present waits must remain separate.
+
+`tools/pacing_headless.py --binary /absolute/client --out /absolute/.analysis/run`
+uses a private headless sway, native Wayland (Xwayland disabled), RADV on
+`/dev/dri/renderD128`, 1920×1080 at a requested 144 Hz, and FIFO. It clones the
+stopped `.analysis/server/world` for each run, starts the local release server,
+discovers live MCP schemas, warms for 280 ticks and walks with ordinary
+`minecraft_look`/`minecraft_press_inputs` calls. The result retains poses, trace
+bounds, startup logs, capabilities and command transcript. Run repetitions under
+the approved exclusive measurement lane; a private compositor is not evidence
+of physical scanout or a reproduction of the owner's Mutter scheduling.

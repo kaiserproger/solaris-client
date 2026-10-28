@@ -335,6 +335,10 @@ struct FrameStats {
     surface_acquire_ms: f64,
     present_call_ms: f64,
     present_thread_cpu_ms: Option<f64>,
+    collect_ms: f64,
+    finish_ms: f64,
+    submit_ms: f64,
+    render_thread_cpu_ms: Option<f64>,
 }
 
 pub struct Renderer {
@@ -1144,6 +1148,7 @@ impl Renderer {
         observation: &Observation,
     ) -> Result<(), String> {
         let start = Instant::now();
+        let cpu_start = timing::thread_cpu_seconds();
         if let Some(request) = &capture {
             let cancelled = request
                 .automation_fence
@@ -1169,6 +1174,7 @@ impl Renderer {
             }
         }
         self.collect_completed();
+        let collect_ms = start.elapsed().as_secs_f64() * 1000.;
         if let Ok(error) = self.gpu_errors.try_recv() {
             if let Some(request) = capture {
                 let _ = request.reply.send(Err(error.clone()));
@@ -1186,6 +1192,7 @@ impl Renderer {
             return Ok(());
         }
         self.stats = FrameStats::default();
+        self.stats.collect_ms = collect_ms;
         let acquisition = Instant::now();
         let frame = match self
             .surface
@@ -1428,7 +1435,12 @@ impl Renderer {
                 }
             }
         }
-        let submission = self.queue.submit([encoder.finish()]);
+        let finish = Instant::now();
+        let commands = encoder.finish();
+        self.stats.finish_ms = finish.elapsed().as_secs_f64() * 1000.;
+        let submit = Instant::now();
+        let submission = self.queue.submit([commands]);
+        self.stats.submit_ms = submit.elapsed().as_secs_f64() * 1000.;
         if self.texture_activation_frame.is_none() {
             self.texture_activation_frame = Some(self.frame_id);
         }
@@ -1486,6 +1498,8 @@ impl Renderer {
         }
         self.progress.submitted(submission)?;
         self.last_frame_ms = start.elapsed().as_secs_f64() * 1000.0;
+        self.stats.render_thread_cpu_ms = cpu_start.zip(timing::thread_cpu_seconds())
+            .map(|(start, end)| (end - start).max(0.) * 1000.);
         Ok(())
     }
 

@@ -254,6 +254,10 @@ impl Renderer {
         target["surface_acquire_ms"] = json!(self.stats.surface_acquire_ms);
         target["present_call_ms"] = json!(self.stats.present_call_ms);
         target["present_thread_cpu_ms"] = json!(self.stats.present_thread_cpu_ms);
+        target["collect_completed_ms"] = json!(self.stats.collect_ms);
+        target["encoder_finish_ms"] = json!(self.stats.finish_ms);
+        target["queue_submit_ms"] = json!(self.stats.submit_ms);
+        target["render_thread_cpu_ms"] = json!(self.stats.render_thread_cpu_ms);
         target["submitted_frame_interval_ms"] = json!(self.frame_interval_ms);
         target["fps"] = json!(self.fps.fps());
         target["terrain_upload_bytes"] = json!(self.stats.terrain_upload_bytes);
