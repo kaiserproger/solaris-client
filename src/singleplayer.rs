@@ -766,9 +766,6 @@ impl Server {
     /// Like `exited`, but when the output streams have not both closed yet,
     /// wait up to `timeout` for the process to finish exiting.
     pub(crate) fn exited_within(&mut self, timeout: Duration) -> Option<String> {
-        if let Some(report) = self.exited() {
-            return Some(report);
-        }
         let deadline = std::time::Instant::now() + timeout;
         while !self.stopped && self.closed < 2 {
             match self
