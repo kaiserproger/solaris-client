@@ -144,6 +144,11 @@ during that run, so first-run download from the default URL remains blocked
 until the correct manifest and bundle are published. Receipt:
 `../release/.analysis/validation/20261028T121655-title-connect-l31143cr/result.json`.
 
+The fake singleplayer checkpoint-shutdown regression installs its TERM trap
+before printing the readiness marker. Readiness must include teardown-handler
+installation: otherwise immediate `Session::disconnect` can terminate the
+fixture before its checkpoint handler exists, falsely failing the save gate.
+
 The 2026-10-28 local rc.1 acceptance used the canonical release-tree
 `tools.harness run native-lifecycle --release --client native --windowed
 --timeout-seconds 600 --soak-seconds 0`, with an isolated Xvfb/lavapipe window,

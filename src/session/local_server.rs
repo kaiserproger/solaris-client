@@ -285,8 +285,8 @@ mod tests {
         // The "checkpoint" takes a moment: only a stop that waits sees the file.
         let server = singleplayer::spawn_fake_server(
             &root,
-            "echo 'Solaris is listening addr=127.0.0.1:41240'\n\
-             trap 'sleep 0.3; echo done > \"$PWD/checkpoint\"; exit 0' TERM\n\
+            "trap 'sleep 0.3; echo done > \"$PWD/checkpoint\"; exit 0' TERM\n\
+             echo 'Solaris is listening addr=127.0.0.1:41240'\n\
              while :; do sleep 1 & wait $!; done",
         )
         .unwrap();
