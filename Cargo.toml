@@ -40,6 +40,7 @@ arabic_reshaper = "=0.4.2"
 reqwest = { version = "=0.13.4", default-features = false, features = ["blocking", "rustls"] }
 rsa = { version = "=0.9.10", default-features = false, features = ["std", "u64_digit", "sha1"] }
 freetype-rs = { version = "=0.38.0", features = ["bundled"] }
+solaris-paths = { path = "paths" }
 
 [target.'cfg(unix)'.dependencies]
 libc = "=0.2.189"
@@ -49,7 +50,7 @@ debug = 1
 incremental = false
 
 [workspace]
-members = [".", "launcher"]
+members = [".", "launcher", "paths"]
 default-members = [".", "launcher"]
 
 [profile.release]

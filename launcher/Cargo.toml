@@ -23,3 +23,4 @@ tar = "0.4"
 zstd = "0.13"
 eframe = { version = "=0.33.3", default-features = false, features = ["glow", "default_fonts", "x11", "wayland"] }
 png = "=0.18.1"
+solaris-paths = { path = "../paths" }

@@ -14,7 +14,8 @@ Usage:
   solaris-client doctor [--json]
   solaris-client mcp attach --instance ID --stdio [--descriptor FILE]
 
-Default data: $XDG_DATA_HOME/solaris-client (or ~/.local/share/solaris-client);
+Default data: Linux `$XDG_DATA_HOME/solaris-client` (or `~/.local/share/solaris-client`),
+Windows `%APPDATA%\\solaris-client`, macOS `~/Library/Application Support/solaris-client`;
 relative --artifact-dir/--runtime-dir resolve there (defaults artifacts/, runtime/).
 SOLARIS_CLIENT_* environment variables optionally override individual content paths.
 Default username: Player. Server port defaults to 25565. --help / -h prints this text.
