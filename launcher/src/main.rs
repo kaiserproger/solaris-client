@@ -1,7 +1,6 @@
 //! Solaris launcher: downloads the game content, then starts `solaris-client`.
 mod bootstrap;
 mod config;
-mod jdk;
 mod launch;
 mod media;
 mod mojang;
@@ -26,9 +25,9 @@ Usage:
                                         Download game content without a window
                                         (--play then starts the client and waits)
   solaris-launcher --singleplayer-runtime
-                                        Download the Minecraft server jar and a Java
-                                        runtime that singleplayer's first run needs
-                                        (the client starts this itself, only once)
+                                        Install the server data singleplayer needs
+                                        (the client starts this before a local world;
+                                        it downloads only on first use or a new pin)
 Options:
   --data-dir DIR     Data root (default: $XDG_DATA_HOME/solaris-client, %APPDATA%\\solaris-client)
   --manifest URL     Solaris content manifest (default: built in, or launcher.json)
@@ -85,20 +84,20 @@ fn parse(mut args: impl Iterator<Item = String>) -> Result<Option<Args>> {
     Ok(Some(out))
 }
 
-fn headless(args: &Args, layout: &Layout) -> Result<()> {
-    let mut config = config::Config::load(&layout.config_file());
-    if let Some(url) = &args.manifest {
-        config.manifest_url = url.clone();
+/// `--manifest` wins over the URL saved in `launcher.json`.
+fn options(args: &Args, config: &config::Config) -> bootstrap::Options {
+    bootstrap::Options {
+        manifest_url: args
+            .manifest
+            .clone()
+            .unwrap_or_else(|| config.manifest_url.clone()),
     }
+}
+
+fn headless(args: &Args, layout: &Layout) -> Result<()> {
+    let config = config::Config::load(&layout.config_file());
     let rep = Reporter::new(Some(&layout.log_file()), true);
-    bootstrap::run(
-        layout,
-        &bootstrap::Options {
-            manifest_url: config.manifest_url.clone(),
-        },
-        args.force,
-        &rep,
-    )?;
+    bootstrap::run(layout, &options(args, &config), args.force, &rep)?;
     if args.play {
         let spec = launch::Spec {
             root: layout.root.clone(),
@@ -146,6 +145,7 @@ fn main() {
     let result = if args.singleplayer_runtime {
         bootstrap::ensure_singleplayer_runtime(
             &layout,
+            &options(&args, &config::Config::load(&layout.config_file())),
             &Reporter::new(Some(&layout.log_file()), true),
         )
     } else if args.headless {

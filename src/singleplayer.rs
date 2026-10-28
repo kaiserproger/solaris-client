@@ -391,25 +391,8 @@ fn plugin_pack(root: &Path) -> Option<PathBuf> {
     .find(|p| p.is_dir())
 }
 
-/// Managed JDK: `$SOLARIS_JDK`, else the launcher's `<data>/jdk/<any>/bin/java`.
-fn find_jdk(root: &Path) -> Option<PathBuf> {
-    let has_java = |home: &Path| home.join("bin").join(exe_name("java")).is_file();
-    if let Some(custom) = std::env::var_os("SOLARIS_JDK").map(PathBuf::from)
-        && has_java(&custom)
-    {
-        return Some(custom);
-    }
-    let jdk = root.join("jdk");
-    if has_java(&jdk) {
-        return Some(jdk);
-    }
-    fs::read_dir(&jdk)
-        .ok()?
-        .filter_map(Result::ok)
-        .map(|e| e.path())
-        .find(|p| has_java(p))
-}
-
+/// The local server's content cache (`vanilla_data_dir`), installed by the launcher
+/// from the pinned Solaris content bundle.
 fn content_cache(root: &Path) -> PathBuf {
     root.join("servers/content").join(GAME_VERSION)
 }
@@ -888,18 +871,17 @@ fn launcher_binary() -> Option<PathBuf> {
     beside.is_file().then_some(beside)
 }
 
-/// Singleplayer's first run needs the Minecraft server jar and a JDK for the content import;
-/// multiplayer players never download them. The launcher owns the downloads (hash-checked,
-/// resumable), so run it in its runtime-only mode and relay its progress lines.
-fn fetch_runtime(root: &Path, cancel: &Cancel, progress: &dyn Fn(String)) -> Result<(), String> {
-    let launcher = launcher_binary().ok_or_else(|| {
-        "Singleplayer needs the Minecraft server and a Java runtime (first run only), which \
-         solaris-launcher downloads. It was not found next to the client: run \
-         `solaris-launcher --singleplayer-runtime` once, or set SOLARIS_LAUNCHER_BIN."
-            .to_owned()
-    })?;
+/// Run `solaris-launcher --singleplayer-runtime`, which installs the local server's
+/// content cache from the pinned Solaris content bundle (first singleplayer Play only;
+/// afterwards it returns at once without network) and relay its progress lines.
+fn install_content(
+    launcher: &Path,
+    root: &Path,
+    cancel: &Cancel,
+    progress: &dyn Fn(String),
+) -> Result<(), String> {
     let (read, write) = std::io::pipe().map_err(|e| format!("cannot create pipe: {e}"))?;
-    let mut child = Command::new(&launcher)
+    let mut child = Command::new(launcher)
         .arg("--singleplayer-runtime")
         .arg("--data-dir")
         .arg(root)
@@ -914,9 +896,9 @@ fn fetch_runtime(root: &Path, cancel: &Cancel, progress: &dyn Fn(String)) -> Res
             tail.pop_front();
         }
         tail.push_back(strip_ansi(&line));
-        // Stage lines look like `[1/2] Downloading Java toolchain (Temurin JDK)`.
+        // Stage lines look like `[1/1] Downloading singleplayer server data`.
         if line.starts_with('[') {
-            progress(format!("Preparing Java runtime (first run only): {line}"));
+            progress(format!("Preparing singleplayer (first run only): {line}"));
         }
         if cancel.cancelled() {
             let _ = child.kill();
@@ -927,84 +909,37 @@ fn fetch_runtime(root: &Path, cancel: &Cancel, progress: &dyn Fn(String)) -> Res
     let status = child.wait().map_err(|e| e.to_string())?;
     if !status.success() {
         return Err(format!(
-            "Downloading the Java runtime failed ({status}).\n{}",
+            "Downloading the singleplayer server data failed ({status}).\n{}",
             tail.iter().cloned().collect::<Vec<_>>().join("\n")
         ));
     }
     Ok(())
 }
 
-/// First-run import of the server's content cache from the Mojang server jar.
+/// The content cache the local server starts from. The launcher owns its pin, so it is
+/// asked every time when present; without it an already installed cache is used as is.
 fn ensure_content(
     root: &Path,
-    binary: &Path,
     cancel: &Cancel,
     progress: &dyn Fn(String),
 ) -> Result<PathBuf, String> {
     let cache = content_cache(root);
-    if content_ready(&cache) {
-        return Ok(cache);
-    }
-    let jar = root.join("mojang/versions").join(GAME_VERSION).join("server.jar");
-    let jdk = match find_jdk(root) {
-        Some(jdk) if jar.is_file() => jdk,
-        _ => {
-            fetch_runtime(root, cancel, progress)?;
-            if !jar.is_file() {
-                return Err(format!("Minecraft server.jar is missing ({})", jar.display()));
-            }
-            find_jdk(root).ok_or_else(|| {
-                format!("JDK 25 is missing under {}", root.join("jdk").display())
-            })?
-        }
-    };
-    progress("Preparing server data (first run only, takes a few minutes)".into());
-    let log_path = root.join("logs/singleplayer-import.log");
-    fs::create_dir_all(log_path.parent().expect("log has parent"))
-        .map_err(|e| format!("cannot create logs dir: {e}"))?;
-    let mut log = fs::File::create(&log_path)
-        .map_err(|e| format!("cannot create {}: {e}", log_path.display()))?;
-    let mut path = std::ffi::OsString::from(jdk.join("bin"));
-    path.push(if cfg!(windows) { ";" } else { ":" });
-    path.push(std::env::var_os("PATH").unwrap_or_default());
-    let (read, write) = std::io::pipe().map_err(|e| format!("cannot create pipe: {e}"))?;
-    let mut child = Command::new(binary)
-        .args(["content", "import", "--version", GAME_VERSION, "--from"])
-        .arg(&jar)
-        .arg("--cache")
-        .arg(&cache)
-        .current_dir(root)
-        .env("JAVA_HOME", &jdk)
-        .env("JAVA", jdk.join("bin").join(exe_name("java")))
-        .env("PATH", path)
-        .stdin(Stdio::null())
-        .stdout(write.try_clone().map_err(|e| e.to_string())?)
-        .stderr(write)
-        .spawn()
-        .map_err(|e| format!("cannot start {}: {e}", binary.display()))?;
-    let mut tail = VecDeque::new();
-    for line in BufReader::new(read).lines().map_while(Result::ok) {
-        let _ = writeln!(log, "{line}");
-        if tail.len() == 6 {
-            tail.pop_front();
-        }
-        tail.push_back(strip_ansi(&line));
-        // Only the importer's own `content import:` lines are user-facing.
-        if let Some(step) = line.strip_prefix("content import: ") {
-            progress(format!("Preparing server data: {step}"));
-        }
-        if cancel.cancelled() {
-            let _ = child.kill();
-            let _ = child.wait();
-            return Err("Cancelled".into());
+    match launcher_binary() {
+        Some(launcher) => install_content(&launcher, root, cancel, progress)?,
+        None if content_ready(&cache) => {}
+        None => {
+            return Err(
+                "Singleplayer needs the server data that solaris-launcher downloads (first run \
+                 only). It was not found next to the client: run \
+                 `solaris-launcher --singleplayer-runtime` once, or set SOLARIS_LAUNCHER_BIN."
+                    .to_owned(),
+            );
         }
     }
-    let status = child.wait().map_err(|e| e.to_string())?;
-    if !status.success() || !content_ready(&cache) {
+    if !content_ready(&cache) {
         return Err(format!(
-            "Server data import failed ({status}). Log: {}\n{}",
-            log_path.display(),
-            tail.iter().cloned().collect::<Vec<_>>().join("\n")
+            "Singleplayer server data is incomplete ({})",
+            cache.display()
         ));
     }
     Ok(cache)
@@ -1045,7 +980,7 @@ pub(crate) fn start(
     progress: &dyn Fn(String),
 ) -> Result<(Server, WorldMeta), String> {
     let binary = server_binary(launch.root)?;
-    let vanilla = ensure_content(launch.root, &binary, cancel, progress)?;
+    let vanilla = ensure_content(launch.root, cancel, progress)?;
     if cancel.cancelled() {
         return Err("Cancelled".into());
     }

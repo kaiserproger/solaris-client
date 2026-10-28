@@ -6,3 +6,7 @@
 //! new launcher release (`tools/publish_facts.sh` prints the values).
 pub const FACTS_NAME: &str = "solaris-facts-26.1.2-r1";
 pub const FACTS_SHA256: &str = "98ee25d831aa30d241e2c07ed1be51946059efe249e09ada0b91e8ca0b3cec37";
+
+/// Singleplayer server content cache (`tools/publish_content.sh` prints the values).
+pub const CONTENT_NAME: &str = "solaris-content-26.1.2-r1";
+pub const CONTENT_SHA256: &str = "19a99d30699279d3f1b7f20a63d9c84cb70dcf5a8f71fcb85404d5e5ea3dcea7";

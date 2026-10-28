@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Build the data-only Solaris facts bundle from <repo>/dist and the matching
-# content manifest for the static file server.
+# Build the data-only Solaris facts bundle from <repo>/dist and merge its entry
+# into the content manifest for the static file server (replacing only an entry
+# with the same name, so the content bundle and older revisions stay listed).
 #
 # Public-bundle allowlist (owner rule): the bundle may contain only pure
 # non-asset data tables. NO entity models/meshes/UV/animations (no entities/
@@ -131,21 +132,18 @@ tar --sort=name --mtime='@0' --owner=0 --group=0 --numeric-owner \
 SHA="$(sha256sum "$OUT" | awk '{print $1}')"
 SIZE="$(stat -c%s "$OUT")"
 JSON="$OUT_DIR/solaris-content.json"
-cat > "$JSON" <<EOF
-{
-  "schema": 1,
-  "game_version": "$GAME_VERSION",
-  "bundles": [
-    {
-      "name": "$NAME",
-      "kind": "facts",
-      "url": "$BASE_URL/$NAME.tar.zst",
-      "sha256": "$SHA",
-      "size": $SIZE
-    }
-  ]
-}
-EOF
+if [[ -f "$JSON" ]]; then
+  BASE="$(cat "$JSON")"
+else
+  BASE="{\"schema\":1,\"game_version\":\"$GAME_VERSION\",\"bundles\":[]}"
+fi
+jq --arg version "$GAME_VERSION" \
+  --argjson entry "{\"name\":\"$NAME\",\"kind\":\"facts\",\"url\":\"$BASE_URL/$NAME.tar.zst\",\"sha256\":\"$SHA\",\"size\":$SIZE}" \
+  'if .game_version != $version
+   then error("manifest is for \(.game_version), bundle is for \($version)")
+   else .bundles = ([.bundles[] | select(.name != $entry.name)] + [$entry]) end' \
+  <<<"$BASE" > "$JSON.tmp"
+mv "$JSON.tmp" "$JSON"
 
 echo "$OUT"
 echo "$JSON"

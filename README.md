@@ -20,6 +20,7 @@ The download is not bundled with the launcher: no Mojang files are ever shipped 
 | Minecraft 26.1.2 client jar (textures, models, fonts, lang) | Mojang (`piston-meta.mojang.com`, SHA-1 verified) | ~38 MB |
 | Game assets (sounds, languages) | Mojang (`resources.download.minecraft.net`, SHA-1 verified) | ~440 MB |
 | Solaris data tables (block/item facts, collision shapes) | Solaris static server (SHA-256 **pinned inside the launcher**) | ~1 MB |
+| Singleplayer server data (registries, tags, loot tables, worldgen, reports): first singleplayer Play only | Solaris static server (SHA-256 **pinned inside the launcher**) | ~3 MB |
 
 Downloads are parallel, resumable (an interrupted run continues from the partial files) and every file is hash-checked. If anything is damaged use **Settings → Advanced → Verify / repair game files**.
 
@@ -43,7 +44,7 @@ Without the launcher: `solaris-client --server 135.106.208.217:25565 --username 
 
 **Singleplayer** on the title screen lists your worlds (`worlds/<name>` in the data folder) with last-played time and size; **Create New World** takes a name, an optional seed (blank = random, text is hashed like vanilla), game mode (survival/creative) and difficulty. **Play Selected World** starts the bundled Solaris server (`solaris-v2`, next to the client or in `servers/`) on a free loopback port, joins it as the title screen's username and makes that player the operator. **Delete** asks for confirmation, **Open Folder** opens `worlds/`. In game, the pause menu's **Save & Quit to Title** stops the server gracefully so the world is saved.
 
-The first Play derives the server's content cache from the Mojang `server.jar` with a Java runtime (a few minutes, shown on a progress screen). A server player never downloads either: on that first singleplayer Play the client asks `solaris-launcher --singleplayer-runtime` (next to the client) to fetch the server jar (~60 MB) and a Temurin JDK 25 (~135 MB), once. The server binds an OS-assigned loopback port and the client reads the real port from its `is listening` line. If stopping the server fails or has to be killed, the error screen shows the end of its log ("world may not be fully saved"). Each world's server log is `worlds/<name>/logs/server.log`; if the server dies, the error screen shows the end of that log. Mode and difficulty are applied once with ordinary operator commands on the first join; later changes are yours via `/gamemode` and `/difficulty`. The bundled plugin pack is loaded without `solaris-auth` (offline, local operator).
+The first Play installs the server's content cache (Minecraft 26.1.2 registries, tags, loot tables, worldgen data and reports, ~3 MB). The client asks `solaris-launcher --singleplayer-runtime` (next to the client) to download it once from the Solaris static server, SHA-256 pinned inside the launcher like the data tables. No Java runtime or Minecraft server jar is involved, and a server-only player never downloads it. The server binds an OS-assigned loopback port and the client reads the real port from its `is listening` line. If stopping the server fails or has to be killed, the error screen shows the end of its log ("world may not be fully saved"). Each world's server log is `worlds/<name>/logs/server.log`; if the server dies, the error screen shows the end of that log. Mode and difficulty are applied once with ordinary operator commands on the first join; later changes are yours via `/gamemode` and `/difficulty`. The bundled plugin pack is loaded without `solaris-auth` (offline, local operator).
 
 ### Server dialogs
 
@@ -69,9 +70,8 @@ facts/ data/vanilla/                  Solaris data tables (entity metadata and m
 resources/assets/                     textures/models/fonts unpacked from your client.jar
 assets/asset-index.json, objects/     Mojang asset index and sound/language objects
 mojang/versions/26.1.2/               official version json and client.jar
-mojang/versions/26.1.2/server.jar     singleplayer only: fetched on its first Play (with `jdk/`)
-jdk/                                  singleplayer only: managed Temurin JDK that runs the content import
-servers/                              singleplayer: derived server content cache, plugin copy, optional solaris-v2
+servers/content/26.1.2/               singleplayer only: server content cache, installed on its first Play
+servers/                              singleplayer: plugin copy, optional solaris-v2
 worlds/<name>/                        singleplayer worlds (world data, server.toml, ops.json, logs/server.log)
 far-terrain/<server>/overworld/       far terrain tiles (heights and colours) per server
 launcher.json  client-settings.json   your profiles/servers, and in-game Options
@@ -87,7 +87,7 @@ Render distance and fullscreen in the launcher's Settings use the same `client-s
 - **Wayland vs X11 (Linux).** Both work. If a window is missing, scaled wrongly or has no input under Wayland, force X11 with `WAYLAND_DISPLAY= WINIT_UNIX_BACKEND=x11 ./solaris-launcher`; to force Wayland unset `DISPLAY`. The game inherits the launcher's environment.
 - **Download fails / stalls.** Press PLAY again: it resumes. Behind a proxy set `HTTPS_PROXY`/`HTTP_PROXY` (also used for the Solaris data download over plain HTTP). **Verify / repair** re-checks every file. The full log is in the Logs tab and `logs/launcher.log`.
 - **"refusing content bundle … does not match the hash pinned in this launcher".** The Solaris data on the server changed after this launcher was built. Download the newest launcher release. The launcher never installs a bundle it was not built to trust.
-- **Singleplayer's first Play fails while downloading the Java runtime.** Only singleplayer needs it (multiplayer never does): the client runs `solaris-launcher --singleplayer-runtime` from beside itself, which needs `api.adoptium.net`. Or point `SOLARIS_JDK` at an existing JDK 25 (a folder with `bin/java` and `javac`) and set `SOLARIS_LAUNCHER_BIN` if the launcher is not next to the client.
+- **Singleplayer's first Play fails while downloading the server data.** Only singleplayer needs it (multiplayer never does): the client runs `solaris-launcher --singleplayer-runtime` from beside itself, which downloads from the content manifest in **Settings → Advanced** (`launcher.json`) and logs to `logs/launcher.log`. Set `SOLARIS_LAUNCHER_BIN` if the launcher is not next to the client.
 - **Windows SmartScreen warns about an unsigned app.** The preview is unsigned: "More info → Run anyway".
 - **`Client exited with …`.** See the Logs tab; the client's output is prefixed `[client]`.
 - **Start fresh.** Quit everything and delete the data folder.
@@ -114,15 +114,17 @@ cargo build --release          # builds solaris-client and solaris-launcher into
 
 CI (`.github/workflows/release.yml`) builds the Linux tar.gz and Windows zip on every `v*` tag and attaches them with `SHA256SUMS`; it asserts that no `.jar` or `assets/` directory is in the package.
 
-### Publishing the data bundle
+### Publishing the data bundles
 
-The launcher installs exactly one data bundle, pinned by name and SHA-256 in `launcher/src/pins.rs`. To publish a new revision:
+The launcher installs two bundles, each pinned by name and SHA-256 in `launcher/src/pins.rs`: the facts bundle on every install and the content bundle on the first singleplayer Play. Each script merges its entry into `target/publish/solaris-content.json`, keeping the other entries; `publish_content.sh` takes the release from `GAME_VERSION` in `launcher/src/paths.rs`:
 
 ```sh
-tools/publish_facts.sh <rev>      # builds target/publish/solaris-facts-26.1.2-r<rev>.tar.zst + solaris-content.json
+tools/publish_facts.sh <rev>      # target/publish/solaris-facts-<version>-r<rev>.tar.zst
+CONTENT=<cache> SOLARIS_V2=<solaris-v2> tools/publish_content.sh <rev>
+                                  # target/publish/solaris-content-<version>-r<rev>.tar.zst
 ```
 
-Upload both files to `http://135.106.208.217:8080/static/`, then set `FACTS_NAME`/`FACTS_SHA256` in `launcher/src/pins.rs` to the printed values and release a new launcher. The bundle holds only pure data tables (block/item/interaction facts, collision shapes, registry and item-default reports); textures and sounds are never published (they come from the user's own downloaded client), and entity models/metadata are Solaris-authored data inside the client binary.
+Upload the archive(s) and `solaris-content.json` to `http://135.106.208.217:8080/static/`, then set `FACTS_*`/`CONTENT_*` in `launcher/src/pins.rs` to the printed values and release a new launcher. The facts bundle holds only pure data tables (block/item/interaction facts, collision shapes, registry and item-default reports). The content bundle is the complete cache `solaris-v2 content import` derives (`version.json`, `data/`, `reports/`, e.g. the Solaris checkout's `data/vanilla`); the script runs `solaris-v2 content verify` on it before packing. Textures, models, fonts and sounds are never published (they come from Mojang's own servers to the user's machine), and entity models/metadata are Solaris-authored data inside the client binary.
 
 ### Developer content setup (no launcher)
 

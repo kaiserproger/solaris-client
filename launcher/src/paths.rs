@@ -9,7 +9,8 @@
 //!   cache/                              downloaded bundle archives
 //!   logs/launcher.log
 //!   launcher.json, installed.json, client-settings.json
-//!   jdk/ servers/ worlds/               singleplayer (see the client's `singleplayer` module)
+//!   servers/content/<ver>/              singleplayer server content bundle (`--singleplayer-runtime`)
+//!   servers/ worlds/                    singleplayer (see the client's `singleplayer` module)
 //! ```
 use std::path::{Path, PathBuf};
 
@@ -52,8 +53,10 @@ impl Layout {
     pub fn client_jar(&self) -> PathBuf {
         self.version_dir().join("client.jar")
     }
-    pub fn server_jar(&self) -> PathBuf {
-        self.version_dir().join("server.jar")
+    /// The local server's content cache (`vanilla_data_dir`), as the client's
+    /// `singleplayer` module expects it.
+    pub fn server_content(&self) -> PathBuf {
+        self.root.join("servers/content").join(GAME_VERSION)
     }
     pub fn version_json(&self) -> PathBuf {
         self.version_dir().join(format!("{GAME_VERSION}.json"))
