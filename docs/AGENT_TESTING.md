@@ -123,6 +123,14 @@ Do not trim indexed base textures to conceal a budget failure. Launcher content
 is pinned to `solaris-content-26.3-r4` (2,691,397-byte archive); r3 does not pass
 the integrated server's current tag check.
 
+The packaged singleplayer cache path is `servers/content/26.3`, matching the
+launcher. A windowed packaged-client run with the rc.1 server and pinned
+default plugins reached Play and saved on exit using the hash-verified r4
+bundle from a local manifest. The default public manifest returned 26.1.2
+during that run, so first-run download from the default URL remains blocked
+until the correct manifest and bundle are published. Receipt:
+`../release/.analysis/validation/20261028T121655-title-connect-l31143cr/result.json`.
+
 The 2026-10-28 local rc.1 acceptance used the canonical release-tree
 `tools.harness run native-lifecycle --release --client native --windowed
 --timeout-seconds 600 --soak-seconds 0`, with an isolated Xvfb/lavapipe window,

@@ -26,7 +26,7 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-pub(crate) const GAME_VERSION: &str = "26.1.2";
+pub(crate) const GAME_VERSION: &str = "26.3";
 const AUTH_PLUGIN: &str = "solaris-auth";
 const READY_MARKER: &str = "is listening";
 const WORLD_FILE: &str = "solaris-world.json";
@@ -1024,6 +1024,14 @@ mod tests {
             game_mode: GameMode::Creative,
             difficulty: Difficulty::Hard,
         }
+    }
+
+    #[test]
+    fn content_cache_matches_launcher_26_3_install_location() {
+        assert_eq!(
+            content_cache(Path::new("/data")),
+            Path::new("/data/servers/content/26.3")
+        );
     }
 
     #[test]
