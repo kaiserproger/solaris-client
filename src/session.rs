@@ -11,6 +11,10 @@ mod mining_start_tests;
 mod observation;
 mod packets;
 mod ui_packets;
+#[cfg(test)]
+mod hud_packet_tests;
+#[cfg(test)]
+mod vehicle_packet_tests;
 
 use crate::{
     api::{Command, InputIntent, Observation, Scene, Vertex},
@@ -903,6 +907,7 @@ impl Session {
         let result = (|| {
             let mut start = Instant::now();
             self.environment.tick(self.client_tick);
+            self.player.update_world_time(self.environment.game_time(), self.client_tick);
             self.environment.publish_world(&mut self.world)?;
             self.tick_detail_ms[1] += start.elapsed().as_secs_f64() * 1000.;
             start = Instant::now();

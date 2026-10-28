@@ -128,6 +128,7 @@ pub enum UiCommand {
     ChatAck {
         offset: i32,
     },
+    CommandSuggestion { id: i32, command: String },
     Chat {
         message: String,
         command: bool,
@@ -466,6 +467,7 @@ pub struct UiState {
     pub(crate) packet_commands: VecDeque<UiCommand>,
     pub(crate) chat_receipts: VecDeque<super::packets::ChatReceipt>,
     pub(crate) last_seen: super::chat_tracking::LastSeenTracker,
+    pub(crate) command_completion: super::commands::CommandState,
     pub(crate) chat_expected_index: i32,
     pub(crate) chat_sequence: u64,
     pub(crate) beacon_selection: [Option<i32>; 2],
@@ -587,6 +589,7 @@ impl UiState {
             packet_commands: VecDeque::new(),
             chat_receipts: VecDeque::new(),
             last_seen: super::chat_tracking::LastSeenTracker::default(),
+            command_completion: super::commands::CommandState::default(),
             chat_expected_index: 0,
             chat_sequence: 0,
             beacon_selection: [None, None],
@@ -2452,6 +2455,11 @@ impl UiState {
             return Ok(());
         }
         if key == "Tab" {
+            if self.screen == Screen::Chat && self.pending_link.is_none()
+                && self.focus.as_deref() == Some("chat/input")
+            {
+                return self.complete_chat(m.shift, e);
+            }
             let ids: Vec<_> = self
                 .nodes
                 .iter()

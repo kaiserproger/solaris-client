@@ -1451,23 +1451,62 @@ impl UiState {
             )?;
         }
         if self.hud.player_list_visible {
-            let names: Vec<_> = self
-                .hud
-                .players
-                .iter()
-                .take(80)
-                .map(|p| (p.id.clone(), p.name.clone(), p.latency))
-                .collect();
-            for (i, (id, name, latency)) in names.into_iter().enumerate() {
-                self.label(
+            let max_text_width = (self.width - 20.).max(1.);
+            let mut table_y = 30.;
+            if let Some(header) = self.tab_header.clone() {
+                let width = self.text.layout(&header, f32::MAX)?.width.ceil()
+                    .clamp(1., max_text_width);
+                let height = self.text.layout(&header, width)?.height.ceil().max(12.);
+                self.rich_label(
+                    "tab/header",
+                    std::sync::Arc::new(header),
+                    [cx - width / 2., 16., width, height],
+                    false,
+                )?;
+                table_y = 18. + height;
+            }
+            let names: Vec<_> = self.hud.players.iter().take(80).map(|p| {
+                (p.id.clone(), std::sync::Arc::new(serde_json::json!({
+                    "text": "", "extra": [p.name, {"text": format!(" {}ms", p.latency)}]
+                })))
+            }).collect();
+            // 26.3 PlayerTabOverlay balances at most 20 rows per column.
+            let columns = names.len().max(1).div_ceil(20);
+            let row_count = names.len().div_ceil(columns);
+            let mut column_width = 1f32;
+            for (_, name) in &names {
+                column_width = column_width.max(self.text.layout(name, f32::MAX)?.width.ceil());
+            }
+            column_width = column_width.min(((self.width - 20. - (columns - 1) as f32 * 5.)
+                / columns as f32).max(1.));
+            let mut row_heights = vec![10f32; row_count];
+            for (i, (_, name)) in names.iter().enumerate() {
+                row_heights[i % row_count] = row_heights[i % row_count]
+                    .max(self.text.layout(name, column_width)?.height.ceil());
+            }
+            let table_width = columns as f32 * column_width + (columns - 1) as f32 * 5.;
+            let left = cx - table_width / 2.;
+            let table_height: f32 = row_heights.iter().sum();
+            for (i, (id, name)) in names.into_iter().enumerate() {
+                let row = i % row_count;
+                let y = table_y + row_heights[..row].iter().sum::<f32>();
+                self.rich_label(
                     &format!("tab/player/{id}"),
-                    format!("{} {latency}ms", self.text.language.plain(&name)?),
-                    [
-                        cx - 180. + (i / 20) as f32 * 90.,
-                        30. + (i % 20) as f32 * 10.,
-                        88.,
-                        10.,
-                    ],
+                    name,
+                    [left + (i / row_count) as f32 * (column_width + 5.),
+                        y, column_width, row_heights[row]],
+                    false,
+                )?;
+            }
+            if let Some(footer) = self.tab_footer.clone() {
+                let width = self.text.layout(&footer, f32::MAX)?.width.ceil()
+                    .clamp(1., max_text_width);
+                let height = self.text.layout(&footer, width)?.height.ceil().max(12.);
+                self.rich_label(
+                    "tab/footer",
+                    std::sync::Arc::new(footer),
+                    [cx - width / 2., table_y + table_height + 2., width, height],
+                    false,
                 )?;
             }
         }

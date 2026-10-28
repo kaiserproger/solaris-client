@@ -38,6 +38,14 @@ pub(super) fn unsigned_command(command: &str) -> Result<PacketCommand> {
     Ok(PacketCommand::new(sb::CHAT_COMMAND, writer))
 }
 
+/// ServerboundCommandSuggestionPacket: VarInt transaction id and UTF command.
+pub(super) fn command_suggestion(id: i32, command: &str) -> Result<PacketCommand> {
+    let mut writer = Writer::default();
+    writer.var(id);
+    utf(&mut writer, command, 32500)?;
+    Ok(PacketCommand::new(sb::COMMAND_SUGGESTION, writer))
+}
+
 pub(super) fn chat_ack(offset: i32) -> PacketCommand {
     let mut writer = Writer::default();
     writer.var(offset);

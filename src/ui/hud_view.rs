@@ -90,6 +90,9 @@ impl Sidebar {
     }
 }
 impl UiState {
+    pub(crate) fn compare_player_names(a: &str, b: &str) -> std::cmp::Ordering {
+        super::hud_case::compare(a, b)
+    }
     pub(crate) fn experience_level_tree(
         &mut self,
         inventory: &crate::inventory::InventoryStore,

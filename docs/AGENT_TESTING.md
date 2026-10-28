@@ -289,6 +289,39 @@ follow `BakedSheetGlyph.render`'s top-left/bottom-left/bottom-right/top-right or
 the former reversed winding culled sign text after its vanilla negative-Y scale.
 These assertions are not windowed pixel evidence.
 The real native signs scenario must be rerun against the rebuilt executable.
+The rc.1 `s4_04_received_sign_both_sides_render` regression additionally decodes
+both saved sides and checks their outward-facing glyph geometry. It already
+passes on the `7cd21ceb` baseline; a server that does not broadcast changed
+block-entity NBT cannot be repaired by changing client text rendering.
+
+**rc.1 HUD, command completion and mounted-camera regressions**
+
+The physical Tab key now holds the online-player overlay in Game, while chat
+Tab uses the received command tree and the command-suggestion request/response
+path. Packet-driven semantic tests cover listed/unlisted players, display-name
+updates, removal, header/footer, key release and release-all. Command tests cover
+literal completion/cycling, server argument requests, response transaction IDs,
+UTF-16 replacement ranges, retained suffixes and stale responses after edits.
+Connection cleanup discards the previous server's command tree and completions.
+
+The mounted-player path receives the environment owner's game time both on time
+packets and each game tick. Previously the seat calculation reported
+`world_time_not_received` and left the local camera at its pre-boarding position.
+The boat packet regression covers boarding, vehicle corrections, dismount and
+reboarding through the session tick, including the pinned client seat/eye height.
+
+The map regression feeds both inventory-slot packet routes followed by a map
+pixel patch; the boss regression feeds add/remove operations for distinct UUIDs
+and connection cleanup. Both pass on the unchanged client baseline. Server
+inventory fan-out and boss remove emission remain separate authorities, not
+client predictions or heuristics.
+
+These are headless packet/session/geometry proofs, **not graphical acceptance**.
+The original QA sign, Tab, chat, map, boat and dragon scenarios still require a
+real-window rerun on the integrated client/server build. Local red/green and lint
+receipts for this slice are in
+`/run/media/kaiserroman/games/solaris-work/qa-armada/fixes/client-hud-fixes*`.
+
 The four edit buffers expose unique exact-selector labels `Sign line 1` through
 `Sign line 4`; focused regressions drive exact-input/focus/text/submit and close.
 

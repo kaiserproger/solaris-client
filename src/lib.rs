@@ -1129,6 +1129,13 @@ impl ApplicationHandler for App {
                     }
                     return;
                 }
+                if code == KeyCode::Tab && self.session.screen() == "game" {
+                    self.manual(InputIntent::Key {
+                        key: "player_list".into(),
+                        pressed,
+                    });
+                    return;
+                }
                 if code == KeyCode::Escape && pressed {
                     self.release("emergency_stop");
                     if self.session.screen() == "inventory" {

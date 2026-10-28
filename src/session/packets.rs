@@ -241,6 +241,9 @@ impl Session {
             .apply(id, &mut Reader::new(r.bytes), content, self.client_tick)?
         {
             self.environment.publish_world(&mut self.world)?;
+            if id == cb::SET_TIME {
+                self.player.update_world_time(self.environment.game_time(), self.client_tick);
+            }
             self.server_frozen = self.environment.frozen;
             if id == cb::TICKING_STEP {
                 self.step_ticks = Reader::new(r.bytes).var()?;
