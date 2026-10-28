@@ -4089,10 +4089,10 @@ mod client_settings_tests {
             None
         );
         assert_eq!(UiState::next_setting_value("hide_hud", None), None);
-        // Graphics preset cycles Low -> Medium -> High -> Low.
+        // Graphics preset cycles Low -> Medium -> High -> Low; unset is Medium.
         assert_eq!(
             UiState::next_setting_value("graphics_preset", None),
-            Some(json!("medium"))
+            Some(json!("high"))
         );
         assert_eq!(
             UiState::next_setting_value("graphics_preset", Some(&json!("low"))),
