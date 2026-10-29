@@ -502,6 +502,7 @@ pub struct UiState {
     pub(crate) local_status: String,
     /// Set while the connected world is served by the local singleplayer server.
     pub(crate) singleplayer_active: bool,
+    pause_requested: bool,
     pub(crate) disconnect_title: Option<String>,
     pub(crate) options_tab: usize,
     pub(crate) options_footer: [f32; 4],
@@ -626,6 +627,7 @@ impl UiState {
             new_world_difficulty: crate::singleplayer::Difficulty::Normal,
             local_status: String::new(),
             singleplayer_active: false,
+            pause_requested: false,
             disconnect_title: None,
             options_tab: 0,
             options_footer: [0.; 4],
@@ -1586,6 +1588,27 @@ impl UiState {
         self.execute_inner(intent, inventory, content, &mut effects)?;
         self.synchronize(inventory, content)?;
         effects.release_input |= std::mem::take(&mut self.release_pending);
+        if self.singleplayer_active {
+            let pause = if !self.pause_requested && self.screen == Screen::Pause {
+                Some(true)
+            } else if self.pause_requested && self.screen == Screen::Game {
+                Some(false)
+            } else {
+                None
+            };
+            if let Some(paused) = pause {
+                self.pause_requested = paused;
+                effects.commands.push(UiCommand::Chat {
+                    message: if paused {
+                        "solaris_pause on"
+                    } else {
+                        "solaris_pause off"
+                    }
+                    .into(),
+                    command: true,
+                });
+            }
+        }
         Ok(effects)
     }
     pub(super) fn execute_inner(

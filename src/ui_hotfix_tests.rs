@@ -315,6 +315,60 @@ fn escape_on_game_opens_pause() {
 }
 
 #[test]
+fn singleplayer_pause_menu_emits_pause_and_resume_only_in_singleplayer() {
+    use crate::ui::{Modifiers, UiIntent};
+    for singleplayer in [false, true] {
+        let (content, mut inventory, mut ui) = state();
+        ui.singleplayer_active = singleplayer;
+        let escape = || UiIntent::Key {
+            key: "Escape".into(),
+            pressed: true,
+            modifiers: Modifiers::default(),
+        };
+        let open = ui.execute(escape(), &mut inventory, &content).unwrap();
+        let messages: Vec<_> = open
+            .commands
+            .iter()
+            .filter_map(|command| match command {
+                UiCommand::Chat {
+                    message,
+                    command: true,
+                } => Some(message.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            messages,
+            if singleplayer {
+                vec!["solaris_pause on"]
+            } else {
+                vec![]
+            }
+        );
+        let close = ui.execute(escape(), &mut inventory, &content).unwrap();
+        let messages: Vec<_> = close
+            .commands
+            .iter()
+            .filter_map(|command| match command {
+                UiCommand::Chat {
+                    message,
+                    command: true,
+                } => Some(message.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            messages,
+            if singleplayer {
+                vec!["solaris_pause off"]
+            } else {
+                vec![]
+            }
+        );
+    }
+}
+
+#[test]
 fn title_enter_prefills_and_escape_stays() {
     use crate::ui::{Modifiers, UiIntent};
     let (content, mut inventory, mut ui) = state();
