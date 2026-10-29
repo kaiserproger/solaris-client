@@ -15,7 +15,7 @@ env:
   # Push both pinned commits before CI runs; re-bump the core SHA if
   # pauline/release moves before the release tag is created.
   SOLARIS_REVISION: fe6d0f4b9f548a21ab20137ba07dba596d0694c7
-  SOLARIS_PLUGINS_REVISION: 5ed6a00d572db67fa736bd62a260d89777150040
+  SOLARIS_PLUGINS_REVISION: 63540715138d5e74d5a00a595992d5ebe9056371
 
 permissions:
   contents: read
