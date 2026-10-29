@@ -81,6 +81,12 @@ shows a separate Connection Lost screen with the reason and Back to Title.
 Esc opens/closes Pause; resuming gameplay recaptures the mouse. F3 toggles
 the debug overlay; block-break cracks render on the targeted block.
 
+Received weather levels drive rain and snow around the camera. Precipitation
+uses the active pack's environment textures, stops at motion-blocking roofs and
+fluids, and chooses snow from the received biome temperature and altitude.
+Columns whose chunks or biome samples have not arrived are not drawn. A real
+windowed visual check of weather transitions and roof edges is still required.
+
 The local view has speed-scaled walking bob, a smoothed sprint FOV and smooth
 sneak eye-height transitions. First-person arms and held-item models use the
 activated vanilla resources; ordinary attack, use and mining drive their swing,

@@ -677,6 +677,15 @@ impl Session {
             self.scene.shader_game_time =
                 Some((self.environment.game_time().rem_euclid(24000) as f32) / 24000.);
             }
+            super::weather::append(
+                &self.world,
+                self.content.as_ref().ok_or("content unavailable")?,
+                self.scene.camera_position,
+                self.scene.origin,
+                self.scene.environment.rain,
+                self.client_tick as f64 + f64::from(self.presentation_partial),
+                &mut self.scene.dynamic,
+            )?;
             {
                 let content = self.content.as_ref().ok_or("content unavailable")?;
                 let world = &self.world;
