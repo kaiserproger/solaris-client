@@ -1,8 +1,9 @@
 //! Far terrain beyond the server view distance (Solaris `[lod]`, overworld).
 //!
 //! The world is cut into tiles of 16x16 point samples spaced `1 << level`
-//! blocks (levels 1..=6: 2 to 64 blocks). Tiles nearer the camera are finer:
-//! a quadtree splits a tile while the camera is closer than four tile widths.
+//! blocks (levels 0..=6: 1 to 64 blocks). Tiles nearer the camera are finer:
+//! a quadtree splits a tile while the camera is closer than [`SPLIT`] tile
+//! widths.
 //! Each sample is the top block of one column, packed for the GPU as height
 //! plus provenance and an RGBA colour (texture average times biome tint).
 //!
@@ -129,10 +130,14 @@ impl TileKey {
     }
 }
 
-/// Quadtree leaves within `distance` of `centre`, nearest first. A tile splits
-/// while the camera is nearer than four of its widths, so each level covers a
-/// ring twice as wide as the previous one. `covered` tiles (every chunk loaded
-/// as real terrain) are left out.
+/// A tile splits while the camera is nearer than this many of its widths:
+/// each level's ring is twice as wide as the previous one, and 8 keeps 1-block
+/// samples out to ~280 blocks and 8-block samples at 2048.
+pub(crate) const SPLIT: f64 = 8.;
+
+/// Quadtree leaves within `distance` of `centre`, nearest first (rings per
+/// [`SPLIT`]). `covered` tiles (every chunk loaded as real terrain) are left
+/// out.
 pub(crate) fn desired_tiles(
     centre: [f64; 2],
     distance: f64,
@@ -149,7 +154,7 @@ pub(crate) fn desired_tiles(
         if d > distance {
             return;
         }
-        if key.level > MIN_LEVEL && d < 4. * key.size() as f64 {
+        if key.level > MIN_LEVEL && d < SPLIT * key.size() as f64 {
             for child in key.children() {
                 visit(child, centre, distance, covered, out);
             }
@@ -1069,28 +1074,28 @@ mod tests {
                 assert!(!overlap, "{a:?} overlaps {b:?}");
             }
         }
-        // Rings: a leaf did not split (at least four widths away unless at
-        // the finest level) and its parent did (nearer than four parent
+        // Rings: a leaf did not split (at least SPLIT widths away unless at
+        // the finest level) and its parent did (nearer than SPLIT parent
         // widths, so the leaf is within that plus the parent's diagonal).
         for tile in &tiles {
             let d = tile.distance([10., -20.]);
             let size = tile.size() as f64;
             if tile.level > MIN_LEVEL {
-                assert!(d >= 4. * size, "{tile:?} at {d} should have split");
+                assert!(d >= SPLIT * size, "{tile:?} at {d} should have split");
             }
             if tile.level < MAX_LEVEL {
                 let parent = 2. * size;
                 assert!(
-                    d < parent * (4. + std::f64::consts::SQRT_2),
+                    d < parent * (SPLIT + std::f64::consts::SQRT_2),
                     "{tile:?} at {d}"
                 );
             }
         }
-        // Within 2048 blocks: 1-block samples nearest, 16-block at the edge,
-        // and all of it fits the GPU pool (2048 tiles).
-        assert!(tiles.iter().any(|t| t.level == 0) && tiles.iter().any(|t| t.level == 4));
-        assert!(tiles.iter().all(|t| t.level <= 5));
-        assert!(tiles.len() < 1100, "{} tiles", tiles.len());
+        // Within 2048 blocks: 1-block samples nearest, 8-block at the edge,
+        // and all of it fits the GPU pool (4096 tiles).
+        assert!(tiles.iter().any(|t| t.level == 0) && tiles.iter().any(|t| t.level == 3));
+        assert!(tiles.iter().all(|t| t.level <= 4));
+        assert!(tiles.len() < 3100, "{} tiles", tiles.len());
         // Nearest first.
         assert!(
             tiles

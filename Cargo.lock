@@ -3332,6 +3332,7 @@ dependencies = [
  "libc",
  "libm",
  "md5",
+ "naga",
  "parking_lot",
  "png",
  "pollster",

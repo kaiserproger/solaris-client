@@ -475,7 +475,10 @@ pub(crate) fn server_config(spec: &ConfigSpec) -> String {
          view_distance = {view}\nsimulation_distance = {}\n\n\
          [network]\nbind_address = \"127.0.0.1\"\nport = 0\n\n\
          [auth]\nonline_mode = false\n\n\
-         [dashboard]\nenabled = false\n\n",
+         [dashboard]\nenabled = false\n\n\
+         [lod]\n# Loopback-only world: the seed's terrain program stays on this\n\
+         # machine, which generates far terrain on its own GPU.\n\
+         share_terrain_keys = true\n\n",
         toml_str(spec.name),
         view.min(8),
     );
@@ -1064,6 +1067,7 @@ mod tests {
             "directory = \"/data/servers/sp-plugins\"",
             "world_dir = \"/data/worlds/w/world\"",
             "seed = -5",
+            "share_terrain_keys = true",
             "vanilla_data_dir = \"/data/servers/content/26.1.2\"",
         ] {
             assert!(text.contains(line), "missing `{line}` in\n{text}");

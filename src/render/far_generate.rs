@@ -16,8 +16,10 @@ use wgpu::util::DeviceExt;
 
 use super::timing::{self, Timing};
 
-/// One tile (256 columns) per frame keeps a weak GPU's frame bounded.
-const TILES_PER_DISPATCH: usize = 1;
+/// Tiles per frame's dispatch. A tile's 256 long-running invocations leave
+/// the GPU latency-bound: 1 and 16 tiles both measured ~9 ms on the dev GPU,
+/// so a 2900-tile fill takes a few seconds of frames instead of minutes.
+const TILES_PER_DISPATCH: usize = 16;
 const IN_FLIGHT: usize = 3;
 const WORKGROUP: usize = 64;
 
@@ -30,6 +32,11 @@ struct Params {
     roots_a: [u32; 4],
     roots_b: [u32; 4],
     tables: [u32; 4],
+}
+
+/// The generator shader for a program with `registers` registers.
+pub(super) fn shader_source(registers: usize) -> String {
+    include_str!("far_generate.wgsl").replace("REGISTER_COUNT", &registers.max(1).to_string())
 }
 
 /// The program flattened into the shader's word tables (layout in
@@ -170,8 +177,7 @@ impl FarGenerator {
         }
         self.loaded = None;
         let (params, data) = tables(program);
-        let source = include_str!("far_generate.wgsl")
-            .replace("REGISTER_COUNT", &program.registers().max(1).to_string());
+        let source = shader_source(program.registers());
         device.push_error_scope(wgpu::ErrorFilter::Validation);
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("far terrain generate"),

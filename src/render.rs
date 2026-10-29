@@ -36,6 +36,8 @@ mod visibility;
 #[cfg(test)]
 mod shader_tests;
 #[cfg(test)]
+mod wgsl_validation_tests;
+#[cfg(test)]
 mod design_tests;
 use arena::Arena;
 use mesh::{ResidentMesh, Stream};
