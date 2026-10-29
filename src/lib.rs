@@ -44,6 +44,18 @@ use winit::{
     window::{CursorGrabMode, Window, WindowId},
 };
 
+fn toggle_fullscreen_key(session: &mut Session, code: KeyCode, pressed: bool) -> bool {
+    if code != KeyCode::F11 || !pressed {
+        return false;
+    }
+    let fullscreen = session.native_setting("fullscreen")
+        .and_then(serde_json::Value::as_bool).unwrap_or(false);
+    if let Err(error) = session.apply_client_setting("fullscreen", &json!(!fullscreen)) {
+        eprintln!("cannot toggle fullscreen: {error}");
+    }
+    true
+}
+
 fn native_item_key(
     code: KeyCode,
     pressed: bool,
@@ -1067,6 +1079,11 @@ impl ApplicationHandler for App {
                     return;
                 };
                 let pressed = event.state == ElementState::Pressed;
+                if toggle_fullscreen_key(&mut self.session, code, pressed) {
+                    self.sync_native_window();
+                    self.publish_session();
+                    return;
+                }
                 if code == KeyCode::F5 && pressed && self.session.screen() == "game" {
                     self.session.cycle_camera();
                     return;
@@ -1503,6 +1520,24 @@ mod cpu_hotpath_advance_tests {
 #[cfg(test)]
 mod window_input_pacing_tests {
     use super::*;
+
+    #[test]
+    fn f11_toggles_and_persists_fullscreen() {
+        let mut session = Session::new_mode("fullscreen-key-test".into(), false);
+        assert!(!toggle_fullscreen_key(&mut session, KeyCode::F11, false));
+        assert!(!toggle_fullscreen_key(&mut session, KeyCode::F10, true));
+        assert!(toggle_fullscreen_key(&mut session, KeyCode::F11, true));
+        let path = std::env::temp_dir().join(format!("solaris-f11-settings-{}.json", std::process::id()));
+        local_config::save_client_settings_to(&session.client_settings_snapshot(), &path);
+        let saved = local_config::load_client_settings_from(&path);
+        assert_eq!(saved.get("fullscreen"), Some(&json!(true)));
+        let _ = std::fs::remove_file(path);
+        let mut restored = Session::new_mode("fullscreen-key-restored".into(), false);
+        restored.apply_persisted_settings(saved);
+        assert_eq!(restored.native_setting("fullscreen"), Some(&json!(true)));
+        assert!(toggle_fullscreen_key(&mut restored, KeyCode::F11, true));
+        assert_eq!(restored.native_setting("fullscreen"), Some(&json!(false)));
+    }
 
     #[test]
     fn vsync_is_present_paced_and_max_fps_caps_only_unsynced_frames() {
