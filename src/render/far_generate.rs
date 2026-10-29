@@ -16,8 +16,10 @@ use wgpu::util::DeviceExt;
 
 use super::timing::{self, Timing};
 
-/// One tile (256 columns) per frame keeps a weak GPU's frame bounded.
-const TILES_PER_DISPATCH: usize = 1;
+/// Tiles per frame's dispatch. A tile's 256 long-running invocations leave
+/// the GPU latency-bound: 1 and 16 tiles both measured ~9 ms on the dev GPU,
+/// so a 2900-tile fill takes a few seconds of frames instead of minutes.
+const TILES_PER_DISPATCH: usize = 16;
 const IN_FLIGHT: usize = 3;
 const WORKGROUP: usize = 64;
 

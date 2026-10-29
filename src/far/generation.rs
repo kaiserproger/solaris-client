@@ -1,10 +1,11 @@
 //! Never-generated far columns computed on this machine, only on servers
 //! whose operator shares the generation program (`solaris:lod/program`,
 //! `[lod] share_terrain_keys`). Such a client asks the server for stored
-//! columns only; a tile whose answer leaves columns missing is generated
-//! whole by the renderer's compute pass, or by a CPU worker thread when the
-//! GPU path is unavailable (headless, no compute, `SOLARIS_CLIENT_FAR_GPU=0`).
-//! Generated samples rank lowest: any server or chunk sample replaces them.
+//! columns only and meanwhile generates every tile still missing columns
+//! whole, in the renderer's compute pass (`TILES_PER_DISPATCH` per frame), or
+//! on a CPU worker thread when the GPU path is unavailable (headless, no
+//! compute, `SOLARIS_CLIENT_FAR_GPU=0`). Generated samples rank lowest: any
+//! server or chunk sample replaces them.
 use super::program::{Column, Program};
 use super::{write, Far, Source, TileKey, EDGE, SAMPLES};
 use crate::protocol::{content::Content, Result};
@@ -13,8 +14,9 @@ use std::io::Read;
 use std::sync::{mpsc, Arc};
 use std::time::{Duration, Instant};
 
-/// Tiles handed out (GPU queue or CPU worker) and not yet answered.
-const MAX_PENDING: usize = 4;
+/// Tiles handed out (GPU queue or CPU worker) and not yet answered: enough
+/// for every in-flight compute dispatch to be full.
+const MAX_PENDING: usize = 48;
 /// A tile not answered by then is handed out again.
 const PENDING_TIMEOUT: Duration = Duration::from_secs(10);
 /// Decompressed program bound (the vanilla program is about 200 KiB).
@@ -81,7 +83,9 @@ impl Far {
         self.gpu = gpu;
     }
 
-    /// Hand out answered tiles that still miss columns, nearest first.
+    /// Hand out tiles that still miss columns, nearest first, without waiting
+    /// for the server's stored-column answer: generated samples rank lowest,
+    /// so stored columns replace them whenever that answer arrives.
     pub(super) fn schedule_generation(&mut self, now: Instant) {
         let gpu = self.gpu;
         let Some(generation) = self.generation.as_mut() else {
@@ -109,7 +113,7 @@ impl Far {
             let Some(tile) = self.tiles.get_mut(key) else {
                 continue;
             };
-            if tile.generated || !tile.requested || self.inflight.contains_key(key) {
+            if tile.generated {
                 continue;
             }
             tile.generated = true;
