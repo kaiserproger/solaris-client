@@ -75,8 +75,8 @@ Gameplay input is not applied while this screen is visible.
 `<data>/servers/`) on a free loopback port for a world under `<data>/worlds/`;
 the pause menu then reads **Save & Quit to Title** and stops the server
 gracefully so the world checkpoints. See README.md for the full flow.
-Opening the pause menu does not currently stop the singleplayer server's world
-simulation; leave the world with Save & Quit to stop it.
+Opening the pause menu in singleplayer pauses the local world's ticks until
+returning to the game; multiplayer servers continue running.
 
 Disconnect in the pause menu returns to Title. A failed connection or kick
 shows a separate Connection Lost screen with the reason and Back to Title.
