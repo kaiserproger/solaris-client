@@ -339,6 +339,9 @@ pub(crate) enum NodeAction {
     /// Slider row: activation cycles like `Setting`; pointer/keys/wheel set exact stops.
     Slider(&'static str),
     OptionsTab(usize),
+    Rebind(&'static str),
+    ResetBinding(&'static str),
+    ResetBindings,
     EditorToggle(&'static str),
     Generate,
     Loader(super::loader::LoaderControl),
@@ -367,6 +370,7 @@ pub(crate) enum Paint {
     Split {
         delim: &'static str,
         desc: &'static str,
+        conflict: bool,
     },
     /// Themed translucent panel.
     Frame,
@@ -433,6 +437,7 @@ pub struct UiState {
     pub(crate) recipe_filter: bool,
     pub(crate) recipe_category: Option<String>,
     pub(crate) settings: BTreeMap<String, Value>,
+    pub(crate) rebind: Option<&'static str>,
     pub(crate) tick: u64,
     pub(crate) pointer: [f32; 2],
     pub(crate) drag: Option<PointerButton>,
@@ -554,6 +559,7 @@ impl UiState {
             recipe_filter: false,
             recipe_category: None,
             settings: BTreeMap::new(),
+            rebind: None,
             tick: 0,
             pointer: [0.; 2],
             drag: None,
@@ -662,6 +668,7 @@ impl UiState {
         "vsync",
         "max_fps",
         "graphics_preset",
+        "key_bindings",
     ];
     fn setting_f64(value: &Value) -> Option<f64> {
         value.as_f64().or_else(|| value.as_u64().map(|v| v as f64))
@@ -670,6 +677,7 @@ impl UiState {
     /// unknown keys or non-numeric values where numbers are required.
     pub fn sanitize_setting_value(key: &str, value: &Value) -> Option<Value> {
         match key {
+            "key_bindings" => crate::controls::Bindings::from_value(value).map(|bindings| bindings.value()),
             "fullscreen" | "vsync" => value.as_bool().map(|v| json!(v)),
             "graphics_preset" => {
                 GraphicsPreset::from_setting(value).map(|preset| json!(preset.as_str()))
@@ -736,6 +744,7 @@ impl UiState {
     /// Default value for a managed key, if any.
     pub fn default_setting_value(key: &str) -> Option<Value> {
         match key {
+            "key_bindings" => Some(crate::controls::Bindings::default().value()),
             "fullscreen" => Some(json!(false)),
             "vsync" => Some(json!(true)),
             "graphics_preset" => Some(json!(GraphicsPreset::default().as_str())),
@@ -3154,6 +3163,19 @@ impl UiState {
                 self.commit_setting(key, value, e);
             }
             NodeAction::OptionsTab(tab) => self.select_options_tab(tab),
+            NodeAction::Rebind(id) => {
+                self.rebind = Some(id);
+                self.invalidate();
+            }
+            NodeAction::ResetBinding(id) => {
+                let mut bindings = self.settings.get("key_bindings")
+                    .and_then(crate::controls::Bindings::from_value).unwrap_or_default();
+                bindings.reset(id);
+                self.commit_setting("key_bindings", bindings.value(), e);
+            }
+            NodeAction::ResetBindings => {
+                self.commit_setting("key_bindings", crate::controls::Bindings::default().value(), e);
+            }
             NodeAction::EditorToggle(key) => {
                 self.toggle_editor(key)?;
                 if matches!(key, "save" | "load" | "detect") {

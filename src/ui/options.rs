@@ -325,10 +325,11 @@ impl UiState {
         let footer_h = 24.;
         self.options_footer = [lx, y0 + ph - footer_h - 2., lw, footer_h];
         let rows = rows(self.options_tab);
+        let total = rows.len() + if self.options_tab == 1 { crate::controls::ACTIONS.len() + 1 } else { 0 };
         let visible = (((ph - 26. - footer_h - 8.) + 2.) / Self::ROW_PITCH)
             .floor()
             .max(1.) as usize;
-        self.scroll = self.scroll.min(rows.len().saturating_sub(visible));
+        self.scroll = self.scroll.min(total.saturating_sub(visible));
         let scroll = self.scroll;
         for (i, row) in rows.iter().skip(scroll).take(visible).enumerate() {
             let value = self.setting_or_default(row.key);
@@ -370,6 +371,7 @@ impl UiState {
                     Paint::Split {
                         delim: ": ",
                         desc: row.desc,
+                        conflict: false,
                     },
                 ),
             };
@@ -384,13 +386,43 @@ impl UiState {
                 paint,
             )?;
         }
-        if rows.len() > visible {
+        if self.options_tab == 1 {
+            let bindings = self.settings.get("key_bindings")
+                .and_then(crate::controls::Bindings::from_value).unwrap_or_default();
+            for (index, (id, label, _)) in crate::controls::ACTIONS.iter().enumerate() {
+                let row = rows.len() + index;
+                if row < scroll || row >= scroll + visible { continue; }
+                let y = list_top + (row - scroll) as f32 * Self::ROW_PITCH;
+                let value = if self.rebind == Some(*id) {
+                    "Press a key...".to_string()
+                } else {
+                    bindings.0[*id].label()
+                };
+                self.add(
+                    format!("controls/bind/{id}"), "button", format!("{label}: {value}"),
+                    [lx, y, lw - 48., Self::ROW_HEIGHT], true, None,
+                    NodeAction::Rebind(id), Paint::Split { delim: ": ", desc: "Click then press a key or mouse button.", conflict: bindings.conflict(id) },
+                )?;
+                self.button(
+                    &format!("controls/reset/{id}"), "Reset",
+                    [lx + lw - 46., y, 46., Self::ROW_HEIGHT],
+                    NodeAction::ResetBinding(id), true, None,
+                )?;
+            }
+            let row = rows.len() + crate::controls::ACTIONS.len();
+            if row >= scroll && row < scroll + visible {
+                self.button("controls/reset_all", "Reset all",
+                    [lx, list_top + (row - scroll) as f32 * Self::ROW_PITCH, lw, Self::ROW_HEIGHT],
+                    NodeAction::ResetBindings, true, None)?;
+            }
+        }
+        if total > visible {
             let track_h = visible as f32 * Self::ROW_PITCH - 2.;
-            let thumb_h = (track_h * visible as f32 / rows.len() as f32)
+            let thumb_h = (track_h * visible as f32 / total as f32)
                 .max(8.)
                 .floor();
             let travel = track_h - thumb_h;
-            let max = (rows.len() - visible) as f32;
+            let max = (total - visible) as f32;
             self.add(
                 "options/scrollbar".into(),
                 "presentation",
@@ -498,6 +530,34 @@ mod tests {
         protocol::content::Content,
         ui::{Modifiers, PointerButton, PointerPhase, UiCommand, UiEffects, UiIntent},
     };
+
+    #[test]
+    fn controls_tab_exposes_rebindable_forward_action() {
+        let (content, mut inventory, mut ui) = state();
+        open_options(&mut ui, &mut inventory, &content);
+        ui.activate_for_test(NodeAction::OptionsTab(1), &mut inventory, &content).unwrap();
+        ui.rebuild_for_test(&inventory, &content).unwrap();
+        assert!(ui.nodes.iter().any(|node| node.id == "controls/bind/forward"));
+        let [x, y, w, h] = node_bounds(&ui, "controls/bind/forward");
+        pointer(&mut ui, &mut inventory, &content, PointerPhase::Down, x + w / 2., y + h / 2.);
+        pointer(&mut ui, &mut inventory, &content, PointerPhase::Up, x + w / 2., y + h / 2.);
+        assert_eq!(ui.rebind, Some("forward"));
+    }
+
+    #[test]
+    fn controls_reset_buttons_update_the_persisted_setting() {
+        let (content, mut inventory, mut ui) = state();
+        let mut bindings = crate::controls::Bindings::default();
+        bindings.set("forward", crate::controls::Binding::Key(winit::keyboard::KeyCode::KeyA));
+        ui.apply_setting("key_bindings", bindings.value()).unwrap();
+        let effects = ui.activate_for_test(NodeAction::ResetBinding("forward"), &mut inventory, &content).unwrap();
+        assert!(matches!(&effects.commands[0], UiCommand::Settings { key, value }
+            if key == "key_bindings" && !crate::controls::Bindings::from_value(value).unwrap().conflict("forward")));
+        ui.activate_for_test(NodeAction::Rebind("jump"), &mut inventory, &content).unwrap();
+        assert_eq!(ui.rebind, Some("jump"));
+        let effects = ui.activate_for_test(NodeAction::ResetBindings, &mut inventory, &content).unwrap();
+        assert!(matches!(&effects.commands[0], UiCommand::Settings { key, .. } if key == "key_bindings"));
+    }
 
     fn state() -> (Content, InventoryStore, UiState) {
         let mut content = Content::test_cube();

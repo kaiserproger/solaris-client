@@ -83,6 +83,9 @@ shows a separate Connection Lost screen with the reason and Back to Title.
 Esc opens/closes Pause; resuming gameplay recaptures the mouse. F11 toggles
 borderless fullscreen and saves the choice in the client settings. F3 toggles
 the debug overlay; block-break cracks render on the targeted block.
+Options → Controls lists the current keyboard and mouse bindings. Click a
+binding and press its replacement; conflicts appear in red. Each action has a
+Reset button, and Reset all restores the defaults. Bindings are saved locally.
 
 The local view has speed-scaled walking bob, a smoothed sprint FOV and smooth
 sneak eye-height transitions. First-person arms and held-item models use the

@@ -680,6 +680,10 @@ impl Session {
             return Ok(());
         };
         match key {
+            "key_bindings" => {
+                self.bindings = crate::controls::Bindings::from_value(&clean)
+                    .ok_or("invalid key bindings")?;
+            }
             "fullscreen" | "vsync" | "max_fps" | "graphics_preset" | "ui_scale" => {
                 self.presentation_settings.insert(key.into(), clean.clone());
             }
@@ -746,6 +750,7 @@ impl Session {
             json!(self.damage_tilt_strength),
         );
         out.insert("volume".into(), json!(self.volume));
+        out.insert("key_bindings".into(), self.bindings.value());
         out.extend(self.presentation_settings.iter().map(|(key, value)| (key.clone(), value.clone())));
         if let Some(ui) = &self.ui {
             if let Some(scale) = ui
@@ -773,6 +778,11 @@ impl Session {
                 let _ = ui.apply_setting(key, clean.clone());
             }
             match *key {
+                "key_bindings" => {
+                    if let Some(bindings) = crate::controls::Bindings::from_value(&clean) {
+                        self.bindings = bindings;
+                    }
+                }
                 "fullscreen" | "vsync" | "max_fps" | "graphics_preset" | "ui_scale" => {
                     self.presentation_settings.insert((*key).into(), clean.clone());
                 }
