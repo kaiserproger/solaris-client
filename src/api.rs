@@ -194,10 +194,11 @@ pub enum EntityMaterial {
     Text,
     TranslucentMovingBlock,
     WaterMask,
+    Precipitation,
 }
 
 impl EntityMaterial {
-    pub const COUNT: usize = Self::WaterMask as usize + 1;
+    pub const COUNT: usize = Self::Precipitation as usize + 1;
     pub const ALL: [Self; Self::COUNT] = [
         Self::ArmorCutoutNoCull,
         Self::ArmorEntityGlint,
@@ -255,6 +256,7 @@ impl EntityMaterial {
         Self::Text,
         Self::TranslucentMovingBlock,
         Self::WaterMask,
+        Self::Precipitation,
     ];
 }
 

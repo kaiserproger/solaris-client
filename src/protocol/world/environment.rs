@@ -55,13 +55,46 @@ impl World {
             .biome_zoom_seed
             .ok_or("source_biome_seed_unreceived")?;
         let position = biome_sample_position(position, seed, self.min_y, self.height)?;
-        self.biome(position).ok_or("source_biome_unloaded".into())
+        self.biome(position).ok_or_else(|| "source_biome_unloaded".into())
     }
     pub fn biome_has_precipitation(&self, position: [i32; 3], content: &Content) -> Result<bool> {
         let biome = self.source_biome(position)?;
         crate::environment::biome::has_precipitation(
             content.registry_entry("minecraft:worldgen/biome", biome as i32)?,
         )
+    }
+    /// Top of the highest motion-blocking or fluid cell in a received column.
+    /// Unloaded columns are unknown, not open sky.
+    pub(crate) fn precipitation_height(&self, x: i32, z: i32, content: &Content) -> Result<Option<i32>> {
+        let Some(chunk) = self.chunk(chunk_position([x, self.min_y, z])) else {
+            return Ok(None);
+        };
+        for (section_index, section) in chunk.sections.iter().enumerate().rev() {
+            if section.non_empty_block_count == 0 {
+                continue;
+            }
+            let bottom = self.min_y + section_index as i32 * 16;
+            for y in (bottom..(bottom + 16).min(self.min_y + self.height)).rev() {
+                let state = section.blocks.get(super::block_index([x, y, z]));
+                if content.block_blocks_motion(state)? || content.info(state)?.fluid.is_some() {
+                    return Ok(Some(y + 1));
+                }
+            }
+        }
+        Ok(Some(self.min_y))
+    }
+    pub(crate) fn precipitation_is_snow(&self, position: [i32; 3], content: &Content) -> Result<Option<bool>> {
+        let biome = match self.source_biome(position) {
+            Ok(biome) => biome,
+            Err(error) if error == "source_biome_unloaded" => return Ok(None),
+            Err(error) => return Err(error),
+        };
+        let biome = content.registry_entry("minecraft:worldgen/biome", biome as i32)?;
+        if !crate::environment::biome::has_precipitation(biome)? {
+            return Ok(None);
+        }
+        let sea_level = self.environment_context.sea_level.ok_or("world sea level unreceived")?;
+        Ok(Some(crate::environment::biome::temperature(biome, position, sea_level)? < 0.15))
     }
     pub fn is_raining_at(&self, position: [i32; 3], content: &Content) -> Result<bool> {
         if !self.environment.raining()?

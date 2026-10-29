@@ -1377,4 +1377,27 @@ pub(super) const MATERIALS: [Descriptor; EntityMaterial::COUNT] = [
         sort: false,
         sort_key: 30,
     }, // WaterMask
+    Descriptor {
+        shader: ShaderKey {
+            kind: 0,
+            cutoff: 10,
+            cardinal: false,
+            per_face: false,
+            overlay: false,
+            lightmap: true,
+            wrap: false,
+            fog: true,
+            dissolve: false,
+            view_offset: 0,
+            portal_layers: 0,
+        },
+        blend: 1,
+        depth: 1,
+        write_depth: false,
+        cull: false,
+        bias: false,
+        color_write: true,
+        sort: false,
+        sort_key: 20,
+    }, // Precipitation
 ];

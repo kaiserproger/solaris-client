@@ -1135,6 +1135,25 @@ mod tests {
         setup_fog(&mut out, &defaults(), [0.; 3], 0., 0., 128., 8, &facts);
         assert_eq!((out.fog_start, out.fog_end), (96., 128.));
     }
+    #[test]
+    fn weather_game_events_update_received_levels() {
+        let mut environment = Environment::new();
+        let content = Content::test_cube();
+        let mut apply = |event: u8, value: f32| {
+            let mut bytes = vec![event];
+            bytes.extend_from_slice(&value.to_be_bytes());
+            assert!(environment.apply(cb::GAME_EVENT, &mut Reader::new(&bytes), &content, 0).unwrap());
+            (environment.rain, environment.thunder)
+        };
+        // Pinned 26.3 ClientPacketListener initializes start at zero and stop
+        // at one; subsequent level packets carry the actual transition.
+        assert_eq!(apply(1, 0.), (0., 0.));
+        assert_eq!(apply(7, 0.6), (0.6, 0.));
+        assert_eq!(apply(8, 0.8), (0.6, 0.8));
+        assert_eq!(apply(2, 0.), (1., 0.8));
+        assert_eq!(apply(7, 0.), (0., 0.8));
+        assert_eq!(apply(8, 0.), (0., 0.));
+    }
 }
 
 #[cfg(test)]

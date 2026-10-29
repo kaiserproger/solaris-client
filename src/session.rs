@@ -11,6 +11,9 @@ mod mining_start_tests;
 mod observation;
 mod packets;
 mod ui_packets;
+mod weather;
+#[cfg(test)]
+mod weather_tests;
 #[cfg(test)]
 mod hud_packet_tests;
 #[cfg(test)]
