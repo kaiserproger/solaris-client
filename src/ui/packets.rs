@@ -297,6 +297,21 @@ impl UiState {
         &self.network_hud.waypoints
     }
     pub fn apply(&mut self, id: i32, r: &mut Reader<'_>, content: &Content) -> Result<bool> {
+        let hud_packet = match id {
+            cb::SET_OBJECTIVE => Some("SET_OBJECTIVE"),
+            cb::SET_DISPLAY_OBJECTIVE => Some("SET_DISPLAY_OBJECTIVE"),
+            cb::SET_SCORE => Some("SET_SCORE"),
+            cb::RESET_SCORE => Some("RESET_SCORE"),
+            cb::SET_PLAYER_TEAM => Some("SET_PLAYER_TEAM"),
+            _ => None,
+        };
+        if let Some(name) = hud_packet {
+            let handled = self.apply_hud_packet(name, &r.bytes[r.offset..], content)?;
+            if handled {
+                r.offset = r.bytes.len();
+            }
+            return Ok(handled);
+        }
         if self.apply_command_packet(id, r, content)? {
             return Ok(true);
         }

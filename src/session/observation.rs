@@ -763,7 +763,7 @@ impl Session {
                         .unrendered
                         .extend(nameplates.unrendered);
                 }
-                if self.camera_mode == 0 {
+                if self.camera_mode == 0 && !self.ui.as_ref().and_then(|ui| ui.setting("hide_hud")).and_then(Value::as_bool).unwrap_or(false) {
                     if let Some(light) = sample_light(self.player.eye_position())? {
                         let result = self.player.append_first_person(
                             content,

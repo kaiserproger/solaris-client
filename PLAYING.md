@@ -120,6 +120,7 @@ three `export` lines in section 2), else `alsa-sys` fails to configure.
 | F | swap offhand |
 | Esc (game) | pause menu (Back to game / Advancements / Statistics / Options / Accessibility / Disconnect) |
 | Esc (pause/options/chat/inventory) | back |
+| F1 | toggle HUD and first-person hand visibility |
 | F2 | screenshot to artifact dir |
 | F3 | debug overlay (FPS/XYZ/facing/chunk/biome/entities/day/phase) |
 | F5 | cycle first-person / third-person rear / third-person front |

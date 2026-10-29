@@ -1067,6 +1067,15 @@ impl ApplicationHandler for App {
                     return;
                 };
                 let pressed = event.state == ElementState::Pressed;
+                if code == KeyCode::F1 && pressed && !event.repeat && self.session.screen() == "game" {
+                    let _ = self.session.execute_ui(crate::ui::UiIntent::Key {
+                        key: "F1".into(),
+                        pressed: true,
+                        modifiers: self.native_modifiers,
+                    });
+                    self.publish_session();
+                    return;
+                }
                 if code == KeyCode::F5 && pressed && self.session.screen() == "game" {
                     self.session.cycle_camera();
                     return;

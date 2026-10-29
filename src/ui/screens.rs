@@ -1469,16 +1469,16 @@ impl UiState {
             .take(10)
             .map(|line| (line.sequence, line.component.clone()))
             .collect();
-        for (i, (seq, text)) in chat.into_iter().enumerate() {
+        let mut bottom = self.height - 32.;
+        for (seq, text) in chat {
+            let text = std::sync::Arc::new(text);
+            let width = (self.width - 16.).clamp(1., 320.);
+            let height = self.text.layout(&text, width)?.height.max(18.);
+            bottom -= height;
             self.rich_label(
                 &format!("chat/line/{seq}"),
-                std::sync::Arc::new(text),
-                [
-                    4.,
-                    self.height - 50. - i as f32 * 18.,
-                    (self.width - 16.).min(320.),
-                    18.,
-                ],
+                text,
+                [4., bottom, width, height],
                 self.screen == Screen::Chat,
             )?;
         }

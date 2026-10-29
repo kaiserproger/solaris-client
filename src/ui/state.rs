@@ -2446,6 +2446,12 @@ impl UiState {
         content: &Content,
         e: &mut UiEffects,
     ) -> Result<()> {
+        if key == "F1" && self.screen == Screen::Game {
+            let hidden = self.setting("hide_hud").and_then(Value::as_bool).unwrap_or(false);
+            self.settings.insert("hide_hud".into(), json!(!hidden));
+            self.invalidate();
+            return Ok(());
+        }
         if key == "Escape" {
             if self.pending_link.take().is_some() {
                 self.invalidate();
