@@ -118,8 +118,26 @@ impl CommandState {
             Some(i) if backwards => (i + n - 1) % n,
             Some(i) => (i + 1) % n,
         };
+        let value = &c.values[index];
+        let prefix = &c.original[..c.start];
+        let suffix = &c.original[c.end..];
+        // A valid suggestion can exceed the local editor limit once the
+        // untouched prefix and suffix are included. Do not mutate selection
+        // or advance the cycle when it cannot be inserted.
+        if prefix.len() + value.len() + suffix.len() > field.max_bytes
+            || field.max_chars.is_some_and(|max|
+                prefix.encode_utf16().count() + value.encode_utf16().count()
+                    + suffix.encode_utf16().count() > max)
+        {
+            if prefix.chars().chain(value.chars()).chain(suffix.chars())
+                .any(|ch| ch == '\0' || (!field.multiline && (ch == '\n' || ch == '\r')))
+            {
+                return Err("invalid_text_input".into());
+            }
+            return Ok(true);
+        }
         let mut text = c.original.clone();
-        text.replace_range(c.start..c.end, &c.values[index]);
+        text.replace_range(c.start..c.end, value);
         field.select(0, field.text.len())?;
         field.insert(&text)?;
         let cursor = c.start + c.values[index].len();

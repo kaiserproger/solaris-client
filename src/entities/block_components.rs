@@ -22,40 +22,13 @@ impl Store {
         tick: u64,
     ) -> Result<bool> {
         let metadata = content.placement_metadata(state)?;
-        let Some(name @ ("minecraft:sign" | "minecraft:hanging_sign")) =
-            metadata["block_entity_type"].as_str()
-        else {
+        if !matches!(
+            metadata["block_entity_type"].as_str(),
+            Some("minecraft:sign" | "minecraft:hanging_sign")
+        ) {
             return Ok(false);
-        };
-        if self.block_entity_name(position) == Some(name) {
-            return Ok(true);
         }
-        let kind = content
-            .block_entity_names
-            .iter()
-            .find_map(|(kind, value)| (value == name).then_some(*kind))
-            .ok_or("sign block entity type unavailable")?;
-        // SignBlockEntity constructs independent default SignText on both sides.
-        let text = serde_json::json!({
-            "messages": ["", "", "", ""],
-            "color": "black",
-            "has_glowing_text": false
-        });
-        let data = Arc::new(serde_json::json!({
-            "front_text": text,
-            "back_text": text,
-            "is_waxed": false
-        }));
-        self.apply_block_entity(
-            position,
-            kind,
-            data,
-            Arc::from([]),
-            Some(state),
-            content,
-            tick,
-        )?;
-        Ok(true)
+        self.ensure_block_entity(position, state, content, tick)
     }
     /// Sign edits project over received NBT, just like placement components.
     pub(crate) fn predict_sign_text(

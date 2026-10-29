@@ -864,9 +864,21 @@ impl Session {
                     let content = self.content.as_ref().ok_or("content unavailable")?;
                     let received = self.received_block(position).ok_or("predicted block is unloaded")?;
                     if self.predicted_blocks.len() >= 4096 && !self.predicted_blocks.contains_key(&position) { return Err("block prediction bound".into()); }
-                    self.predicted_blocks.entry(position).and_modify(|block| block.sequence = sequence).or_insert(PredictedBlock {received,sequence});
+                    let prediction = self.predicted_blocks.entry(position).and_modify(|block| block.sequence = sequence)
+                        .or_insert(PredictedBlock {received,sequence,block_entity:None});
                     let old = self.world.block(position);
+                    if let Some(previous) = old
+                        && content.info(previous)?.block != content.info(state)?.block
+                    {
+                        let entity = self.entities.take_block_entity_snapshot(position);
+                        if prediction.block_entity.is_none()
+                            && content.info(previous)?.block == content.info(prediction.received)?.block
+                        {
+                            prediction.block_entity = entity;
+                        }
+                    }
                     self.world.set(position,state,|id| content.block_is_air(id))?;
+                    self.entities.ensure_block_entity(position,state,content,self.client_tick)?;
                     self.entities.block_changed(position,state);
                     let now = (self.client_tick as f64 + f64::from(self.presentation_partial)) * 0.05;
                     if let Some(terrain) = &mut self.terrain {

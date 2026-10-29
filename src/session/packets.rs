@@ -274,10 +274,15 @@ impl Session {
             self.container_packet_version += 1;
             handled = true;
         }
-        if self
-            .entities
-            .apply(id, &mut Reader::new(r.bytes), content, self.client_tick)?
-        {
+        if id == cb::BLOCK_ENTITY_DATA {
+            let position = protocol::unpack_pos(Reader::new(r.bytes).i64()?);
+            let snapshot = self.predicted_blocks.get_mut(&position)
+                .and_then(|prediction| prediction.block_entity.as_mut());
+            self.entities.receive_block_entity_data(
+                &mut Reader::new(r.bytes), content, self.client_tick, snapshot,
+            )?;
+            handled = true;
+        } else if self.entities.apply(id, &mut Reader::new(r.bytes), content, self.client_tick)? {
             handled = true;
         }
         if let Some(ui) = &mut self.ui {
@@ -736,10 +741,21 @@ impl Session {
     }
     fn receive_block(&mut self, position: [i32; 3], state: u32) -> Result<()> {
         let content = self.content.as_ref().ok_or("content unavailable")?;
-        content.info(state)?;
+        let new_block = content.info(state)?.block;
         if let Some(prediction) = self.predicted_blocks.get_mut(&position) {
             // ClientLevel.setServerVerifiedBlockState retains the local block
             // until endPredictionsUpTo acknowledges this prediction sequence.
+            let local_block = self.world.block(position)
+                .map(|local| content.info(local).map(|info| info.block)).transpose()?;
+            if let Some(entity) = &prediction.block_entity
+                && !entity.matches_state(state, content)?
+            {
+                prediction.block_entity = None;
+            }
+            if prediction.block_entity.is_none() && local_block != Some(new_block)
+            {
+                prediction.block_entity = self.entities.new_block_entity_snapshot(position, state, content)?;
+            }
             prediction.received = state;
             self.received_blocks.insert(position, self.packet_sequence);
             self.event(json!({"type":"block_update","position":position,"state_id":state,"origin":"server_observed","packet_sequence":self.packet_sequence.to_string()}));
@@ -747,7 +763,6 @@ impl Session {
         }
         let old = self.world.block(position);
         let now = (self.client_tick as f64 + f64::from(self.presentation_partial)) * 0.05;
-        let new_block = content.info(state)?.block;
         if let Some(old_state) = self.world.block(position) {
             if content.info(old_state)?.block != new_block {
                 self.entities.remove_block_entity(position);
@@ -784,7 +799,7 @@ impl Session {
         let mut blocks = std::mem::take(&mut self.predicted_blocks);
         let content = self.content.as_ref().ok_or("content unavailable")?;
         let now = (self.client_tick as f64 + f64::from(self.presentation_partial)) * 0.05;
-        for (position, block) in &blocks {
+        for (position, block) in &mut blocks {
             if block.sequence <= sequence {
                 let new_block = content.info(block.received)?.block;
                 if let Some(old_state) = self.world.block(*position) {
@@ -796,6 +811,11 @@ impl Session {
                 self.world.set(*position, block.received, |state| {
                     content.block_is_air(state)
                 })?;
+                if let Some(entity) = block.block_entity.take()
+                    && entity.matches_state(block.received, content)?
+                {
+                    self.entities.restore_block_entity_snapshot(entity)?;
+                }
                 self.entities.ensure_block_entity(
                     *position,
                     block.received,
@@ -1145,6 +1165,7 @@ mod tests {
             PredictedBlock {
                 received: 1,
                 sequence: 7,
+                block_entity: None,
             },
         );
         session
@@ -1489,6 +1510,7 @@ mod tests {
             PredictedBlock {
                 received: 0,
                 sequence: 7,
+                block_entity: None,
             },
         );
         session.reconcile_ack(6).unwrap();
@@ -1505,6 +1527,7 @@ mod tests {
             PredictedBlock {
                 received: 1,
                 sequence: 8,
+                block_entity: None,
             },
         );
         session.reconcile_ack(8).unwrap();
@@ -1540,6 +1563,7 @@ mod tests {
                 PredictedBlock {
                     received: 1,
                     sequence: 9,
+                    block_entity: None,
                 },
             );
             session.reconcile_ack(9).unwrap();
