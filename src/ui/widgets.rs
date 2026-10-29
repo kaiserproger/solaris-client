@@ -142,7 +142,7 @@ impl UiState {
                     color,
                 )?;
             }
-            Paint::Split { delim, .. } => {
+            Paint::Split { delim, conflict, .. } => {
                 self.row_body(&mut p, node, fx);
                 let (left, right) = node.label.split_once(*delim).unwrap_or((&node.label, ""));
                 let rw = self.text_width(right)?;
@@ -154,7 +154,7 @@ impl UiState {
                     [x + 8., text_y(9.)],
                     TEXT,
                 )?;
-                let color = if fx.hover > 0.4 { 0xffffd98a } else { TEXT_DIM };
+                let color = if *conflict { 0xffff5555 } else if fx.hover > 0.4 { 0xffffd98a } else { TEXT_DIM };
                 self.themed_text(
                     content,
                     p.out,

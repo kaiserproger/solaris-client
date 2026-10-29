@@ -170,7 +170,7 @@ fn inventory_native_number_keys_and_offhand_swap_hovered_stack() {
         let (content, mut inv, mut ui) = fixture();
         inv.player.slots[9] = Some(stack(10));
         pointer(&mut ui, &mut inv, &content, 9, PointerPhase::Move);
-        let native = crate::native_item_key(code, true, Modifiers::default(), true);
+        let native = crate::native_item_key(&crate::controls::Bindings::default(), crate::controls::Binding::Key(code), true, Modifiers::default(), true);
         let mut packets = Vec::new();
         if let Some(crate::api::InputIntent::Ui { intent }) = native {
             packets = dispatch(&mut ui, &mut inv, &content, intent);
@@ -200,7 +200,7 @@ fn inventory_native_q_and_control_q_throw_hovered_items() {
         };
         let mut packets = Vec::new();
         if let Some(crate::api::InputIntent::Ui { intent }) =
-            crate::native_item_key(KeyCode::KeyQ, true, modifiers, true)
+            crate::native_item_key(&crate::controls::Bindings::default(), crate::controls::Binding::Key(KeyCode::KeyQ), true, modifiers, true)
         {
             packets = dispatch(&mut ui, &mut inv, &content, intent);
         }
@@ -250,15 +250,15 @@ fn inventory_recipe_book_button_opens_shared_panel_and_sends_settings() {
 #[test]
 fn inventory_native_shortcuts_preserve_gameplay_and_ignore_releases() {
     assert!(matches!(
-        crate::native_item_key(KeyCode::Digit2, true, Modifiers::default(), false),
+        crate::native_item_key(&crate::controls::Bindings::default(), crate::controls::Binding::Key(KeyCode::Digit2), true, Modifiers::default(), false),
         Some(crate::api::InputIntent::Hotbar { slot: 1 })
     ));
     assert!(matches!(
-        crate::native_item_key(KeyCode::KeyQ, true, Modifiers::default(), false),
+        crate::native_item_key(&crate::controls::Bindings::default(), crate::controls::Binding::Key(KeyCode::KeyQ), true, Modifiers::default(), false),
         Some(crate::api::InputIntent::Key { key, pressed: true }) if key == "drop"
     ));
     for key in [KeyCode::Digit1, KeyCode::KeyQ, KeyCode::KeyF] {
-        assert!(crate::native_item_key(key, false, Modifiers::default(), true).is_none());
+        assert!(crate::native_item_key(&crate::controls::Bindings::default(), crate::controls::Binding::Key(key), false, Modifiers::default(), true).is_none());
     }
 }
 
@@ -284,7 +284,7 @@ fn inventory_swapping_while_carrying_does_not_change_slots() {
     inv.cursor = Some(stack(3));
     pointer(&mut ui, &mut inv, &content, 9, PointerPhase::Move);
     let Some(crate::api::InputIntent::Ui { intent }) =
-        crate::native_item_key(KeyCode::Digit2, true, Modifiers::default(), true)
+        crate::native_item_key(&crate::controls::Bindings::default(), crate::controls::Binding::Key(KeyCode::Digit2), true, Modifiers::default(), true)
     else {
         panic!("inventory key must reach UI");
     };

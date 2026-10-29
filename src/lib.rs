@@ -1,6 +1,9 @@
 pub mod api;
 pub mod audio;
 pub mod automation;
+mod controls;
+#[cfg(test)]
+mod controls_tests;
 mod content_paths;
 pub mod entities;
 pub mod environment;
@@ -44,51 +47,43 @@ use winit::{
     window::{CursorGrabMode, Window, WindowId},
 };
 
+fn toggle_fullscreen_key(session: &mut Session, code: KeyCode, pressed: bool) -> bool {
+    if code != KeyCode::F11 || !pressed {
+        return false;
+    }
+    let fullscreen = session.native_setting("fullscreen")
+        .and_then(serde_json::Value::as_bool).unwrap_or(false);
+    if let Err(error) = session.apply_client_setting("fullscreen", &json!(!fullscreen)) {
+        eprintln!("cannot toggle fullscreen: {error}");
+    }
+    true
+}
+
 fn native_item_key(
-    code: KeyCode,
+    bindings: &controls::Bindings,
+    input: controls::Binding,
     pressed: bool,
     modifiers: ui::Modifiers,
     inventory_open: bool,
 ) -> Option<InputIntent> {
-    if code == KeyCode::KeyQ && !inventory_open {
-        return Some(InputIntent::Key { key: "drop".into(), pressed });
+    let action = bindings.action(input)?;
+    if !inventory_open && matches!(action, "drop" | "swap_offhand") {
+        return Some(InputIntent::Key { key: action.into(), pressed });
     }
-    if !pressed {
-        return None;
+    if !pressed { return None; }
+    if let Some(index) = action.strip_prefix("hotbar_").and_then(|n| n.parse::<u8>().ok()) {
+        if inventory_open {
+            return Some(InputIntent::Ui { intent: ui::UiIntent::Key {
+                key: index.to_string(), pressed, modifiers,
+            }});
+        }
+        return Some(InputIntent::Hotbar { slot: index - 1 });
     }
     if inventory_open {
-        let key = match code {
-            KeyCode::Digit1 => "1",
-            KeyCode::Digit2 => "2",
-            KeyCode::Digit3 => "3",
-            KeyCode::Digit4 => "4",
-            KeyCode::Digit5 => "5",
-            KeyCode::Digit6 => "6",
-            KeyCode::Digit7 => "7",
-            KeyCode::Digit8 => "8",
-            KeyCode::Digit9 => "9",
-            KeyCode::KeyF => "f",
-            KeyCode::KeyQ => "q",
-            _ => return None,
-        };
-        return Some(InputIntent::Ui {
-            intent: ui::UiIntent::Key { key: key.into(), pressed, modifiers },
-        });
-    }
-    let slot = match code {
-        KeyCode::Digit1 => Some(0),
-        KeyCode::Digit2 => Some(1),
-        KeyCode::Digit3 => Some(2),
-        KeyCode::Digit4 => Some(3),
-        KeyCode::Digit5 => Some(4),
-        KeyCode::Digit6 => Some(5),
-        KeyCode::Digit7 => Some(6),
-        KeyCode::Digit8 => Some(7),
-        KeyCode::Digit9 => Some(8),
-        _ => None,
-    };
-    if let Some(slot) = slot {
-        return Some(InputIntent::Hotbar { slot });
+        let key = match action { "drop" => "q", "swap_offhand" => "f", _ => return None };
+        return Some(InputIntent::Ui { intent: ui::UiIntent::Key {
+            key: key.into(), pressed, modifiers,
+        }});
     }
     None
 }
@@ -493,6 +488,47 @@ impl App {
             self.release("screen_transition");
         } else if !defer_publication {
             self.publish_session();
+        }
+    }
+    fn capture_binding(&mut self, binding: controls::Binding) -> bool {
+        let Some(action) = self.session.ui_mut().and_then(|ui| ui.rebind.take()) else {
+            return false;
+        };
+        let mut bindings = self.session.bindings.clone();
+        bindings.set(action, binding);
+        if let Err(error) = self.session.apply_client_setting("key_bindings", &bindings.value()) {
+            eprintln!("cannot save key binding: {error}");
+        }
+        self.publish_session();
+        true
+    }
+
+    fn dispatch_binding(&mut self, binding: controls::Binding, pressed: bool) {
+        let inventory = self.session.screen() == "inventory";
+        if let Some(intent) = native_item_key(&self.session.bindings, binding, pressed, self.native_modifiers, inventory) {
+            self.manual(intent);
+            return;
+        }
+        let Some(action) = self.session.bindings.action(binding) else { return };
+        if inventory && action != "inventory" { return; }
+        if self.session.screen() != "game" && !inventory { return; }
+        match action {
+            "chat" | "command" if pressed && !inventory => {
+                let _ = self.session.execute_ui(crate::ui::UiIntent::OpenChat { command: action == "command" });
+                self.publish_session();
+            }
+            "screenshot" if pressed => self.capture_screenshot(),
+            "debug" if pressed => {
+                self.debug_overlay = !self.debug_overlay;
+                self.session.debug_overlay_pending = self.debug_overlay;
+                self.publish_session();
+            }
+            "perspective" if pressed => self.session.cycle_camera(),
+            "forward" | "backward" | "left" | "right" | "jump" | "sneak" | "sprint"
+            | "inventory" | "attack" | "use" | "player_list" => {
+                self.manual(InputIntent::Key { key: action.into(), pressed });
+            }
+            _ => {}
         }
     }
     fn fail(&mut self, event_loop: &ActiveEventLoop, error: String) {
@@ -1067,6 +1103,15 @@ impl ApplicationHandler for App {
                     return;
                 };
                 let pressed = event.state == ElementState::Pressed;
+                if pressed && self.capture_binding(controls::Binding::Key(code)) {
+                    return;
+                }
+                if toggle_fullscreen_key(&mut self.session, code, pressed) {
+                    self.sync_native_window();
+                    self.publish_session();
+                    self.dispatch_binding(controls::Binding::Key(code), pressed);
+                    return;
+                }
                 if code == KeyCode::F1 && pressed && !event.repeat && self.session.screen() == "game" {
                     let _ = self.session.execute_ui(crate::ui::UiIntent::Key {
                         key: "F1".into(),
@@ -1076,18 +1121,8 @@ impl ApplicationHandler for App {
                     self.publish_session();
                     return;
                 }
-                if code == KeyCode::F5 && pressed && self.session.screen() == "game" {
-                    self.session.cycle_camera();
-                    return;
-                }
                 if matches!(code, KeyCode::ShiftLeft | KeyCode::ShiftRight) {
                     self.shift_held = pressed;
-                }
-                // Shift is a container modifier, not a movement input, while a menu is open.
-                if self.session.screen() == "inventory"
-                    && matches!(code, KeyCode::ShiftLeft | KeyCode::ShiftRight)
-                {
-                    return;
                 }
                 // Dialog screens own Escape/Enter/Tab: forward to UI (fail-closed
                 // emergency release still fires first so held inputs never stick).
@@ -1187,17 +1222,10 @@ impl ApplicationHandler for App {
                     }
                     return;
                 }
-                if code == KeyCode::Tab && self.session.screen() == "game" {
-                    self.manual(InputIntent::Key {
-                        key: "player_list".into(),
-                        pressed,
-                    });
-                    return;
-                }
-                if let Some(intent) = native_item_key(
-                    code, pressed, self.native_modifiers, self.session.screen() == "inventory",
-                ) {
-                    self.manual(intent);
+                if code == KeyCode::Escape && self.session.screen() == "game"
+                    && self.session.bindings.action(controls::Binding::Key(code)).is_some()
+                {
+                    self.dispatch_binding(controls::Binding::Key(code), pressed);
                     return;
                 }
                 if code == KeyCode::Escape && pressed {
@@ -1218,72 +1246,7 @@ impl ApplicationHandler for App {
                     }
                     return;
                 }
-                // Gameplay motion/drop inputs are inert while an inventory/container owns the UI.
-                if self.session.screen() == "inventory"
-                    && matches!(
-                        code,
-                        KeyCode::KeyW
-                            | KeyCode::KeyA
-                            | KeyCode::KeyS
-                            | KeyCode::KeyD
-                            | KeyCode::Space
-                            | KeyCode::ControlLeft
-                            | KeyCode::ControlRight
-                            | KeyCode::KeyQ
-                    )
-                {
-                    return;
-                }
-                // Bare T/Slash/F2/F3: gate on tracked Shift (no modifier
-                // snapshot exists on KeyEvent in winit 0.30; Ctrl/Alt/Logo
-                // combos on these keys are not bound anyway).
-                let bare = !self.shift_held;
-                if pressed && bare {
-                    match code {
-                        KeyCode::KeyT => {
-                            let _ = self
-                                .session
-                                .execute_ui(crate::ui::UiIntent::OpenChat { command: false });
-                            self.publish_session();
-                            return;
-                        }
-                        KeyCode::Slash => {
-                            let _ = self
-                                .session
-                                .execute_ui(crate::ui::UiIntent::OpenChat { command: true });
-                            self.publish_session();
-                            return;
-                        }
-                        KeyCode::F2 => {
-                            self.capture_screenshot();
-                            return;
-                        }
-                        KeyCode::F3 => {
-                            self.debug_overlay = !self.debug_overlay;
-                            self.session.debug_overlay_pending = self.debug_overlay;
-                            self.publish_session();
-                            return;
-                        }
-                        _ => {}
-                    }
-                }
-                let key = match code {
-                    KeyCode::KeyW => "forward",
-                    KeyCode::KeyS => "backward",
-                    KeyCode::KeyA => "left",
-                    KeyCode::KeyD => "right",
-                    KeyCode::Space => "jump",
-                    KeyCode::ShiftLeft | KeyCode::ShiftRight => "sneak",
-                    KeyCode::ControlLeft | KeyCode::ControlRight => "sprint",
-                    KeyCode::KeyE => "inventory",
-                    _ => "",
-                };
-                if !key.is_empty() {
-                    self.manual(InputIntent::Key {
-                        key: key.into(),
-                        pressed,
-                    });
-                }
+                self.dispatch_binding(controls::Binding::Key(code), pressed);
             }
             // Dialogs synthesize a complete click on press. Inventory/container
             // screens preserve pointer edges so cursor transfers and drag gestures work.
@@ -1292,6 +1255,18 @@ impl ApplicationHandler for App {
                     && (self.session.dialog_screen_active()
                         || self.session.screen() == "inventory") =>
             {
+                if state == ElementState::Pressed && self.capture_binding(controls::Binding::Mouse(button)) {
+                    return;
+                }
+                if self.session.screen() == "inventory"
+                    && self.session.bindings.action(controls::Binding::Mouse(button)).is_some_and(|action| {
+                        action == "inventory" || action == "drop" || action == "swap_offhand"
+                            || action.starts_with("hotbar_")
+                    })
+                {
+                    self.dispatch_binding(controls::Binding::Mouse(button), state == ElementState::Pressed);
+                    return;
+                }
                 // Options sliders drag across Move events: keep real edges there too.
                 let inventory_screen = self.session.screen() == "inventory"
                     || self.session.ui_preserves_pointer_edges();
@@ -1350,17 +1325,7 @@ impl ApplicationHandler for App {
                         self.cursor_locked = true;
                     }
                 }
-                let key = match button {
-                    MouseButton::Left => Some("attack"),
-                    MouseButton::Right => Some("use"),
-                    _ => None,
-                };
-                if let Some(key) = key {
-                    self.manual(InputIntent::Key {
-                        key: key.into(),
-                        pressed: state == ElementState::Pressed,
-                    });
-                }
+                self.dispatch_binding(controls::Binding::Mouse(button), state == ElementState::Pressed);
             }
             WindowEvent::MouseWheel { delta, .. }
                 if self.focused
@@ -1512,6 +1477,24 @@ mod cpu_hotpath_advance_tests {
 #[cfg(test)]
 mod window_input_pacing_tests {
     use super::*;
+
+    #[test]
+    fn f11_toggles_and_persists_fullscreen() {
+        let mut session = Session::new_mode("fullscreen-key-test".into(), false);
+        assert!(!toggle_fullscreen_key(&mut session, KeyCode::F11, false));
+        assert!(!toggle_fullscreen_key(&mut session, KeyCode::F10, true));
+        assert!(toggle_fullscreen_key(&mut session, KeyCode::F11, true));
+        let path = std::env::temp_dir().join(format!("solaris-f11-settings-{}.json", std::process::id()));
+        local_config::save_client_settings_to(&session.client_settings_snapshot(), &path);
+        let saved = local_config::load_client_settings_from(&path);
+        assert_eq!(saved.get("fullscreen"), Some(&json!(true)));
+        let _ = std::fs::remove_file(path);
+        let mut restored = Session::new_mode("fullscreen-key-restored".into(), false);
+        restored.apply_persisted_settings(saved);
+        assert_eq!(restored.native_setting("fullscreen"), Some(&json!(true)));
+        assert!(toggle_fullscreen_key(&mut restored, KeyCode::F11, true));
+        assert_eq!(restored.native_setting("fullscreen"), Some(&json!(false)));
+    }
 
     #[test]
     fn vsync_is_present_paced_and_max_fps_caps_only_unsynced_frames() {

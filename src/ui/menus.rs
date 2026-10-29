@@ -248,6 +248,7 @@ impl UiState {
                 Paint::Split {
                     delim: "  —  ",
                     desc: "",
+                    conflict: false,
                 },
             )?;
         }

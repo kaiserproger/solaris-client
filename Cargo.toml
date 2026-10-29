@@ -16,7 +16,7 @@ anyhow = "=1.0.102"
 serde = { version = "=1.0.228", features = ["derive", "rc"] }
 serde_json = { version = "=1.0.149", features = ["arbitrary_precision"] }
 wgpu = "=27.0.1"
-winit = "=0.30.12"
+winit = { version = "=0.30.12", features = ["serde"] }
 pollster = "=0.4.0"
 bytemuck = { version = "=1.25.0", features = ["derive"] }
 glam = "=0.30.10"
