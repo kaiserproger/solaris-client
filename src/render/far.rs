@@ -1,28 +1,33 @@
 //! Far-terrain pass: column-sample tiles drawn behind the real chunks.
 //!
-//! Tiles live in fixed slots of one storage buffer; the vertex shader pulls
-//! samples and builds tops, walls and edge skirts (`far.wgsl`), so a tile
-//! update is one 2 KiB buffer write and there is no CPU meshing. The pass runs
-//! right after the sky with its own projection (far plane past the far
-//! distance) and a cleared depth buffer; the opaque pass clears depth again,
-//! so real chunks always draw over it. Fragments over loaded chunk columns are
+//! Tiles live in fixed slots of one storage buffer. Each upload also meshes
+//! the tile on the CPU into at most [`MAX_FACES`] face words (tops merged
+//! along x where height and colour repeat, walls only toward lower or missing
+//! neighbours, skirts on the tile edge) written to the slot's region of a
+//! second buffer; the vertex shader pulls faces and samples (`far.wgsl`) and
+//! each visible slot is one draw of six vertices per face. The pass runs right
+//! after the sky with its own projection (far plane past the far distance)
+//! and a cleared depth buffer; the opaque pass clears depth again, so real
+//! chunks always draw over it. Fragments over loaded chunk columns are
 //! discarded (seam) and the far edge fades into the sky by alpha.
 //!
-//! Budgets: at most `CAPACITY` resident tiles (`CAPACITY * 2 KiB` of GPU
+//! Budgets: at most `CAPACITY` resident tiles (`CAPACITY * 5.2 KiB` of GPU
 //! memory) and `UPLOADS_PER_FRAME` tile writes per frame.
 use crate::api::{FarScene, Scene};
 use crate::far::{EDGE, SAMPLES, WORDS};
 use glam::{Mat4, Vec3};
 use std::collections::HashMap;
 
-use super::{post::HDR, visibility::Frustum, DEPTH};
+use super::{DEPTH, post::HDR, visibility::Frustum};
 
-/// Resident tile slots; the 8 km quadtree needs about 1100.
-const CAPACITY: u32 = 2048;
+/// Resident tile slots; the 2 km quadtree needs about 2900, 8 km about 4300.
+const CAPACITY: u32 = 4096;
 const UPLOADS_PER_FRAME: usize = 128;
 /// Loaded-chunk mask side, in chunk columns, centred on the camera chunk.
 const MASK: u32 = 128;
-const VERTICES_PER_TILE: u32 = SAMPLES as u32 * 30;
+/// Faces one tile can need: every top unmerged, one wall per adjacent pair
+/// of samples (only the higher one walls) and a skirt per edge sample.
+pub(super) const MAX_FACES: usize = SAMPLES + 2 * EDGE * (EDGE - 1) + 4 * EDGE;
 /// Skirt depth below a tile-edge sample, scaled up for coarse levels.
 const SKIRT: f32 = 24.;
 const NEAR: f32 = 4.;
@@ -34,14 +39,19 @@ struct Uniform {
     camera: [f32; 4],
     mask: [i32; 4],
     fog: [f32; 4],
+    /// Camera block x, z: slot origins subtract it exactly in integers.
+    anchor: [i32; 4],
+    /// Camera position inside its block (x, z).
+    fraction: [f32; 4],
 }
 
+/// Per-slot tile placement the vertex shader reads.
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
-struct Instance {
-    origin: [f32; 2],
-    slot: u32,
+struct SlotInfo {
+    origin: [i32; 2],
     level: u32,
+    _pad: u32,
 }
 
 struct Slot {
@@ -51,6 +61,8 @@ struct Slot {
     level: u8,
     origin: [i64; 2],
     height: [i32; 2],
+    /// Face words in the slot's region.
+    faces: u32,
 }
 
 /// Counters of the latest prepared frame.
@@ -67,14 +79,17 @@ pub(super) struct FarTerrain {
     bind: wgpu::BindGroup,
     uniform: wgpu::Buffer,
     pool: wgpu::Buffer,
-    instances: wgpu::Buffer,
+    faces: wgpu::Buffer,
+    slot_info: wgpu::Buffer,
     mask: wgpu::Texture,
     mask_bytes: Vec<u8>,
     mask_key: Option<([i32; 2], usize)>,
     slots: HashMap<(u8, i32, i32), Slot>,
     free: Vec<u32>,
     scene_revision: Option<u64>,
-    instance_data: Vec<Instance>,
+    /// This frame's visible slots: (slot index, face count).
+    visible: Vec<(u32, u32)>,
+    mesh_scratch: Vec<u32>,
     pub stats: FarStats,
     /// Compute generation for program-sharing servers.
     pub generator: super::far_generate::FarGenerator,
@@ -86,6 +101,16 @@ impl FarTerrain {
             label: Some("far terrain"),
             source: wgpu::ShaderSource::Wgsl(include_str!("far.wgsl").into()),
         });
+        let storage = |binding| wgpu::BindGroupLayoutEntry {
+            binding,
+            visibility: wgpu::ShaderStages::VERTEX,
+            ty: wgpu::BindingType::Buffer {
+                ty: wgpu::BufferBindingType::Storage { read_only: true },
+                has_dynamic_offset: false,
+                min_binding_size: None,
+            },
+            count: None,
+        };
         let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("far terrain"),
             entries: &[
@@ -99,16 +124,7 @@ impl FarTerrain {
                     },
                     count: None,
                 },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::VERTEX,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Storage { read_only: true },
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
+                storage(1),
                 wgpu::BindGroupLayoutEntry {
                     binding: 2,
                     visibility: wgpu::ShaderStages::FRAGMENT,
@@ -119,6 +135,8 @@ impl FarTerrain {
                     },
                     count: None,
                 },
+                storage(3),
+                storage(4),
             ],
         });
         let uniform = device.create_buffer(&wgpu::BufferDescriptor {
@@ -133,10 +151,16 @@ impl FarTerrain {
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        let instances = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("far terrain visible tiles"),
-            size: u64::from(CAPACITY) * std::mem::size_of::<Instance>() as u64,
-            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+        let faces = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("far terrain tile faces"),
+            size: u64::from(CAPACITY) * (MAX_FACES as u64) * 4,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let slot_info = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("far terrain slot placement"),
+            size: u64::from(CAPACITY) * std::mem::size_of::<SlotInfo>() as u64,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
         let mask_bytes = vec![0u8; (MASK * MASK) as usize];
@@ -172,6 +196,14 @@ impl FarTerrain {
                     binding: 2,
                     resource: wgpu::BindingResource::TextureView(&mask_view),
                 },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: faces.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: slot_info.as_entire_binding(),
+                },
             ],
         });
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -185,12 +217,11 @@ impl FarTerrain {
             vertex: wgpu::VertexState {
                 module: &shader,
                 entry_point: Some("far_vertex"),
-                compilation_options: Default::default(),
-                buffers: &[wgpu::VertexBufferLayout {
-                    array_stride: std::mem::size_of::<Instance>() as u64,
-                    step_mode: wgpu::VertexStepMode::Instance,
-                    attributes: &wgpu::vertex_attr_array![0 => Float32x2, 1 => Uint32x2],
-                }],
+                compilation_options: wgpu::PipelineCompilationOptions {
+                    constants: &[("MAX_FACES", MAX_FACES as f64)],
+                    ..Default::default()
+                },
+                buffers: &[],
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
@@ -222,14 +253,16 @@ impl FarTerrain {
             bind,
             uniform,
             pool,
-            instances,
+            faces,
+            slot_info,
             mask,
             mask_bytes,
             mask_key: None,
             slots: HashMap::new(),
             free: (0..CAPACITY).rev().collect(),
             scene_revision: None,
-            instance_data: Vec::new(),
+            visible: Vec::new(),
+            mesh_scratch: Vec::with_capacity(MAX_FACES),
             stats: FarStats::default(),
             generator: super::far_generate::FarGenerator::new(compute),
         }
@@ -271,6 +304,24 @@ impl FarTerrain {
                 u64::from(slot.index) * WORDS as u64 * 4,
                 bytemuck::cast_slice(tile.data.as_slice()),
             );
+            mesh(&tile.data, &mut self.mesh_scratch);
+            if !self.mesh_scratch.is_empty() {
+                queue.write_buffer(
+                    &self.faces,
+                    u64::from(slot.index) * MAX_FACES as u64 * 4,
+                    bytemuck::cast_slice(&self.mesh_scratch),
+                );
+            }
+            queue.write_buffer(
+                &self.slot_info,
+                u64::from(slot.index) * std::mem::size_of::<SlotInfo>() as u64,
+                bytemuck::bytes_of(&SlotInfo {
+                    origin: slot.origin.map(|v| v as i32),
+                    level: u32::from(slot.level),
+                    _pad: 0,
+                }),
+            );
+            slot.faces = self.mesh_scratch.len() as u32;
             slot.revision = Some(tile.revision);
             slot.height = heights(&tile.data);
             uploads += 1;
@@ -279,9 +330,10 @@ impl FarTerrain {
         let projection = Mat4::perspective_rh(fov_y, aspect, NEAR, far.distance * 1.5 + 512.);
         let view_projection = projection * view;
         let frustum = Frustum::new(view_projection);
-        self.instance_data.clear();
+        self.visible.clear();
+        let mut faces = 0u64;
         for slot in self.slots.values() {
-            if slot.revision.is_none() {
+            if slot.revision.is_none() || slot.faces == 0 {
                 continue;
             }
             let size = (EDGE as f32) * f32::from(1u16 << slot.level);
@@ -297,18 +349,8 @@ impl FarTerrain {
             ) {
                 continue;
             }
-            self.instance_data.push(Instance {
-                origin,
-                slot: slot.index,
-                level: u32::from(slot.level),
-            });
-        }
-        if !self.instance_data.is_empty() {
-            queue.write_buffer(
-                &self.instances,
-                0,
-                bytemuck::cast_slice(&self.instance_data),
-            );
+            faces += u64::from(slot.faces);
+            self.visible.push((slot.index, slot.faces));
         }
         let camera_chunk = [camera[0], camera[2]].map(|v| (v / 16.).floor() as i32);
         self.update_mask(queue, camera_chunk, resident_columns);
@@ -317,6 +359,7 @@ impl FarTerrain {
             let texel = &lightmap.rgba[(15 * 16) * 4..(15 * 16) * 4 + 3];
             texel.iter().map(|v| f32::from(*v)).fold(0., f32::max) / 255.
         });
+        let anchor = [camera[0].floor(), camera[2].floor()];
         let uniform = Uniform {
             view_projection: view_projection.to_cols_array(),
             camera: [
@@ -332,20 +375,31 @@ impl FarTerrain {
                 daylight,
                 f32::from(u8::from(linear_output)),
             ],
+            anchor: [anchor[0] as i32, anchor[1] as i32, 0, 0],
+            fraction: [
+                (camera[0] - anchor[0]) as f32,
+                (camera[2] - anchor[1]) as f32,
+                0.,
+                0.,
+            ],
         };
         queue.write_buffer(&self.uniform, 0, bytemuck::bytes_of(&uniform));
         self.stats.resident_tiles = self.slots.len() as u64;
-        self.stats.visible_tiles = self.instance_data.len() as u64;
+        self.stats.visible_tiles = self.visible.len() as u64;
         self.stats.uploads = uploads as u64;
-        self.stats.vertices = self.instance_data.len() as u64 * u64::from(VERTICES_PER_TILE);
-        !self.instance_data.is_empty()
+        self.stats.vertices = faces * 6;
+        !self.visible.is_empty()
     }
 
     pub fn draw<'a>(&'a self, pass: &mut wgpu::RenderPass<'a>) {
         pass.set_pipeline(&self.pipeline);
         pass.set_bind_group(0, &self.bind, &[]);
-        pass.set_vertex_buffer(0, self.instances.slice(..));
-        pass.draw(0..VERTICES_PER_TILE, 0..self.instance_data.len() as u32);
+        // Direct draws: every backend offsets `vertex_index` by the first
+        // vertex, which selects the slot's face region.
+        for &(slot, faces) in &self.visible {
+            let first = slot * MAX_FACES as u32 * 6;
+            pass.draw(first..first + faces * 6, 0..1);
+        }
     }
 
     /// Bind slots to the scene's tiles when the list changed.
@@ -388,6 +442,7 @@ impl FarTerrain {
                     level: tile.level,
                     origin: [i64::from(tile.x) * size, i64::from(tile.z) * size],
                     height: [0, 0],
+                    faces: 0,
                 },
             );
         }
@@ -398,7 +453,7 @@ impl FarTerrain {
             self.free.push(slot.index);
         }
         self.scene_revision = None;
-        self.instance_data.clear();
+        self.visible.clear();
     }
 
     fn update_mask(
@@ -449,10 +504,61 @@ impl FarTerrain {
             "visible_tiles": self.stats.visible_tiles,
             "uploads": self.stats.uploads,
             "vertices": self.stats.vertices,
-            "gpu_pool_bytes": u64::from(CAPACITY) * WORDS as u64 * 4,
+            "gpu_pool_bytes": u64::from(CAPACITY) * (WORDS + MAX_FACES) as u64 * 4,
             "generation": self.generator.metrics(),
         })
     }
+}
+
+/// Face word: sample `i` (bits 0-3), `j` (4-7), face (8-10: 0 top, 1 +x,
+/// 2 -x, 3 +z, 4 -z) and run length - 1 along +x (11-14, tops only).
+fn face(i: usize, j: usize, face: u32, run: usize) -> u32 {
+    i as u32 | (j as u32) << 4 | face << 8 | (run as u32 - 1) << 11
+}
+
+/// One tile's faces into `out` (at most [`MAX_FACES`]): tops merged along x
+/// while height and colour repeat, a wall toward each lower or missing
+/// neighbour inside the tile and a skirt toward every neighbour outside it
+/// (`far.wgsl` derives the wall bottoms the same way).
+fn mesh(data: &[u32; WORDS], out: &mut Vec<u32>) {
+    out.clear();
+    let sample = |i: usize, j: usize| {
+        let index = (j * EDGE + i) * 2;
+        let (height, source) = crate::far::unpack(data[index]);
+        (source != crate::far::Source::Missing).then_some((height, data[index + 1]))
+    };
+    for j in 0..EDGE {
+        let mut i = 0;
+        while i < EDGE {
+            let Some(top) = sample(i, j) else {
+                i += 1;
+                continue;
+            };
+            let mut run = 1;
+            while i + run < EDGE && sample(i + run, j) == Some(top) {
+                run += 1;
+            }
+            out.push(face(i, j, 0, run));
+            i += run;
+        }
+    }
+    for j in 0..EDGE {
+        for i in 0..EDGE {
+            let Some((height, _)) = sample(i, j) else {
+                continue;
+            };
+            for (side, di, dj) in [(1, 1, 0), (2, -1, 0), (3, 0, 1), (4, 0, -1)] {
+                let (ni, nj) = (i as isize + di, j as isize + dj);
+                let inside = (0..EDGE as isize).contains(&ni) && (0..EDGE as isize).contains(&nj);
+                let wall =
+                    !inside || sample(ni as usize, nj as usize).is_none_or(|(low, _)| low < height);
+                if wall {
+                    out.push(face(i, j, side, 1));
+                }
+            }
+        }
+    }
+    debug_assert!(out.len() <= MAX_FACES);
 }
 
 /// Lowest and highest present sample top in a tile.
@@ -464,9 +570,80 @@ fn heights(data: &[u32; WORDS]) -> [i32; 2] {
             range = [range[0].min(height), range[1].max(height)];
         }
     }
-    if range[0] > range[1] {
-        [0, 0]
-    } else {
-        range
+    if range[0] > range[1] { [0, 0] } else { range }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::far::{Source, pack};
+
+    fn tile(height: impl Fn(usize, usize) -> Option<i32>) -> [u32; WORDS] {
+        let mut data = [0u32; WORDS];
+        for j in 0..EDGE {
+            for i in 0..EDGE {
+                if let Some(h) = height(i, j) {
+                    data[(j * EDGE + i) * 2] = pack(h, Source::Stored);
+                    data[(j * EDGE + i) * 2 + 1] = 0xff00_ff00;
+                }
+            }
+        }
+        data
+    }
+
+    fn count(faces: &[u32], side: u32) -> usize {
+        faces.iter().filter(|f| (*f >> 8) & 7 == side).count()
+    }
+
+    #[test]
+    fn flat_tile_merges_rows_and_keeps_only_edge_skirts() {
+        let mut faces = Vec::new();
+        mesh(&tile(|_, _| Some(64)), &mut faces);
+        assert_eq!(count(&faces, 0), EDGE, "one full-width top per row");
+        assert!(
+            faces
+                .iter()
+                .filter(|f| (*f >> 8) & 7 == 0)
+                .all(|f| (f >> 11) + 1 == EDGE as u32)
+        );
+        assert_eq!(faces.len(), EDGE + 4 * EDGE, "tops plus the 64 edge skirts");
+    }
+
+    #[test]
+    fn walls_face_only_lower_or_missing_neighbours() {
+        // A step down along +x at column 8 and a hole at (5, 5).
+        let mut faces = Vec::new();
+        mesh(
+            &tile(|i, j| ((i, j) != (5, 5)).then_some(if i < 8 { 70 } else { 60 })),
+            &mut faces,
+        );
+        let walls: Vec<(u32, u32, u32)> = faces
+            .iter()
+            .filter(|f| (*f >> 8) & 7 != 0)
+            .map(|f| (f & 15, (f >> 4) & 15, (f >> 8) & 7))
+            .collect();
+        for j in 0..EDGE as u32 {
+            assert!(walls.contains(&(7, j, 1)), "higher side of the step walls");
+            assert!(!walls.contains(&(8, j, 2)), "lower side does not");
+        }
+        for wall in [(4, 5, 1), (6, 5, 2), (5, 4, 3), (5, 6, 4)] {
+            assert!(walls.contains(&wall), "{wall:?} walls toward the hole");
+        }
+        assert_eq!(
+            walls.len(),
+            EDGE + 4 + 4 * EDGE,
+            "step, hole and edge skirts only"
+        );
+    }
+
+    #[test]
+    fn worst_case_tile_fits_the_face_region() {
+        let mut faces = Vec::new();
+        mesh(
+            &tile(|i, j| Some(if (i + j) % 2 == 0 { 100 } else { 0 })),
+            &mut faces,
+        );
+        assert!(faces.len() <= MAX_FACES, "{} faces", faces.len());
+        assert_eq!(count(&faces, 0), SAMPLES, "alternating heights never merge");
     }
 }

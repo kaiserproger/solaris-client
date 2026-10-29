@@ -1,8 +1,11 @@
 // Far terrain: tiles of 16x16 column samples pulled from one storage buffer.
-// Each sample draws its top and the walls down to any lower neighbour; walls
-// at a tile edge become skirts, so neighbouring tiles of another level never
-// show cracks. Positions are camera-relative; the far projection has its own
-// near/far planes and the pass clears its own depth.
+// The CPU meshes each tile into face words (far.rs `mesh`): tops merged along
+// x, a wall from a sample down to each lower neighbour, and skirts at the
+// tile edge, so neighbouring tiles of another level never show cracks. Each
+// slot owns MAX_FACES face words; six vertices per face, and the vertex index
+// (offset by the draw's first vertex) selects slot and face. Positions are
+// camera-relative; the far projection has its own near/far planes and the
+// pass clears its own depth.
 
 struct Far {
     view_projection: mat4x4<f32>,
@@ -12,11 +15,18 @@ struct Far {
     mask: vec4<i32>,
     // x: fade start, y: fade end (blocks), z: daylight brightness, w: 1 = linear output.
     fog: vec4<f32>,
+    // xy: camera block x/z; slot origins subtract it in integers.
+    anchor: vec4<i32>,
+    // xy: camera position inside its block.
+    fraction: vec4<f32>,
 };
 
 @group(0) @binding(0) var<uniform> far: Far;
 @group(0) @binding(1) var<storage, read> samples: array<u32>;
 @group(0) @binding(2) var mask: texture_2d<f32>;
+@group(0) @binding(3) var<storage, read> faces: array<u32>;
+// xy: tile origin (blocks), z: level.
+@group(0) @binding(4) var<storage, read> slots: array<vec4<i32>>;
 
 struct FarOut {
     @builtin(position) clip: vec4<f32>,
@@ -25,7 +35,8 @@ struct FarOut {
 };
 
 const EDGE: u32 = 16u;
-const VERTICES: u32 = 30u;
+// Face words per slot, set by the pipeline (far.rs `MAX_FACES`).
+override MAX_FACES: u32;
 
 fn word(slot: u32, i: u32, j: u32) -> u32 {
     return samples[(slot * EDGE * EDGE + j * EDGE + i) * 2u];
@@ -41,27 +52,24 @@ fn top(w: u32) -> f32 {
 }
 
 @vertex
-fn far_vertex(
-    @builtin(vertex_index) vertex: u32,
-    @location(0) origin: vec2<f32>,
-    @location(1) info: vec2<u32>,
-) -> FarOut {
+fn far_vertex(@builtin(vertex_index) vertex: u32) -> FarOut {
     var out: FarOut;
     // Outside the clip volume: a whole quad of these is discarded.
     out.clip = vec4<f32>(0.0, 0.0, 2.0, 1.0);
     out.relative = vec3<f32>(0.0);
     out.color = vec3<f32>(0.0);
-    let sample = vertex / VERTICES;
-    let face = (vertex % VERTICES) / 6u;
+    let index = vertex / 6u;
     let corner = vertex % 6u;
-    let i = sample % EDGE;
-    let j = sample / EDGE;
-    let slot = info.x;
-    let spacing = f32(1u << info.y);
+    let slot = index / MAX_FACES;
+    let packed = faces[index];
+    let i = packed & 15u;
+    let j = (packed >> 4u) & 15u;
+    let face = (packed >> 8u) & 7u;
+    let run = f32(((packed >> 11u) & 15u) + 1u);
+    let info = slots[slot];
+    let spacing = f32(1u << u32(info.z));
+    let origin = vec2<f32>(info.xy - far.anchor.xy) - far.fraction.xy;
     let w = word(slot, i, j);
-    if !present(w) {
-        return out;
-    }
     let h = top(w);
     var corners = array<vec2<f32>, 6>(
         vec2<f32>(0.0, 0.0), vec2<f32>(1.0, 0.0), vec2<f32>(1.0, 1.0),
@@ -70,7 +78,7 @@ fn far_vertex(
     let c = corners[corner];
     let x0 = origin.x + f32(i) * spacing;
     let z0 = origin.y + f32(j) * spacing;
-    var p = vec3<f32>(x0 + c.x * spacing, h, z0 + c.y * spacing);
+    var p = vec3<f32>(x0 + c.x * spacing * run, h, z0 + c.y * spacing);
     var shade = 1.0;
     if face != 0u {
         var step = vec2<i32>(0, 0);

@@ -45,6 +45,10 @@ solaris-paths = { path = "paths" }
 [target.'cfg(unix)'.dependencies]
 libc = "=0.2.189"
 
+[dev-dependencies]
+# Same naga wgpu 27 uses: WGSL validation and backend translation tests.
+naga = { version = "=27.0.3", features = ["wgsl-in", "spv-out", "hlsl-out", "msl-out"] }
+
 [profile.dev]
 debug = 1
 incremental = false

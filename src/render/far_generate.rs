@@ -32,6 +32,11 @@ struct Params {
     tables: [u32; 4],
 }
 
+/// The generator shader for a program with `registers` registers.
+pub(super) fn shader_source(registers: usize) -> String {
+    include_str!("far_generate.wgsl").replace("REGISTER_COUNT", &registers.max(1).to_string())
+}
+
 /// The program flattened into the shader's word tables (layout in
 /// `far_generate.wgsl`); `params.tables[3]` (job count) is set per dispatch.
 fn tables(program: &Program) -> (Params, Vec<u32>) {
@@ -170,8 +175,7 @@ impl FarGenerator {
         }
         self.loaded = None;
         let (params, data) = tables(program);
-        let source = include_str!("far_generate.wgsl")
-            .replace("REGISTER_COUNT", &program.registers().max(1).to_string());
+        let source = shader_source(program.registers());
         device.push_error_scope(wgpu::ErrorFilter::Validation);
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("far terrain generate"),
