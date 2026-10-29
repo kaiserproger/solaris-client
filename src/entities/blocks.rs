@@ -1,12 +1,172 @@
 //! Received block-entity state with source-rate client animation, shared by rendering
 //! and collision. No second visual timer and no extrapolated server block authority.
-use super::{BlockEntity, Store, physical};
+use super::{BlockEntity, MAX_BLOCK_ENTITIES, Store, physical, render_blocks};
 use crate::{
     player::Bounds,
-    protocol::{Result, content::Content, world::World},
+    protocol::{Reader, Result, content::Content, world::World},
 };
-use serde_json::Value;
-use std::collections::BTreeMap;
+use serde_json::{Value, json};
+use std::{collections::BTreeMap, sync::Arc};
+
+/// An owned received entity kept outside presentation while a block prediction hides it.
+pub(crate) struct BlockEntitySnapshot {
+    pub(super) entity: BlockEntity,
+    active: bool,
+}
+
+impl BlockEntitySnapshot {
+    pub(crate) fn matches_state(&self, state: u32, content: &Content) -> Result<bool> {
+        Ok(match self.entity.state {
+            Some(previous) => content.info(previous)?.block == content.info(state)?.block,
+            None => false,
+        })
+    }
+}
+
+impl BlockEntity {
+    pub(super) fn update_data(
+        &mut self,
+        data: Arc<Value>,
+        raw_nbt: Arc<[u8]>,
+        animation: BlockAnimation,
+        revision: u64,
+        reset_animation: bool,
+    ) {
+        self.data = data;
+        self.predicted_data = None;
+        self.raw_nbt = raw_nbt;
+        self.revision = revision;
+        if reset_animation || animation.piston.is_some() {
+            self.animation = animation;
+        } else {
+            // NBT refresh loads source fields without rewinding client visual clocks.
+            self.animation.source.gateway_age = animation.source.gateway_age;
+            self.animation.source.spawn_delay = animation.source.spawn_delay;
+            self.animation.signals = animation.signals;
+        }
+    }
+}
+
+impl Store {
+    pub(crate) fn take_block_entity_snapshot(
+        &mut self,
+        position: [i32; 3],
+    ) -> Option<BlockEntitySnapshot> {
+        let entity = self.block_entities.remove(&position)?;
+        self.predicted_block_data.remove(&position);
+        let active = self.block_active.remove(&position);
+        self.block_render_cache.remove(position);
+        self.revision += 1;
+        Some(BlockEntitySnapshot { entity, active })
+    }
+
+    pub(crate) fn restore_block_entity_snapshot(
+        &mut self,
+        mut snapshot: BlockEntitySnapshot,
+    ) -> Result<()> {
+        let position = snapshot.entity.position;
+        if self.block_entities.len() == MAX_BLOCK_ENTITIES
+            && !self.block_entities.contains_key(&position)
+        {
+            return Err("block entity state capacity".into());
+        }
+        self.predicted_block_data.remove(&position);
+        if let Some(data) = &snapshot.entity.predicted_data {
+            self.predicted_block_data.insert(position, data.clone());
+        }
+        if snapshot.active {
+            self.block_active.insert(position);
+        } else {
+            self.block_active.remove(&position);
+        }
+        self.block_render_cache.remove(position);
+        self.revision += 1;
+        snapshot.entity.revision = self.revision;
+        self.block_entities.insert(position, snapshot.entity);
+        Ok(())
+    }
+
+    /// Shared constructor for visible placements and hidden server corrections.
+    pub(crate) fn new_block_entity_snapshot(
+        &self,
+        position: [i32; 3],
+        state: u32,
+        content: &Content,
+    ) -> Result<Option<BlockEntitySnapshot>> {
+        let metadata = content.placement_metadata(state)?;
+        let Some(name) = metadata["block_entity_type"].as_str() else {
+            return Ok(None);
+        };
+        // MovingPistonBlock.newBlockEntity returns null: only received motion creates it.
+        if name == "minecraft:piston" {
+            return Ok(None);
+        }
+        if !render_blocks::has_factory(name) && !render_blocks::source_no_factory(name) {
+            return Err(format!("unknown block entity constructor type: {name}"));
+        }
+        let kind = content.block_entity_names.iter()
+            .find_map(|(kind, value)| (value == name).then_some(*kind))
+            .ok_or_else(|| format!("block entity type unavailable: {name}"))?;
+        // Parsers project absent item lists/profiles/targets to constructor defaults.
+        let data = if matches!(name, "minecraft:sign" | "minecraft:hanging_sign") {
+            let text = json!({
+                "messages": ["", "", "", ""], "color": "black", "has_glowing_text": false
+            });
+            json!({"front_text":text,"back_text":text,"is_waxed":false})
+        } else if name == "minecraft:structure_block" {
+            let mode = content.state_properties(state)
+                .and_then(|properties| properties.get("mode"))
+                .map(|mode| mode.to_ascii_uppercase())
+                .unwrap_or_else(|| "DATA".into());
+            json!({"mode":mode,"showboundingbox":true})
+        } else {
+            json!({})
+        };
+        let animation = parse(name, &data, content)?;
+        Ok(Some(BlockEntitySnapshot {
+            entity: BlockEntity {
+                position, kind, type_name: name.into(), data: Arc::new(data),
+                predicted_data: None, raw_nbt: Arc::from([]), state: Some(state),
+                revision: self.revision, event: None, animation,
+            },
+            active: false,
+        }))
+    }
+
+    pub(crate) fn receive_block_entity_data(
+        &mut self,
+        r: &mut Reader<'_>,
+        content: &Content,
+        tick: u64,
+        snapshot: Option<&mut BlockEntitySnapshot>,
+    ) -> Result<()> {
+        let position = super::metadata::position(r.i64()?);
+        let kind = r.count(65535)? as u32;
+        let start = r.offset;
+        let data = Arc::new(r.nbt()?);
+        let raw_nbt: Arc<[u8]> = Arc::from(&r.bytes[start..r.offset]);
+        r.done()?;
+        let name = content.block_entity_names.get(&kind)
+            .ok_or_else(|| format!("unknown block entity type {kind}"))?;
+        let visible = self.block_entity_name(position) == Some(name.as_str());
+        if let Some(snapshot) = snapshot.filter(|snapshot| snapshot.entity.type_name == *name) {
+            let animation = parse(name, &data, content)?;
+            snapshot.active |= animation.piston.is_some();
+            self.revision += 1;
+            if visible {
+                snapshot.entity.update_data(data.clone(), raw_nbt.clone(), animation, self.revision, false);
+            } else {
+                snapshot.entity.update_data(data, raw_nbt, animation, self.revision, false);
+                return Ok(());
+            }
+        }
+        // An entity hidden by prediction remains a received-data target, not a visible one.
+        if visible {
+            self.apply_block_entity(position, kind, data, raw_nbt, None, content, tick)?;
+        }
+        Ok(())
+    }
+}
 
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ShulkerStatus {

@@ -19,6 +19,10 @@ mod vehicle_packet_tests;
 mod block_break_prediction_tests;
 #[cfg(test)]
 mod placement_prediction_tests;
+#[cfg(test)]
+mod block_entity_prediction_tests;
+#[cfg(test)]
+mod command_suggestion_limit_tests;
 
 use crate::{
     api::{Command, InputIntent, Observation, Scene, Vertex},
@@ -47,6 +51,7 @@ type Wake = Arc<dyn Fn() + Send + Sync>;
 struct PredictedBlock {
     received: u32,
     sequence: i32,
+    block_entity: Option<crate::entities::BlockEntitySnapshot>,
 }
 struct Loaded {
     content: Content,

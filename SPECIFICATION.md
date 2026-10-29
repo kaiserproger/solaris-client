@@ -204,6 +204,19 @@ audio thread ← bounded audio commands
 
 Предсказания не становятся authority по истечении таймера. Подтверждение/отмена сопоставляется с событиями протокола. Renderer не изменяет мир. WASM не записывает здоровье/инвентарь. MCP не обходит собственный action executor.
 
+Для block prediction presentation block entity следует локальному блоку: predicted air
+немедленно убирает её из render/collision store, а predicted placement создаёт
+обычную constructor projection. До ACK отдельно сохраняется полученная block entity
+(включая NBT и локальные component/text projections), чтобы rejected break не
+создавал пустую замену. Block-entity data до ACK обновляет соответствующую
+полученную сущность даже при временном predicted air; смена server block type
+сбрасывает данные прежнего типа.
+
+Корректный command-suggestions packet не становится ошибкой соединения, если
+подстановка не помещается в лимиты chat editor. Такая подстановка — атомарный
+локальный no-op: текст, cursor, selection и composition не меняются; другая
+подсказка автоматически не выбирается. Некорректный wire packet остаётся ошибкой.
+
 Каждый async job несёт минимум:
 
 ```text

@@ -32,6 +32,7 @@ use crate::{
     protocol::{content::Content, Reader, Result},
 };
 use glam::Mat4;
+pub(crate) use blocks::BlockEntitySnapshot;
 pub use metadata::Metadata;
 pub(crate) use nameplates::NameplateView;
 pub use physical::EntityHit;
@@ -1312,20 +1313,7 @@ impl Store {
                 self.event(json!({"type":"item_take","item_entity_id":item,"collector_entity_id":collector,"count":count,"origin":"server_observed","inventory_confirmation_required":true}));
             }
             cb::BLOCK_ENTITY_DATA => {
-                let p = metadata::position(r.i64()?);
-                let kind = r.count(65535)? as u32;
-                let start = r.offset;
-                let data = Arc::new(r.nbt()?);
-                let raw_nbt = Arc::from(&r.bytes[start..r.offset]);
-                r.done()?;
-                let name = content
-                    .block_entity_names
-                    .get(&kind)
-                    .ok_or_else(|| format!("unknown block entity type {kind}"))?;
-                // ClientPacketListener loads only an existing matching block entity.
-                if self.block_entity_name(p) == Some(name.as_str()) {
-                    self.apply_block_entity(p, kind, data, raw_nbt, None, content, tick)?;
-                }
+                self.receive_block_entity_data(r, content, tick, None)?;
             }
             cb::BLOCK_EVENT => {
                 let p = metadata::position(r.i64()?);
@@ -1481,19 +1469,8 @@ impl Store {
             let same_type = e.type_name == name;
             e.kind = kind;
             e.type_name = name;
-            e.data = data;
-            e.predicted_data = None;
-            e.raw_nbt = raw_nbt;
+            e.update_data(data, raw_nbt, animation, self.revision, !same_type);
             e.state = state.or(e.state);
-            e.revision = self.revision;
-            if !same_type || animation.piston.is_some() {
-                e.animation = animation;
-            } else {
-                // NBT refresh loads source fields without rewinding client visual clocks.
-                e.animation.source.gateway_age = animation.source.gateway_age;
-                e.animation.source.spawn_delay = animation.source.spawn_delay;
-                e.animation.signals = animation.signals;
-            }
         } else {
             self.block_entities.insert(
                 p,
@@ -1520,58 +1497,29 @@ impl Store {
         position: [i32; 3],
         state: u32,
         content: &Content,
-        tick: u64,
+        _tick: u64,
     ) -> Result<bool> {
         let metadata = content.placement_metadata(state)?;
         let Some(name) = metadata["block_entity_type"].as_str() else {
+            if self.block_entities.contains_key(&position) {
+                self.remove_block_entity(position);
+            }
             return Ok(false);
         };
-        if self.block_entity_name(position) == Some(name) {
+        if let Some(entity) = self.block_entities.get(&position)
+            && entity.type_name == name
+            && let Some(previous) = entity.state
+            && content.info(previous)?.block == content.info(state)?.block
+        {
             return Ok(true);
         }
         if self.block_entity_name(position).is_some() {
             self.remove_block_entity(position);
         }
-        if matches!(name, "minecraft:sign" | "minecraft:hanging_sign") {
-            return self.ensure_sign_block_entity(position, state, content, tick);
-        }
-        // MovingPistonBlock.newBlockEntity returns null; motion comes from
-        // an actual moving-piston entity, not a fabricated air/direction pair.
-        if name == "minecraft:piston" {
+        let Some(snapshot) = self.new_block_entity_snapshot(position, state, content)? else {
             return Ok(false);
-        }
-        if !render_blocks::has_factory(name) && !render_blocks::source_no_factory(name) {
-            return Err(format!("unknown block entity constructor type: {name}"));
-        }
-        let kind = content
-            .block_entity_names
-            .iter()
-            .find_map(|(kind, value)| (value == name).then_some(*kind))
-            .ok_or_else(|| format!("block entity type unavailable: {name}"))?;
-        // The native parsers/renderers already project absent item lists,
-        // patterns, profiles and targets to their empty constructor values,
-        // and initialize closed lids, zero clocks/signals, and Delay=20.
-        // StructureBlockEntity additionally takes mode from the block state
-        // and initializes showBoundingBox=true (not the renderer's false).
-        let data = if name == "minecraft:structure_block" {
-            let mode = content
-                .state_properties(state)
-                .and_then(|properties| properties.get("mode"))
-                .map(|mode| mode.to_ascii_uppercase())
-                .unwrap_or_else(|| "DATA".into());
-            json!({"mode":mode,"showboundingbox":true})
-        } else {
-            json!({})
         };
-        self.apply_block_entity(
-            position,
-            kind,
-            Arc::new(data),
-            Arc::from([]),
-            Some(state),
-            content,
-            tick,
-        )?;
+        self.restore_block_entity_snapshot(snapshot)?;
         Ok(true)
     }
     pub(crate) fn remove_block_entity(&mut self, position: [i32; 3]) {
