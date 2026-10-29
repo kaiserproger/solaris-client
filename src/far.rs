@@ -32,7 +32,9 @@ pub(crate) const EDGE: usize = 16;
 pub(crate) const SAMPLES: usize = EDGE * EDGE;
 /// Two words per sample: height+source, RGBA8 colour.
 pub(crate) const WORDS: usize = SAMPLES * 2;
-pub(crate) const MIN_LEVEL: u8 = 1;
+/// Finest level: 1-block samples, so the ring right past the view distance
+/// matches the real terrain's columns.
+pub(crate) const MIN_LEVEL: u8 = 0;
 pub(crate) const MAX_LEVEL: u8 = 6;
 pub(crate) const DEFAULT_DISTANCE: u32 = 2048;
 pub(crate) const LOW_PRESET_DISTANCE: u32 = 1024;
@@ -43,7 +45,8 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 const CACHE_LOADS_PER_UPDATE: usize = 24;
 /// Tiles in one request payload (the server accepts up to 16).
 const TILES_PER_REQUEST: usize = 16;
-const CACHE_MAGIC: &[u8; 4] = b"SFL1";
+/// Bumped whenever cached colours change meaning (SFL1 stored gray cubes).
+const CACHE_MAGIC: &[u8; 4] = b"SFL2";
 /// Off-screen tiles fed by received chunks stay resident this long.
 const EVICT_AFTER: Duration = Duration::from_secs(30);
 
@@ -357,39 +360,38 @@ impl Colours {
             return *found;
         }
         let info = content.info(state).ok();
-        let found = match info.and_then(|info| info.fluid.map(|fluid| fluid.kind)) {
-            Some(FluidKind::Water) if info.is_some_and(|i| i.model.is_none()) => {
-                (self.water, TintKind::Water)
-            }
-            Some(FluidKind::Lava) => (self.lava, TintKind::None),
-            _ => content
-                .model_for(state)
-                .ok()
-                .flatten()
-                .and_then(|model| {
-                    model
-                        .quads
-                        .iter()
-                        .find(|quad| quad.face == 1)
-                        .or_else(|| model.quads.first())
-                })
-                .map_or(([0.5; 3], TintKind::None), |quad| {
-                    let (mut min, mut max) = ([1f32; 2], [0f32; 2]);
-                    for uv in quad.uv {
-                        for axis in 0..2 {
-                            min[axis] = min[axis].min(uv[axis]);
-                            max[axis] = max[axis].max(uv[axis]);
-                        }
+        // Random-variant cubes (grass, stone, sand, dirt) keep quads in parts:
+        // `for_each_quad` visits both, preferring the top face.
+        let mut quad: Option<([[f32; 2]; 4], u32, TintKind)> = None;
+        let mut top = false;
+        if let Ok(Some(model)) = content.model_for(state) {
+            model.for_each_quad([0; 3], |q| {
+                if !top && (quad.is_none() || q.face == 1) {
+                    quad = Some((q.uv, q.texture_layer, q.tint));
+                    top = q.face == 1;
+                }
+            });
+        }
+        let found = match (
+            info.and_then(|info| info.fluid.map(|fluid| fluid.kind)),
+            quad,
+        ) {
+            (Some(FluidKind::Lava), _) => (self.lava, TintKind::None),
+            (Some(FluidKind::Water), None) => (self.water, TintKind::Water),
+            (_, None) => ([0.5; 3], TintKind::None),
+            (_, Some((uvs, layer, tint))) => {
+                let (mut min, mut max) = ([1f32; 2], [0f32; 2]);
+                for uv in uvs {
+                    for axis in 0..2 {
+                        min[axis] = min[axis].min(uv[axis]);
+                        max[axis] = max[axis].max(uv[axis]);
                     }
-                    (
-                        average(
-                            content,
-                            quad.texture_layer,
-                            [min[0], min[1], max[0], max[1]],
-                        ),
-                        quad.tint,
-                    )
-                }),
+                }
+                (
+                    average(content, layer, [min[0], min[1], max[0], max[1]]),
+                    tint,
+                )
+            }
         };
         self.states.insert(state, found);
         found
@@ -1084,26 +1086,30 @@ mod tests {
                 );
             }
         }
-        // Within 2048 blocks: 2-block samples nearest, 16-block at the edge.
-        assert!(tiles.iter().any(|t| t.level == 1) && tiles.iter().any(|t| t.level == 4));
+        // Within 2048 blocks: 1-block samples nearest, 16-block at the edge,
+        // and all of it fits the GPU pool (2048 tiles).
+        assert!(tiles.iter().any(|t| t.level == 0) && tiles.iter().any(|t| t.level == 4));
         assert!(tiles.iter().all(|t| t.level <= 5));
-        assert!(tiles.len() < 1000, "{} tiles", tiles.len());
+        assert!(tiles.len() < 1100, "{} tiles", tiles.len());
         // Nearest first.
-        assert!(tiles
-            .windows(2)
-            .all(|w| w[0].distance([10., -20.]) <= w[1].distance([10., -20.])));
+        assert!(
+            tiles
+                .windows(2)
+                .all(|w| w[0].distance([10., -20.]) <= w[1].distance([10., -20.]))
+        );
     }
 
     #[test]
     fn covered_tiles_are_left_out() {
         let all = desired_tiles([0., 0.], 512., &|_| false);
         let some = desired_tiles([0., 0.], 512., &|key| {
-            key.level == 1 && key.distance([0., 0.]) < 64.
+            key.level == 0 && key.distance([0., 0.]) < 64.
         });
         assert!(some.len() < all.len());
-        assert!(some
-            .iter()
-            .all(|key| !(key.level == 1 && key.distance([0., 0.]) < 64.)));
+        assert!(
+            some.iter()
+                .all(|key| !(key.level == 0 && key.distance([0., 0.]) < 64.))
+        );
     }
 
     #[test]
