@@ -60,6 +60,19 @@ The pure frame/painting orientation tests are under `entities::render_special`.
 Nonempty CPU geometry is not graphical acceptance: windowed evidence must
 separately check both placed and summoned entities against a visible control.
 
+Sign bodies in 26.3 are terrain block models; their block-entity pass emits only
+front/back text and needs no removed `entity/signs` texture or body rig.
+`cargo test --lib sign_text_mesh_needs_no_legacy_entity_texture_or_body_rig`
+checks that dependency boundary with received NBT and actual text material indices,
+including non-glowing text. A real window must additionally show edited text on
+both faces and after reconnect; a visible wooden board alone proves nothing.
+
+Creative tab buttons retain their full semantic label while painting a fitted
+single-line name. Hover uses the existing rich tooltip overlay to expose the full
+name, and leaving the tab removes it. `cargo test --lib creative_tab` exercises
+ordinary pointer input, semantic tooltip text, and overlay geometry for selected
+and nonselected tabs.
+
 
 These are **proposed specification commands, not verified installed CLI**:
 

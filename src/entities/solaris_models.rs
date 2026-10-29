@@ -382,7 +382,7 @@ fn cube_quads(cube: &CubeSpec, tw: f32, th: f32) -> Vec<([[f32; 5]; 4], [f32; 3]
 /// Maps a renderer rig key to the id of the Solaris model that supplies its geometry.
 ///
 /// Keys look like `minecraft:cow#renderer_main`, `minecraft:cow_baby#main`,
-/// `minecraft:oak_chest_boat#renderer/model`, `minecraft:sign/wall/oak#main` or
+/// `minecraft:oak_chest_boat#renderer/model` or
 /// `minecraft:zombie#layer3/babyModelSet/head`; the qualifier after `#` never selects
 /// geometry except for the armor layer slots.
 pub(crate) fn model_id(key: &str) -> String {
@@ -408,17 +408,6 @@ pub(crate) fn model_id(key: &str) -> String {
     // The conduit block entity is drawn from several sub-models selected by the qualifier.
     if name == "conduit" && !qualifier.is_empty() {
         return format!("conduit_{qualifier}");
-    }
-    if let Some(rest) = name.strip_prefix("sign/") {
-        return format!("sign_{}", rest.split('/').next().unwrap_or(""));
-    }
-    if let Some(rest) = name.strip_prefix("hanging_sign/") {
-        // `ceiling_middle` only moves the chain attachment; the board mesh is the ceiling one.
-        let attachment = rest.split('/').nth(1).unwrap_or("");
-        return format!(
-            "hanging_sign_{}",
-            attachment.strip_suffix("_middle").unwrap_or(attachment)
-        );
     }
     if qualifier.contains("waterPatch") {
         return "boat_water_patch".into();

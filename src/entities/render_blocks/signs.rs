@@ -11,21 +11,13 @@ pub(super) struct Frame<'a> {
 }
 pub(super) fn append(
     e: &BlockEntity,
-    m: &Models,
     c: &Content,
     f: &mut Frame,
-    t: &mut Vec<Mat4>,
     out: &mut DynamicGeometry,
 ) -> Result<()> {
     let hanging = e.type_name == "minecraft:hanging_sign";
     let name = block_name(e, c)?.trim_start_matches("minecraft:");
     let wall = name.contains("_wall_");
-    let wood = if hanging {
-        name.trim_end_matches("_hanging_sign")
-            .trim_end_matches("_wall")
-    } else {
-        name.trim_end_matches("_sign").trim_end_matches("_wall")
-    };
     let angle = if wall {
         yaw(prop(e, c, "facing").unwrap_or("north"))
     } else {
@@ -35,46 +27,14 @@ pub(super) fn append(
             .map_err(|_| "sign rotation")?
             * 22.5
     };
-    let attachment = if wall {
-        "wall"
-    } else if hanging && prop(e, c, "attached") == Some("true") {
-        "ceiling_middle"
-    } else if hanging {
-        "ceiling"
-    } else {
-        "standing"
-    };
-    let key = if hanging {
-        format!("minecraft:hanging_sign/{wood}/{attachment}#main")
-    } else {
-        format!("minecraft:sign/{attachment}/{wood}#main")
-    };
-    let tex = texture(
-        c,
-        &if hanging {
-            format!("entity/signs/hanging/{wood}")
-        } else {
-            format!("entity/signs/{wood}")
-        },
-    )?;
     let mut plane = f.root
         * Mat4::from_translation(Vec3::new(0.5, if hanging { 0.625 } else { 0.5 }, 0.5))
         * Mat4::from_rotation_y(-angle.to_radians());
     if wall && !hanging {
         plane *= Mat4::from_translation(Vec3::new(0., -0.3125, -0.4375));
     }
-    let scale = if hanging { 1. } else { 2. / 3. };
-    paint_rig(
-        rig(m, &key)?,
-        plane * Mat4::from_scale(Vec3::new(scale, -scale, -scale)),
-        tex,
-        [1.; 3],
-        EntityMaterial::EntityCutout,
-        f.light,
-        t,
-        out,
-        |_, _, _| {},
-    )?;
+    // 26.3 bakes sign bodies into terrain. The block-entity pass owns text only;
+    // legacy entity/signs textures and body rigs are neither available nor needed.
     let Some(text) = f.text else {
         return Err("source sign font painter not activated".into());
     };

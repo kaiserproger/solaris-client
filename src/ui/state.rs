@@ -1963,7 +1963,7 @@ impl UiState {
                     return Err("invalid_pointer".into());
                 }
                 self.pointer = [x as f32 / self.scale as f32, y as f32 / self.scale as f32];
-                if matches!(self.screen, Screen::Chat | Screen::Book) {
+                if matches!(self.screen, Screen::Chat | Screen::Book | Screen::Creative) {
                     self.dirty = true;
                 }
                 let target = self

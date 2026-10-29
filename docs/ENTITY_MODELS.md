@@ -50,8 +50,20 @@ The renderer asks for rigs by key (`minecraft:cow#renderer_main`, `minecraft:cow
 `minecraft:oak_chest_boat#renderer/model`, `minecraft:zombie#layer3/modelSet/head`...).
 `solaris_models::model_id` maps a key to a model id (file stem): qualifiers are dropped, wood
 variants collapse (`boat`, `chest_boat`, `raft`, `chest_raft`, every `*_minecart` -> `minecart`),
-signs map to `sign_<attachment>` / `hanging_sign_<attachment>`, armor-layer slots to
-`armor_<slot>` / `armor_baby_<slot>`.
+armor-layer slots map to `armor_<slot>` / `armor_baby_<slot>`.
+
+### Sign text belongs to the block-entity pass
+
+In 26.3 the resource-pack block models supply standing, wall and hanging sign
+bodies through terrain. The block-entity renderer supplies only front/back text,
+using the pinned sign text transformations. It must not request the removed
+`entity/signs` textures or a second body rig; those dependencies prevent any text
+from being emitted even while the terrain board is visible.
+
+Sign mesh regressions deliberately provide no legacy sign texture or body rig.
+They receive both NBT text payload forms, assert text material indices and outward
+winding on both faces, and reject duplicate body indices. Ordinary non-glowing
+and glowing text are covered; windowed pixels remain a separate acceptance gate.
 
 ## Missing models
 
@@ -71,10 +83,10 @@ a fixed box). Placeholders are tinted in `presentation::emit_rig`.
 
 ## Coverage and known limits
 
-* 187 models ship: players (wide/slim), the humanoid and skeleton families, illagers/villagers,
+* Authored models cover players (wide/slim), the humanoid and skeleton families, illagers/villagers,
   farm and wild animals with their baby layouts, aquatic mobs, Nether/End mobs, vehicles,
   projectiles, armor shells, armor stand and the block entities the renderer draws (chests,
-  beds, signs, banners, skulls, bell, book, conduit, decorated pot, shulker box, shield).
+  beds, banners, skulls, bell, book, conduit, decorated pot, shulker box, shield).
   `sheep_wool` / `sheep_wool_baby` are the dyed coat drawn by `src/entities/sheep.rs`
   (undercoat tinted body once sheared).
 * Several creatures are simplified silhouettes (ender dragon, wither, warden, guardian,
