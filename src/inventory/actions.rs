@@ -537,7 +537,11 @@ impl InventoryStore {
         self.sync_player();
         self.experience_level = experience_level;
         self.player_slot_identities = player_slot_identities;
-        self.revision += 1;
+        if commands.last().is_some_and(|command| command.id == sb::CONTAINER_CLOSE) {
+            self.close();
+        } else {
+            self.revision += 1;
+        }
         Ok(commands)
     }
 }

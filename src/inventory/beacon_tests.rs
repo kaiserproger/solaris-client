@@ -183,4 +183,33 @@ fn beacon_semantic_ui_exposes_player_payment_and_effect_confirmation() {
     );
     assert_eq!(packets[2].payload.0, [1, 0, 0]);
     assert_eq!(packets[3].payload.0, [1]);
+    assert!(!store.screen_open, "Done must close the local container");
+    assert!(store.active.is_none());
+    assert_eq!(ui.screen(), crate::ui::Screen::Game);
+}
+
+#[test]
+fn beacon_rejected_effect_keeps_the_menu_open() {
+    let content = content();
+    let mut store = InventoryStore::default();
+    open(&mut store, &content);
+    apply(
+        &mut store,
+        &content,
+        cb::CONTAINER_SET_SLOT,
+        &[1, 4, 0, 0, 1, 1, 0, 0],
+    );
+    let context = store.context();
+    let intent = UiIntent::Beacon {
+        context: context.clone(),
+        primary: Some(4),
+        secondary: None,
+    };
+    assert_eq!(
+        store.execute(&intent, &content).err().as_deref(),
+        Some("beacon primary unavailable")
+    );
+    assert!(store.screen_open);
+    assert!(store.active.is_some());
+    store.validate(&context).unwrap();
 }

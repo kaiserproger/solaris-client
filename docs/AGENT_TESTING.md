@@ -1041,3 +1041,28 @@ These are headless input/state/wire tests, not real-window acceptance.
 The original s6-02/03/04/05, s7-01 and s22-12 visual repros remain pending on the
 integrated client/server build; `CLIENT-LINT-001` remains quarantined.
 
+
+### Inventory follow-up: local close and bounded tab labels
+
+QA06's integrated windowed re-verification confirmed s6-02/03/04/05 and
+s22-12's payment/effect selection (`qa-armada/s6/reverify-receipt.json`).
+It also found that beacon Done left the local screen open and that recipe
+category text overflowed; QA03 additionally found overflowing creative-tab
+labels (`qa-armada/s3/int-creative.png`).
+
+The follow-up closes the local inventory lifecycle after a successful gesture
+queues its terminal container-close packet. Rejected beacon selections keep
+the menu open. Recipe categories reserve a readable sidebar; recipe/creative
+tab text is fitted using the active font's metrics, with ellipsis confined to
+the painted component while the complete semantic label remains available.
+Other buttons retain their existing presentation.
+
+`ui::catalogue::recipe_category_tests` loads an authored font definition through
+the ordinary resource reset path, measures the actual painted text layout at
+1280×720 and 960×720/default GUI scale, and verifies category selection and
+complete creative-tab labels. The beacon semantic regression additionally
+requires the screen to return to Game after Done. Receipts live in
+`/run/media/kaiserroman/games/solaris-work/qa-armada/fixes/client-inv-followup/`.
+These follow-up gates are headless text/state/wire proof; windowed verification
+of the follow-up build remains separate.
+

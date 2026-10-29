@@ -3,6 +3,10 @@ use crate::{
     inventory::InventoryStore,
     protocol::{Result, content::Content},
 };
+
+pub(super) const RECIPE_CATEGORY_WIDTH: f32 = 88.;
+pub(super) const RECIPE_BOOK_WIDTH: f32 = RECIPE_CATEGORY_WIDTH + 152.;
+
 impl UiState {
     pub(crate) fn creative_preset_tree(
         &mut self,
@@ -136,14 +140,26 @@ impl UiState {
             .collect();
         let category_rows: Vec<_> = std::iter::once(String::new()).chain(categories).collect();
         for (index, category) in category_rows.into_iter().enumerate() {
-            self.button(
+            let prefix = match book {
+                0 => "minecraft:crafting_",
+                1 => "minecraft:furnace_",
+                2 => "minecraft:blast_furnace_",
+                3 => "minecraft:smoker_",
+                _ => unreachable!("recipe book checked above"),
+            };
+            let label = match category.strip_prefix(prefix).unwrap_or(&category) {
+                "" => "Search",
+                "building_blocks" | "blocks" => "Blocks",
+                "equipment" => "Equipment",
+                "redstone" => "Redstone",
+                "misc" => "Misc",
+                "food" => "Food",
+                other => other,
+            };
+            self.compact_button(
                 &format!("recipe/category/{category}"),
-                if category.is_empty() {
-                    "Search"
-                } else {
-                    category.strip_prefix("minecraft:").unwrap_or(&category)
-                },
-                [x - 30., y + index as f32 * 22., 28., 20.],
+                label,
+                [x - RECIPE_CATEGORY_WIDTH - 2., y + index as f32 * 22., RECIPE_CATEGORY_WIDTH, 20.],
                 NodeAction::RecipeCategory(category.clone()),
                 true,
                 None,
@@ -284,3 +300,7 @@ impl UiState {
         Ok(())
     }
 }
+
+#[cfg(test)]
+#[path = "recipe_category_tests.rs"]
+mod recipe_category_tests;
