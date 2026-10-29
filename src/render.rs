@@ -47,6 +47,13 @@ use visibility::{Frustum, relative};
 use wgpu::util::DeviceExt;
 use winit::{dpi::PhysicalSize, window::Window};
 
+/// Keep test devices and their GPU resources alive exclusively until teardown.
+#[cfg(test)]
+pub(crate) fn gpu_test_lock() -> std::sync::MutexGuard<'static, ()> {
+    static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
 // Pinned Minecraft RGBA8 textures/targets multiply and blend display-encoded RGB.
 const COLOR: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
 const DEPTH: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;

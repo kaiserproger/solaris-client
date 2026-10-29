@@ -1203,6 +1203,7 @@ mod terrain_translucency_tests {
 
     #[test]
     fn terrain_translucency_has_one_descriptor_per_section_not_per_quad() {
+        let _gpu_guard = crate::render::gpu_test_lock();
         let mut renderer = pollster::block_on(Renderer::new_offscreen(
             32,
             32,
@@ -1311,6 +1312,7 @@ mod terrain_translucency_tests {
     }
     #[test]
     fn frustum_rejection_precedes_instance_and_indirect_submission() {
+        let _gpu_guard = crate::render::gpu_test_lock();
         let mut renderer = pollster::block_on(Renderer::new_offscreen(
             32,
             32,
@@ -1425,6 +1427,7 @@ mod terrain_translucency_tests {
 
     #[test]
     fn sections_wholly_past_the_fog_end_are_not_submitted() {
+        let _gpu_guard = crate::render::gpu_test_lock();
         let mut renderer = pollster::block_on(Renderer::new_offscreen(
             32,
             32,

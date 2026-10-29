@@ -11,6 +11,7 @@ use std::time::{Duration, Instant};
 /// slowly; the test reports and bounds that.
 #[test]
 fn gpu_columns_match_the_cpu_reference() {
+    let _gpu_guard = crate::render::gpu_test_lock();
     let renderer = match pollster::block_on(Renderer::new_offscreen(
         32,
         32,

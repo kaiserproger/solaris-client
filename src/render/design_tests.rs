@@ -9,13 +9,26 @@ use bytemuck::Zeroable;
 
 const CENTER: usize = (32 * 64 + 32) * 4;
 
-fn offscreen(label: &str) -> Renderer {
-    pollster::block_on(Renderer::new_offscreen(
+struct LockedRenderer {
+    renderer: Renderer,
+    _guard: std::sync::MutexGuard<'static, ()>,
+}
+impl std::ops::Deref for LockedRenderer {
+    type Target = Renderer;
+    fn deref(&self) -> &Renderer { &self.renderer }
+}
+impl std::ops::DerefMut for LockedRenderer {
+    fn deref_mut(&mut self) -> &mut Renderer { &mut self.renderer }
+}
+fn offscreen(label: &str) -> LockedRenderer {
+    let guard = gpu_test_lock();
+    let renderer = pollster::block_on(Renderer::new_offscreen(
         64,
         64,
         PathBuf::from(format!(".analysis/design-regression-{label}")),
     ))
-    .unwrap()
+    .unwrap();
+    LockedRenderer { renderer, _guard: guard }
 }
 
 fn overworld(sun_angle: f32, moon_angle: f32) -> crate::api::WorldEnvironment {

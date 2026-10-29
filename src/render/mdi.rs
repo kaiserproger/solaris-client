@@ -781,6 +781,7 @@ mod tests {
 
 #[test]
 fn gpu_culling_matches_cpu_planes_and_overwrites_every_argument() {
+    let _gpu_guard = crate::render::gpu_test_lock();
     let renderer = pollster::block_on(Renderer::new_offscreen(
         32,
         32,
@@ -1072,6 +1073,7 @@ mod hiz_tests {
     /// frame (phase 2), never one frame late.
     #[test]
     fn hiz_occluder_plane_zeroes_hidden_sections_and_keeps_visible_untouched() {
+        let _gpu_guard = crate::render::gpu_test_lock();
         let Some(renderer) = offscreen() else { return };
         let device = &renderer.device;
         let matrix = Mat4::perspective_rh(std::f32::consts::FRAC_PI_2, 1., 0.05, 2048.);
@@ -1193,6 +1195,7 @@ mod hiz_tests {
     /// or a box covering only that pixel could be culled wrongly.
     #[test]
     fn hiz_pyramid_keeps_odd_tail_pixels_in_every_level() {
+        let _gpu_guard = crate::render::gpu_test_lock();
         let Some(renderer) = offscreen() else { return };
         let device = &renderer.device;
         let (width, height) = (37, 21);

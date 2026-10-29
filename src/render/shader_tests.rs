@@ -74,6 +74,7 @@ pub(super) fn pixels(renderer: &mut Renderer, scene: &Scene) -> Vec<u8> {
 }
 #[test]
 fn fancy_shader_gpu_toggle_preserves_ui_and_off_pixels() {
+    let _gpu_guard = crate::render::gpu_test_lock();
     let mut renderer = pollster::block_on(Renderer::new_offscreen(
         64,
         64,
@@ -212,6 +213,7 @@ fn fancy_shader_gpu_toggle_preserves_ui_and_off_pixels() {
 
 #[test]
 fn terrain_mdi_compute_matches_fallback_pixels_across_arena_growth() {
+    let _gpu_guard = crate::render::gpu_test_lock();
     let mut renderer = pollster::block_on(Renderer::new_offscreen(
         64,
         64,
@@ -304,6 +306,7 @@ fn terrain_mdi_compute_matches_fallback_pixels_across_arena_growth() {
 }
 #[test]
 fn fancy_shadow_indirect_matches_direct_pixels_with_fewer_calls() {
+    let _gpu_guard = crate::render::gpu_test_lock();
     let mut renderer = pollster::block_on(Renderer::new_offscreen(
         64,
         64,
@@ -429,6 +432,7 @@ fn present_setting_selects_supported_uncapped_modes_and_fifo() {
 
 #[test]
 fn fancy_emission_enters_hdr_in_linear_space() {
+    let _gpu_guard = crate::render::gpu_test_lock();
     let mut renderer = pollster::block_on(Renderer::new_offscreen(
         64,
         64,
@@ -575,6 +579,7 @@ fn terrain_release_quad() -> crate::api::MeshGeometry {
 
 #[test]
 fn terrain_cpu_release_keeps_gpu_geometry_and_requires_fresh_payload() {
+    let _gpu_guard = crate::render::gpu_test_lock();
     let mut renderer = pollster::block_on(Renderer::new_offscreen(
         64,
         64,
@@ -690,6 +695,7 @@ fn facing_box_geometry(partitioned: bool) -> crate::api::MeshGeometry {
 
 #[test]
 fn terrain_facing_groups_preserve_pixels_and_drop_back_faces() {
+    let _gpu_guard = crate::render::gpu_test_lock();
     let mut renderer = pollster::block_on(Renderer::new_offscreen(
         64,
         64,
@@ -923,6 +929,7 @@ fn probe(@builtin(global_invocation_id) id: vec3<u32>) {
 
 #[test]
 fn packed_terrain_shader_decode_matches_mesher_vertices() {
+    let _gpu_guard = crate::render::gpu_test_lock();
     use crate::api::Vertex;
     let mut renderer = pollster::block_on(Renderer::new_offscreen(
         32,
@@ -1093,6 +1100,7 @@ fn gpu_culling_counters(renderer: &Renderer) -> Value {
 /// make the previous frame's history useless or stale.
 #[test]
 fn hiz_rejects_hidden_sections_and_preserves_every_pixel_across_turns() {
+    let _gpu_guard = crate::render::gpu_test_lock();
     let mut renderer = pollster::block_on(Renderer::new_offscreen(
         64,
         64,
