@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
     inventory::{Recipe, Stack},
-    ui::UiIntent,
+    ui::{Modifiers, PointerPhase, UiIntent},
 };
 use serde_json::json;
 use std::sync::Arc;
@@ -169,5 +169,98 @@ fn inventory_creative_tab_labels_fit_without_wrapping_and_keep_full_semantics() 
             );
             assert!(layout.width <= node.bounds[2] - 8.);
         }
+    }
+}
+
+#[test]
+fn creative_tab_hover_shows_full_title_and_hides_on_leave() {
+    let mut content = Content::test_cube();
+    let titles = [
+        "Building Blocks",
+        "Colored Blocks",
+        "Natural Blocks",
+        "Functional Blocks",
+        "Redstone Blocks",
+        "Saved Hotbars",
+        "Search Items",
+        "Tools & Utilities",
+        "Combat",
+        "Food & Drinks",
+        "Ingredients",
+        "Spawn Eggs",
+        "Survival Inventory",
+    ];
+    let tabs: Vec<_> = titles
+        .iter()
+        .enumerate()
+        .map(|(index, title)| {
+            json!({
+                "id": format!("minecraft:tab_{index}"),
+                "title_component": {"text": title},
+                "type": "CATEGORY",
+                "items": []
+            })
+        })
+        .collect();
+    content.creative_tabs_report = Arc::from(json!({"tabs": tabs}).to_string().into_bytes());
+    content.insert_test_resource("assets/minecraft/lang/en_us.json", b"{}");
+    content.insert_test_font("minecraft:default", &json!({"providers":[]}));
+    let mut inventory = InventoryStore::default();
+    inventory.game_mode = 1;
+    inventory.player.slots.fill(Some(Stack::default()));
+    inventory.open_inventory().unwrap();
+    let mut ui = UiState::new_state(&content).unwrap();
+    ui.reset_resources(&content).unwrap();
+    ui.resize(1280, 720, 1.);
+    ui.synchronize(&inventory, &content).unwrap();
+
+    let mut baseline = crate::api::MeshGeometry::default();
+    ui.render(&content, &inventory, &mut baseline).unwrap();
+    for index in [0, 3] {
+        let node = ui.nodes.iter()
+            .find(|node| node.id == format!("creative/tab/minecraft:tab_{index}"))
+            .unwrap();
+        assert_eq!(node.label, titles[index]);
+        let painted = ui.text.language.plain(node.component.as_deref().unwrap()).unwrap();
+        assert!(painted.ends_with('…') && painted != titles[index]);
+        let [x, y, w, h] = node.bounds;
+        ui.execute(
+            UiIntent::Pointer {
+                phase: PointerPhase::Move,
+                x: f64::from((x + w / 2.) * ui.scale as f32),
+                y: f64::from((y + h / 2.) * ui.scale as f32),
+                button: None,
+                modifiers: Modifiers::default(),
+            },
+            &mut inventory,
+            &content,
+        ).unwrap();
+        let tree = ui.semantic_tree(&inventory, &content).unwrap();
+        let nodes = tree["nodes"].as_array().unwrap();
+        let tooltip = nodes.iter().find(|node| node["id"] == "component/hover/text").unwrap();
+        assert_eq!(tooltip["label"], titles[index]);
+        assert!(nodes.iter().any(|node| node["id"] == "component/hover/background"));
+        let mut hovered = crate::api::MeshGeometry::default();
+        ui.render(&content, &inventory, &mut hovered).unwrap();
+        assert!(hovered.vertices.len() > baseline.vertices.len());
+
+        ui.execute(
+            UiIntent::Pointer {
+                phase: PointerPhase::Move,
+                x: 0.,
+                y: 0.,
+                button: None,
+                modifiers: Modifiers::default(),
+            },
+            &mut inventory,
+            &content,
+        ).unwrap();
+        let tree = ui.semantic_tree(&inventory, &content).unwrap();
+        assert!(!tree["nodes"].as_array().unwrap().iter().any(|node| {
+            node["id"] == "component/hover/text" || node["id"] == "component/hover/background"
+        }));
+        let mut left = crate::api::MeshGeometry::default();
+        ui.render(&content, &inventory, &mut left).unwrap();
+        assert_eq!(left.vertices.len(), baseline.vertices.len());
     }
 }

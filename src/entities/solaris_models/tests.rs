@@ -137,11 +137,6 @@ fn rig_key_resolution() {
         ("minecraft:conduit#cage", "conduit_cage"),
         ("minecraft:conduit_shell#main", "conduit_shell"),
         ("minecraft:breeze_wind_charge#renderer/model", "wind_charge"),
-        ("minecraft:sign/wall/oak#main", "sign_wall"),
-        (
-            "minecraft:hanging_sign/oak/ceiling#main",
-            "hanging_sign_ceiling",
-        ),
         ("minecraft:zombie#layer3/modelSet/head", "armor_head"),
         (
             "minecraft:piglin#layer3/babyModelSet/feet",

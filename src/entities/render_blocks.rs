@@ -291,7 +291,6 @@ impl super::Store {
             let result = match block.type_name.as_str() {
                 "minecraft:sign" | "minecraft:hanging_sign" => signs::append(
                     block,
-                    models,
                     content,
                     &mut signs::Frame {
                         root,
@@ -302,7 +301,6 @@ impl super::Store {
                         scoping,
                         text_filtering,
                     },
-                    &mut self.transforms,
                     out,
                 )
                 .map(|()| BlockRenderStatus::Rendered),
@@ -548,7 +546,6 @@ fn append_inner(
     match e.type_name.as_str() {
         "minecraft:sign" | "minecraft:hanging_sign" => signs::append(
             e,
-            m,
             c,
             &mut signs::Frame {
                 root,
@@ -559,7 +556,6 @@ fn append_inner(
                 scoping: f.scoping,
                 text_filtering: f.text_filtering,
             },
-            transforms,
             out,
         )
         .map(|()| BlockRenderStatus::Rendered),
@@ -1193,47 +1189,43 @@ fn piston(
 
 #[cfg(test)]
 mod tests {
-    use super::super::resources::{Bone, BoneRole};
     use super::*;
     use std::{collections::BTreeMap, sync::Arc};
 
     #[test]
     fn p1_review_native_sign_pass_renders_received_text_and_keeps_entity_geometry() {
-        sign_received_geometry(false);
+        sign_received_geometry(false, true);
     }
 
     #[test]
     fn s4_04_received_sign_both_sides_render() {
-        sign_received_geometry(true);
+        sign_received_geometry(true, true);
     }
 
-    fn sign_received_geometry(both_sides: bool) {
+    #[test]
+    fn sign_text_mesh_needs_no_legacy_entity_texture_or_body_rig() {
+        sign_received_geometry(true, false);
+    }
+
+    fn sign_received_geometry(both_sides: bool, glow: bool) {
         use crate::inventory::{nbt, Tag};
         use crate::protocol::{Reader, Writer};
-        for (kind, name, key, texture_name) in [
+        for (kind, name) in [
             (
                 "minecraft:sign",
                 "minecraft:oak_sign",
-                "minecraft:sign/standing/oak#main",
-                "minecraft:entity/signs/oak",
             ),
             (
                 "minecraft:sign",
                 "minecraft:oak_wall_sign",
-                "minecraft:sign/wall/oak#main",
-                "minecraft:entity/signs/oak",
             ),
             (
                 "minecraft:hanging_sign",
                 "minecraft:oak_hanging_sign",
-                "minecraft:hanging_sign/oak/ceiling#main",
-                "minecraft:entity/signs/hanging/oak",
             ),
             (
                 "minecraft:hanging_sign",
                 "minecraft:oak_wall_hanging_sign",
-                "minecraft:hanging_sign/oak/wall#main",
-                "minecraft:entity/signs/hanging/oak",
             ),
         ] {
             let mut content = Content::test_cube();
@@ -1248,15 +1240,6 @@ mod tests {
             );
             content
                 .insert_test_placement_metadata(1, serde_json::json!({"block_entity_type": kind}));
-            content.insert_test_texture(
-                texture_name,
-                TextureRegion {
-                    layer: 0,
-                    uv: [0., 0., 1., 1.],
-                    width: 64,
-                    height: 32,
-                },
-            );
             // Owned empty-provider font exercises the real source missing-glyph
             // painter, without copying or depending on proprietary font assets.
             content.insert_test_font("minecraft:default", &serde_json::json!({"providers":[]}));
@@ -1264,27 +1247,7 @@ mod tests {
             let mut store = super::super::Store::new();
             store.set_text_renderer(Arc::new(TextRenderer::load(&content).unwrap()));
             store.activate_models(Arc::new(Models {
-                rigs: BTreeMap::from([(
-                    key.into(),
-                    Rig {
-                        bones: vec![Bone {
-                            parent: None,
-                            pivot: Vec3::ZERO,
-                            rotation: Vec3::ZERO,
-                            scale: Vec3::ONE,
-                            role: BoneRole::Fixed,
-                            name: "fixture-board".into(),
-                            quads: vec![[
-                                [0., 0., 0., 0., 0.],
-                                [1., 0., 0., 1., 0.],
-                                [1., 1., 0., 1., 1.],
-                                [0., 1., 0., 0., 1.],
-                            ]],
-                            normals: vec![[0., 0., 1.]],
-                        }],
-                        part_by_name: BTreeMap::new(),
-                    },
-                )]),
+                rigs: BTreeMap::new(),
                 schemas: BTreeMap::new(),
                 families: BTreeMap::new(),
                 builtin_variants: BTreeMap::new(),
@@ -1320,7 +1283,7 @@ mod tests {
                 .unwrap();
             assert_eq!(defaults.block_entities, 1);
             assert!(defaults.unrendered.is_empty());
-            assert_eq!(geometry.vertices.len(), 4);
+            assert!(geometry.vertices.is_empty(), "sign body belongs to terrain");
             // Exact vanilla-valid seq973 front payload: String-tag literal
             // components, byte glow, omitted optional back_text and extra keys.
             // The compound-component variant traverses the same receive path.
@@ -1348,7 +1311,7 @@ mod tests {
                         Tag::record([
                             ("messages", Tag::List(messages)),
                             ("color", Tag::string(if both_sides { "white" } else { "red" })),
-                            ("has_glowing_text", Tag::Byte(1)),
+                            ("has_glowing_text", Tag::Byte(i8::from(glow))),
                         ]),
                     ),
                     ("id", Tag::string(kind)),
@@ -1367,7 +1330,7 @@ mod tests {
                                     .collect(),
                             )),
                             ("color", Tag::string("white")),
-                            ("has_glowing_text", Tag::Byte(1)),
+                            ("has_glowing_text", Tag::Byte(i8::from(glow))),
                         ]),
                     ));
                 }
@@ -1415,16 +1378,18 @@ mod tests {
                     submitted.vertices,
                     geometry.vertices.len() - initial_vertices
                 );
-                assert!(submitted.vertices > 4);
+                assert!(submitted.vertices > 0);
                 assert_eq!(
                     geometry.indices[EntityMaterial::EntityCutout as usize].len(),
-                    initial_body_indices + 6
+                    initial_body_indices
                 );
                 let text = &geometry.indices[EntityMaterial::TextPolygonOffset as usize][initial_text_indices..];
                 assert!(!text.is_empty());
                 assert!(text
                     .iter()
-                    .all(|index| geometry.vertices[*index as usize].light == [15.; 2]));
+                    .all(|index| geometry.vertices[*index as usize].light == if glow { [15.; 2] } else { [7., 3.] }));
+                assert!(geometry.indices[EntityMaterial::EntityCutout as usize].is_empty(),
+                    "the block entity must not duplicate the terrain's sign body");
                 let board_z = if kind == "minecraft:sign" && name.contains("_wall_") {
                     0.9375
                 } else {

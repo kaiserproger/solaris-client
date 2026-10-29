@@ -397,6 +397,9 @@ impl UiState {
             if !node.visible || !node.enabled || px < x || py < y || px >= x + w || py >= y + h {
                 return None;
             }
+            if matches!(node.action, NodeAction::CreativeTab(_)) {
+                return Some(std::sync::Arc::new(json!({"action":"show_text","value":{"text":node.label}})));
+            }
             let Paint::RichText(layout) = &node.paint else {
                 return None;
             };
