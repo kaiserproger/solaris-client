@@ -41,6 +41,24 @@ is sent only in player input; glide uses action 6. `cargo test -p solaris-client
 option-less particle types from the local 26.3 registry. State-only/headless
 models must load these particle facts just like rendered models.
 
+`cargo test -p solaris-client --lib rc1_book_` covers received writable books,
+ordinary editor opening, typed pages, Done/sign submission and the real session
+packet encoder. The 26.3 `edit_book` slot is a player-inventory index: selected
+hotbar `0..8` or offhand `40`, not player-menu slots `36..44` or `45` (local
+`BookEditScreen.saveChanges` bytecode). Closing the editor is not persistence
+evidence: a live write/reopen/sign check must observe the server-returned book
+components and reopen that authoritative stack.
+
+The opt-in `rc1_book_live_write_reopen_sign` test connects the real headless
+Session to `SOLARIS_BOOK_SMOKE_SERVER` (loopback only), using the normal pinned
+content environment. Provision one writable book in `BookFix`'s first hotbar
+slot, then run `cargo test -p solaris-client --lib
+rc1_book_live_write_reopen_sign -- --ignored --nocapture`. It uses ordinary
+item activation and editor submission, waits on network wakes, checks received
+book components, reopens without rewriting, signs, and reopens read-only with
+the same pages/title/author. The headless MCP catalog has no editor-edit tool;
+this test uses the Session owner directly, not an alternate packet client.
+
 `HangingEntityItem` (item frames, glow item frames, paintings) and `MinecartItem`
 have real local placement/debit owners; focused geometry and placement tests
 are under `player::use_on::placement::entity_items::tests`. Received hanging

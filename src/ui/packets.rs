@@ -236,6 +236,7 @@ impl UiState {
         self.release_all();
         self.invalidate();
     }
+    /// `slot` is the edit-book player-inventory index, not a player-menu slot.
     pub fn open_book(&mut self, stack: &Stack, slot: i32) -> Result<()> {
         let written = stack.components.get("minecraft:written_book_content");
         let writable = stack.components.get("minecraft:writable_book_content");
@@ -946,7 +947,7 @@ mod disconnect_tests {
         let stack = crate::inventory::read_stack(&mut reader, &content).unwrap();
         reader.done().unwrap();
         let mut ui = super::super::UiState::new_state(&content).unwrap();
-        ui.open_book(&stack, 36).unwrap();
+        ui.open_book(&stack, 0).unwrap();
         assert!(matches!(ui.editor, Some(EditorState::Book { ref pages, writable: true, .. })
             if pages == &[String::new()]));
     }

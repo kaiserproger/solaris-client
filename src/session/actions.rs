@@ -941,19 +941,20 @@ impl Session {
     fn open_trigger_local(&mut self, trigger: UiTrigger) -> Result<()> {
         match trigger {
             UiTrigger::Book { hand } => {
-                let slot = if hand == 1 {
-                    45
+                let (menu_slot, inventory_slot) = if hand == 1 {
+                    (45, 40)
                 } else {
-                    36 + i32::from(self.inventory.selected_slot)
+                    let selected = i32::from(self.inventory.selected_slot);
+                    (36 + selected, selected)
                 };
                 let stack = self
                     .inventory
-                    .player_slot(slot as u16)?
+                    .player_slot(menu_slot as u16)?
                     .ok_or("book stack unreceived")?;
                 self.ui
                     .as_mut()
                     .ok_or("ui unavailable")?
-                    .open_book(stack, slot)?;
+                    .open_book(stack, inventory_slot)?;
                 self.keys.clear();
                 self.player.release_all(&mut self.commands)?;
             }
@@ -1656,3 +1657,7 @@ mod chat_completion_tests {
         assert_eq!(session.ui.as_ref().unwrap().fields["chat/input"].text, "/msg Alex tail");
     }
 }
+
+#[cfg(test)]
+#[path = "book_edit_tests.rs"]
+mod book_edit_tests;
