@@ -88,6 +88,11 @@ fn rc1_hud_chat_wraps_without_overlap_in_game_and_history() {
         let older = lines[1]["bounds"].as_array().unwrap();
         let newer = lines[0]["bounds"].as_array().unwrap();
         assert!(newer[3].as_f64().unwrap() > 18.);
+        assert!(newer[1].as_f64().unwrap() + newer[3].as_f64().unwrap() <= 190.,
+            "the last wrapped line must stay above the status bars");
+        assert_eq!(newer[3].as_f64().unwrap(), f64::from(layout.height));
+        assert_eq!(older[3].as_f64().unwrap(), 9., "single lines use the same 9px pitch");
+        assert_eq!(older[1].as_f64().unwrap() + older[3].as_f64().unwrap(), newer[1].as_f64().unwrap());
         assert!(older[1].as_f64().unwrap() + older[3].as_f64().unwrap() <= newer[1].as_f64().unwrap());
     }
 }
