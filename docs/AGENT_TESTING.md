@@ -4,6 +4,25 @@
 
 Read ../SPECIFICATION.md (especially original §16–19, §23), ../COMPATIBILITY_MATRIX.md and the sole cursor in ../LONG_TERM_PLAN.md. A requirement is not an implemented tool. The integration evidence below records exercised preview behavior, not full-client acceptance. Obtain the live schemas, supported protocol revisions, limits and actual features from discovery; do not infer support from a proposed name or cached conversation.
 
+### Teleport loading versus disconnect
+
+`minecraft_observe.in_play` means the current world is ready for interaction,
+including received destination terrain/light and, in windowed mode, a
+presented spawn-neighborhood frame. It is not a socket-liveness flag. Even a
+same-dimension teleport can temporarily report `in_play=false`, omit player
+coordinates and dimension, and have no `disconnect_reason` while the existing
+connection remains healthy.
+
+At an explicitly dispatched teleport/travel boundary, wait with the existing
+`minecraft_wait_for_play`, then assert the destination. Canonical
+`ProbeSteps.wait(..., wait_for_play=True)` implements this event-driven wait
+without reconnecting or extending the scenario deadline. Keep strict ordinary
+observations elsewhere; do not turn arbitrary disconnects into retries.
+Terminating a client after a premature readiness assertion causes the server
+to report EOF and is not evidence of a client-initiated network failure.
+Normal transport/packet failures still log `session failed` and retain their
+reason. A legitimate terrain-loading interval is not such a failure.
+
 ### Local interaction failures versus wire failures
 
 Local item/block/entity prediction and local editor opening are not connection
