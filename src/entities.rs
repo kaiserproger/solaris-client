@@ -276,6 +276,7 @@ impl Store {
         self.items.set_entity_models(models.clone());
         self.equipment_cache = equipment::Cache::default();
         self.nameplate_cache = render_nameplates::Cache::default();
+        self.special_render_cache = render_special::Cache::default();
         self.models = Some(models);
         self.local_avatar = None;
         self.local_avatar_tick = None;

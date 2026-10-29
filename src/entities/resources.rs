@@ -533,6 +533,106 @@ pub fn transform(pivot: Vec3, rotation: Vec3, scale: Vec3) -> Mat4 {
 mod tests {
     use super::*;
 
+    fn render_received_fixture(kind: &str, direction: i32, metadata: &[u8]) -> crate::api::DynamicGeometry {
+        use crate::protocol::{Reader, Writer, packet_ids::play::clientbound as cb};
+        let doc = Models::parse().unwrap();
+        let mut content = Content::test_cube();
+        content.entity_names = doc.entities.iter()
+            .map(|(name, schema)| (schema.protocol_id, name.clone())).collect();
+        let variant = serde_json::json!({"width":1,"height":1,"asset_id":"test:canvas"});
+        content.set_registries(BTreeMap::from([("minecraft:painting_variant".into(),
+            vec![("test:canvas".into(), variant.clone())])]));
+        let region = crate::protocol::content::TextureRegion {
+            layer: 7, uv: [0., 0., 1., 1.], width: 16, height: 16,
+        };
+        for texture in ["test:painting/canvas", "minecraft:painting/back", "minecraft:test/frame",
+            "minecraft:entity/minecart/minecart"] {
+            content.insert_test_texture(texture, region);
+        }
+        // Owned box fixture, not copied vanilla geometry.
+        let faces: serde_json::Map<String, Value> = ["north", "south", "east", "west", "up", "down"]
+            .into_iter().map(|face| (face.into(), serde_json::json!({"texture":"#frame"}))).collect();
+        let frame = serde_json::to_vec(&serde_json::json!({
+            "textures":{"frame":"test/frame"},
+            "elements":[{"from":[2,2,14],"to":[14,14,16],"faces":faces}]
+        })).unwrap();
+        for name in ["item_frame", "glow_item_frame"] {
+            content.insert_test_resource(&format!("assets/minecraft/models/block/{name}.json"), &frame);
+        }
+        content.item_names.insert(1, "test:token".into());
+        content.insert_test_item_components(1, BTreeMap::new());
+        content.insert_test_resource("assets/test/models/token.json", &frame);
+        content.insert_test_resource("assets/test/items/token.json",
+            br#"{"model":{"type":"minecraft:model","model":"test:token"}}"#);
+        let models = std::sync::Arc::new(Models::load(&content).unwrap());
+        let mut store = super::super::Store::default();
+        store.registries.insert("minecraft:painting_variant".into(),
+            vec![("test:canvas".into(), variant)]);
+        store.activate_models(models);
+        let mut spawn = Writer::default();
+        spawn.var(1);
+        spawn.0.extend_from_slice(&[0;16]);
+        spawn.var(doc.entities[kind].protocol_id as i32);
+        for coordinate in [4_f64, 4., 3.] {
+            spawn.0.extend_from_slice(&coordinate.to_be_bytes());
+        }
+        spawn.0.extend_from_slice(&[0;4]);
+        spawn.var(direction);
+        store.apply(cb::ADD_ENTITY, &mut Reader::new(&spawn.0), &content, 1).unwrap();
+        if !metadata.is_empty() {
+            store.apply(cb::SET_ENTITY_DATA, &mut Reader::new(metadata), &content, 1).unwrap();
+        }
+        let mut out = crate::api::DynamicGeometry::default();
+        let stats = store.append_geometry(&content, [4.,4.,3.], [4.,5.,0.], [0.;2], 32.,
+            1, 0., &|point| {
+                // A painting's segment cells are available, but not its generic eye sample.
+                Ok((kind != "minecraft:painting" || point.iter().all(|v| v.fract() == 0.))
+                    .then_some([15.;2]))
+            }, &mut out).unwrap();
+        assert_eq!(stats.submitted, 1, "{kind}: {:?}", stats.unrendered);
+        assert!(!out.vertices.is_empty(), "{kind}");
+        out
+    }
+
+    #[test]
+    fn entity_render_rc1_empty_item_frame_has_body_at_packet_anchor() {
+        let out = render_received_fixture("minecraft:item_frame", 2, &[]);
+        assert!(out.vertices.iter().all(|v| (0. ..=1.).contains(&v.position[2])));
+        assert!(out.vertices.iter().any(|v| v.position[2] >= 0.9));
+    }
+
+    #[test]
+    fn entity_render_rc1_empty_glow_item_frame_has_body() {
+        render_received_fixture("minecraft:glow_item_frame", 5, &[]);
+    }
+
+    #[test]
+    fn entity_render_rc1_painting_emits_mesh_from_received_spawn() {
+        let out = render_received_fixture("minecraft:painting", 2, &[]);
+        assert!(out.vertices.iter().all(|v| (0.9374..=1.0001).contains(&v.position[2])));
+    }
+
+    #[test]
+    fn entity_render_rc1_minecart_mesh_is_above_rail_not_buried() {
+        let out = render_received_fixture("minecraft:minecart", 0, &[]);
+        let bottom = out.vertices.iter().map(|v| v.position[1]).fold(f32::INFINITY, f32::min);
+        let top = out.vertices.iter().map(|v| v.position[1]).fold(f32::NEG_INFINITY, f32::max);
+        assert!(bottom >= -0.001, "minecart bottom below received rail position: {bottom}");
+        assert!(top > 0.5, "minecart top buried: {top}");
+    }
+
+    #[test]
+    fn entity_render_rc1_frame_metadata_direction_overrides_spawn() {
+        let out = render_received_fixture("minecraft:item_frame", 2, &[1,8,12,5,255]);
+        assert!(out.vertices.iter().all(|v| v.position[0] >= -0.0001 && v.position[0] <= 0.1251));
+    }
+
+    #[test]
+    fn entity_render_rc1_frame_emits_received_held_item_too() {
+        let out = render_received_fixture("minecraft:item_frame", 2, &[1,9,7,1,1,0,0,10,1,2,255]);
+        assert_eq!(out.vertices.len(), 48, "owned frame box plus owned held-item box");
+    }
+
     #[test]
     fn wire_263_raid_omen_particle_list_metadata_packet() {
         use crate::protocol::{Reader, Writer, packet_ids::play::clientbound as cb};

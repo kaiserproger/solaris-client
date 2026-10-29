@@ -47,32 +47,18 @@ pub(super) fn append(
     let (namespace, path) = asset.split_once(':').unwrap_or(("minecraft", asset));
     let front = p::texture(content, &format!("{namespace}:painting/{path}"))?;
     let back = p::texture(content, "painting/back")?;
-    let transform = e.presented_transform(tick, partial);
-    let direction = e.spawn_data;
-    let rotation: f32 = match direction {
-        2 => 180.,
-        3 => 0.,
-        4 => 90.,
-        5 => 270.,
-        _ => return Err("painting direction invalid".into()),
+    let direction = match p::value(models, e, "DATA_DIRECTION") {
+        Some(value) => value.int().ok_or("painting direction metadata invalid")?,
+        None => e.spawn_data,
     };
-    let root =
-        translation(transform.position, origin) * Mat4::from_rotation_y(rotation.to_radians());
+    let anchor = e.presented_transform(tick, partial).position.map(f64::floor);
+    let (center, rotation) = painting_placement(anchor, direction, width, height)?;
+    let root = translation(center, origin) * Mat4::from_rotation_y(rotation);
     let mut lights = [[0.; 2]; 256];
     // Resolve every segment before emitting: unobserved light cannot publish a half-painting.
     for y in 0..height {
         for x in 0..width {
-            let dx = x as f64 - width as f64 * 0.5 + 0.5;
-            let dy = y as f64 - height as f64 * 0.5 + 0.5;
-            let mut point = transform.position.map(f64::floor);
-            point[1] = (transform.position[1] + dy).floor();
-            match direction {
-                2 => point[0] = (transform.position[0] + dx).floor(),
-                3 => point[0] = (transform.position[0] - dx).floor(),
-                4 => point[2] = (transform.position[2] - dx).floor(),
-                5 => point[2] = (transform.position[2] + dx).floor(),
-                _ => unreachable!(),
-            }
+            let point = painting_light_position(center, direction, width, height, x, y);
             let Some(light) = p::sampled(light_source, point)? else {
                 return Ok(Handled::PendingLighting);
             };
@@ -180,6 +166,55 @@ pub(super) fn append(
     }
     Ok(Handled::Rendered)
 }
+
+// The add-entity position is the hanging block anchor, not the mesh center.
+// Local -Z is the painted face; local +X follows the segment light order.
+fn painting_placement(
+    anchor: [f64; 3],
+    direction: i32,
+    width: usize,
+    height: usize,
+) -> Result<([f64; 3], f32)> {
+    let (step, left, rotation) = match direction {
+        2 => ([0., 0., -1.], [-1., 0., 0.], 0.),
+        3 => ([0., 0., 1.], [1., 0., 0.], std::f32::consts::PI),
+        4 => ([-1., 0., 0.], [0., 0., 1.], std::f32::consts::FRAC_PI_2),
+        5 => ([1., 0., 0.], [0., 0., -1.], -std::f32::consts::FRAC_PI_2),
+        _ => return Err("painting direction invalid".into()),
+    };
+    let width_offset = if width.is_multiple_of(2) { 0.5 } else { 0. };
+    let height_offset = if height.is_multiple_of(2) { 0.5 } else { 0. };
+    Ok((
+        [
+            anchor[0] + 0.5 - step[0] * 0.46875 + left[0] * width_offset,
+            anchor[1] + 0.5 + height_offset,
+            anchor[2] + 0.5 - step[2] * 0.46875 + left[2] * width_offset,
+        ],
+        rotation,
+    ))
+}
+
+fn painting_light_position(
+    center: [f64; 3],
+    direction: i32,
+    width: usize,
+    height: usize,
+    x: usize,
+    y: usize,
+) -> [f64; 3] {
+    let dx = x as f64 - width as f64 * 0.5 + 0.5;
+    let dy = y as f64 - height as f64 * 0.5 + 0.5;
+    let mut point = center.map(f64::floor);
+    point[1] = (center[1] + dy).floor();
+    match direction {
+        2 => point[0] = (center[0] + dx).floor(),
+        3 => point[0] = (center[0] - dx).floor(),
+        4 => point[2] = (center[2] - dx).floor(),
+        5 => point[2] = (center[2] + dx).floor(),
+        _ => unreachable!("painting placement validated direction"),
+    }
+    point
+}
 fn painting_quad(
     root: Mat4,
     points: [[f32; 3]; 4],
@@ -199,4 +234,52 @@ fn painting_quad(
         light,
         out,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn painting_anchor_orientation_and_segment_lighting() {
+        let cases = [
+            (2, [0., 0., -1.], [10., 21., 30.96875], [[9., 20., 30.], [10., 21., 30.]]),
+            (3, [0., 0., 1.], [11., 21., 30.03125], [[11., 20., 30.], [10., 21., 30.]]),
+            (4, [-1., 0., 0.], [10.96875, 21., 31.], [[10., 20., 31.], [10., 21., 30.]]),
+            (5, [1., 0., 0.], [10.03125, 21., 30.], [[10., 20., 29.], [10., 21., 30.]]),
+        ];
+        for (direction, outward, expected_center, expected_light) in cases {
+            let (center, rotation) =
+                painting_placement([10., 20., 30.], direction, 2, 2).unwrap();
+            assert_eq!(center, expected_center);
+            assert_eq!(painting_light_position(center, direction, 2, 2, 0, 0), expected_light[0]);
+            assert_eq!(painting_light_position(center, direction, 2, 2, 1, 1), expected_light[1]);
+            let face = Mat4::from_rotation_y(rotation).transform_vector3(Vec3::NEG_Z);
+            let expected = Vec3::from_array(outward);
+            assert!((face - expected).length() < 0.00001);
+            // The back of the 1/16-thick mesh lies exactly on the support face.
+            let back = [
+                center[0] - f64::from(outward[0]) * 0.03125,
+                center[1],
+                center[2] - f64::from(outward[2]) * 0.03125,
+            ];
+            let normal_axis = if outward[0] != 0. { 0 } else { 2 };
+            let boundary = [10., 20., 30.][normal_axis]
+                + if outward[normal_axis] < 0. { 1. } else { 0. };
+            assert_eq!(back[normal_axis], boundary);
+        }
+    }
+
+    #[test]
+    fn painting_even_offsets_are_independent() {
+        let anchor = [-4., 7., -9.];
+        assert_eq!(painting_placement(anchor, 2, 1, 1).unwrap().0, [-3.5, 7.5, -8.03125]);
+        assert_eq!(painting_placement(anchor, 2, 4, 3).unwrap().0, [-4., 7.5, -8.03125]);
+        assert_eq!(painting_placement(anchor, 2, 3, 4).unwrap().0, [-3.5, 8., -8.03125]);
+        assert_eq!(
+            painting_light_position([-3.5, 8., -8.03125], 2, 3, 4, 0, 0),
+            [-5., 6., -9.]
+        );
+        assert!(painting_placement(anchor, 1, 1, 1).is_err());
+    }
 }

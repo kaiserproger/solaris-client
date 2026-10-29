@@ -2098,6 +2098,7 @@ impl Content {
     #[cfg(test)]
     pub(crate) fn insert_test_texture(&mut self, name: &str, region: TextureRegion) {
         self.textures.insert(name.to_owned(), region);
+        self.texture_materials.entry(name.to_owned()).or_insert(RenderLayer::Opaque);
     }
     #[cfg(test)]
     pub(crate) fn insert_test_state_properties(
