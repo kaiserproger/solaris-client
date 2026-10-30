@@ -4,6 +4,46 @@
 
 Read ../SPECIFICATION.md (especially original §16–19, §23), ../COMPATIBILITY_MATRIX.md and the sole cursor in ../LONG_TERM_PLAN.md. A requirement is not an implemented tool. The integration evidence below records exercised preview behavior, not full-client acceptance. Obtain the live schemas, supported protocol revisions, limits and actual features from discovery; do not infer support from a proposed name or cached conversation.
 
+### 2026-10-30 authored parity polish
+
+The empty hand resolves the same UUID-selected default skin and slim/wide rig
+as a remote player; a missing local texture profile no longer forces classic
+Steve/Alex. Explicit received skins are unchanged. Its camera-space rest pose
+is our rounded fit to the Java `villagers-side` silhouette and runtime skin
+texels, not copied source transforms. The measurements and fit provenance are
+in `.analysis/parity-polish/arm-fit.json`.
+
+World-text backdrops use the existing untextured background materials, rather
+than sampling the atlas at a missing-UV sentinel. Foreground decoration and
+polygon-offset materials are preserved. Ordinary nameplates composite normal
+glyphs, the backdrop, then the half-alpha through glyphs; clouds finish before
+those text layers. GPU regressions cover that actual composition, clouds behind
+the backdrop, and discrete translucent text, not just mesh existence.
+
+Clouds ignore the terrain-edge fog while retaining environmental fog. Their
+runtime texture mask is unchanged; the bounded `60`-cell extent (roughly 700
+blocks) is our visual coverage choice against the oracle's horizon cloud band.
+No Mojang texture, model data or implementation was added to the sources.
+
+The complete pre-restoration client-library checkpoint passes **802 tests**,
+with three existing ignored tests. After restoring the unchanged fog files and
+removing the experimental haze test, all four focused fog/nameplate/cloud
+integration regressions pass. Strict Clippy remains red under `CLIENT-LINT-001`
+in `BUGS.md`; no warnings were suppressed. Exact red/green
+logs, native receipts, panel paths, settings and scoped visual verdicts live in
+`.analysis/parity-polish/`. The shared oracle panels are under
+`/run/media/kaiserroman/games/solaris-work/vref-kit/panels-parity-polish/`.
+The apparent `h-far` discrepancy was an oracle-settings mismatch: its old Java
+receipt ran at 16 chunks despite requesting 32. Main's corrected Java-32
+comparison matches the original client-rc2 terrain to within one RGB unit, so
+all attempted far-haze changes and their added regression were removed. The
+fog implementation remains unchanged from client-rc2.
+The corrected Java receipt is
+`/run/media/kaiserroman/games/solaris-work/wt/rc2/.analysis/validation/20261030T105305-scene-shot-uclxjmtu`;
+Main's unchanged-terrain comparison is
+`/run/media/kaiserroman/games/solaris-work/vref-kit/panels-final/h-far-32.png`.
+
+
 ### Teleport loading versus disconnect
 
 `minecraft_observe.in_play` means the current world is ready for interaction,

@@ -1168,7 +1168,8 @@ pub(super) const MATERIALS: [Descriptor; EntityMaterial::COUNT] = [
         bias: false,
         color_write: true,
         sort: true,
-        sort_key: 40,
+        // Oracle composition: normal glyph, backdrop, then through glyph.
+        sort_key: 38,
     }, // TextBackgroundSeeThrough
     Descriptor {
         shader: ShaderKey {
@@ -1191,7 +1192,7 @@ pub(super) const MATERIALS: [Descriptor; EntityMaterial::COUNT] = [
         bias: false,
         color_write: true,
         sort: true,
-        sort_key: 35,
+        sort_key: 32,
     }, // TextBackground
     Descriptor {
         shader: ShaderKey {
@@ -1402,7 +1403,7 @@ pub(super) const MATERIALS: [Descriptor; EntityMaterial::COUNT] = [
     }, // Precipitation
     Descriptor {
         shader: ShaderKey {
-            kind: 0,
+            kind: 20,
             cutoff: 0,
             cardinal: false,
             per_face: false,
@@ -1421,11 +1422,12 @@ pub(super) const MATERIALS: [Descriptor; EntityMaterial::COUNT] = [
         bias: false,
         color_write: false,
         sort: false,
-        sort_key: 90,
+        // Finish the sky layer before compositing in-world text over it.
+        sort_key: 30,
     }, // CloudsDepth
     Descriptor {
         shader: ShaderKey {
-            kind: 0,
+            kind: 20,
             cutoff: 0,
             cardinal: false,
             per_face: false,
@@ -1444,6 +1446,6 @@ pub(super) const MATERIALS: [Descriptor; EntityMaterial::COUNT] = [
         bias: false,
         color_write: true,
         sort: false,
-        sort_key: 91,
+        sort_key: 31,
     }, // Clouds
 ];

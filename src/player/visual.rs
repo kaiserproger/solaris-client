@@ -392,12 +392,14 @@ impl Player {
                 Some((_, Err(reason))) => (None, Some(reason)),
             };
             let Some((display, model)) = item else {
-                // Empty hand (or an item without geometry): the bare arm, as the
-                // source's renderPlayerArm; a model failure is still reported.
-                let shoulder = hand_root(Vec3::new(0.38, -0.32, -0.65), 0.55)
-                    * Mat4::from_translation(Vec3::new(side * 0.14, -0.58, 0.))
-                    * Mat4::from_rotation_z(side * 0.25)
-                    * Mat4::from_rotation_x(-0.15);
+                // Camera-space rest pose fitted to the Java oracle's arm
+                // silhouette at FOV 70 (villagers-side, 1280x720). These are
+                // our rounded fit parameters, not source-model transforms.
+                // Fit the runtime skin's visible faces as well as the outline.
+                let shoulder = hand_root(Vec3::new(0.515, -0.812, -0.676), 0.55)
+                    * Mat4::from_rotation_z(side * -2.015)
+                    * Mat4::from_rotation_y(side * 0.697)
+                    * Mat4::from_rotation_x(-1.453);
                 entities.append_local_arm(content, right, shoulder, light, &mut scene.dynamic)?;
                 match failure {
                     Some(reason) => return Err(reason),

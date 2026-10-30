@@ -72,6 +72,202 @@ pub(super) fn pixels(renderer: &mut Renderer, scene: &Scene) -> Vec<u8> {
     );
     pixels
 }
+
+#[test]
+fn clouds_ignore_terrain_edge_fog_but_keep_environment_fog() {
+    let _gpu_guard = crate::render::gpu_test_lock();
+    let mut renderer = pollster::block_on(Renderer::new_offscreen(
+        64,
+        64,
+        PathBuf::from(".analysis/cloud-fog-regression"),
+    ))
+    .unwrap();
+    let mut scene = Scene {
+        texture_rgba: Some(Arc::new(vec![255; 4])),
+        texture_width: 1,
+        texture_height: 1,
+        texture_layers: 1,
+        texture_revision: 1,
+        lightmap: Some(crate::api::LightmapTexture { revision: 1, rgba: Arc::new([255; 1024]) }),
+        environment: crate::api::WorldEnvironment {
+            display_encoded: true,
+            sky_kind: SkyKind::Overworld,
+            sky_color: [0.; 3],
+            fog_color: [0.; 3],
+            fog_start: 100.,
+            fog_end: 200.,
+            render_fog_start: 100.,
+            render_fog_end: 200.,
+            sun_texture: Some(crate::api::SkyTexture { uv: [0., 0., 1., 1.], layer: 0 }),
+            moon_texture: Some(crate::api::SkyTexture { uv: [0., 0., 1., 1.], layer: 0 }),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    for position in [[-2., -2., 4.], [-2., 2., 4.], [2., 2., 4.], [2., -2., 4.]] {
+        scene.dynamic.vertices.push(crate::api::Vertex {
+            position,
+            color: [0.8; 3],
+            normal: [0., 0., -1.],
+            alpha: 1.,
+            uv: [0.5; 2],
+            overlay_tint: [1.; 3],
+            light: [15., 0.],
+            ..crate::api::Vertex::zeroed()
+        });
+    }
+    let indices = vec![0, 1, 2, 0, 2, 3];
+    scene.dynamic.indices[EntityMaterial::CloudsDepth as usize] = indices.clone();
+    scene.dynamic.indices[EntityMaterial::Clouds as usize] = indices;
+    let center = (32 * 64 + 32) * 4;
+    for preset in [GraphicsPreset::Low, GraphicsPreset::Medium] {
+        renderer.set_graphics_preset(preset);
+        scene.environment.render_fog_start = 100.;
+        scene.environment.render_fog_end = 200.;
+        scene.environment.fog_start = 100.;
+        scene.environment.fog_end = 200.;
+        let clear = pixels(&mut renderer, &scene)[center];
+        assert!(clear > 40, "cloud fixture must be visibly rendered: {clear}");
+        scene.environment.render_fog_start = 1.;
+        scene.environment.render_fog_end = 2.;
+        let short_terrain = pixels(&mut renderer, &scene)[center];
+        assert!(
+            (i16::from(clear) - i16::from(short_terrain)).abs() <= 2,
+            "terrain edge erased cloud: clear={clear}, short={short_terrain}"
+        );
+        scene.environment.fog_start = 1.;
+        scene.environment.fog_end = 2.;
+        let environmental = pixels(&mut renderer, &scene)[center];
+        assert!(
+            environmental + 20 < clear,
+            "environment fog must still obscure clouds: clear={clear}, fogged={environmental}"
+        );
+    }
+}
+#[test]
+fn nameplate_backdrop_composites_between_foreground_and_through_glyphs() {
+    let _gpu_guard = crate::render::gpu_test_lock();
+    let mut renderer = pollster::block_on(Renderer::new_offscreen(
+        64,
+        64,
+        PathBuf::from(".analysis/nameplate-backdrop-regression"),
+    ))
+    .unwrap();
+    renderer.set_graphics_preset(GraphicsPreset::Low);
+    let mut scene = Scene {
+        texture_rgba: Some(Arc::new(vec![255; 4])),
+        texture_width: 1,
+        texture_height: 1,
+        texture_layers: 1,
+        texture_revision: 1,
+        lightmap: Some(crate::api::LightmapTexture { revision: 1, rgba: Arc::new([255; 1024]) }),
+        environment: crate::api::WorldEnvironment {
+            display_encoded: true,
+            sky_kind: SkyKind::Overworld,
+            sky_color: [0.6; 3],
+            fog_color: [0.6; 3],
+            fog_start: 100.,
+            fog_end: 200.,
+            sun_texture: Some(crate::api::SkyTexture { uv: [0., 0., 1., 1.], layer: 0 }),
+            moon_texture: Some(crate::api::SkyTexture { uv: [0., 0., 1., 1.], layer: 0 }),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    for position in [[-0.3, -0.3, 4.], [-0.3, 0.3, 4.], [0.3, 0.3, 4.], [0.3, -0.3, 4.]] {
+        scene.dynamic.vertices.push(crate::api::Vertex {
+            position,
+            color: [0.7; 3],
+            alpha: 1.,
+            uv: [0.5; 2],
+            light: [15., 0.],
+            ..crate::api::Vertex::zeroed()
+        });
+    }
+    scene.dynamic.indices[EntityMaterial::Text as usize] = vec![0, 1, 2, 0, 2, 3];
+    let clear = pixels(&mut renderer, &scene);
+    for position in [[-2., -2., 4.1], [-2., 2., 4.1], [2., 2., 4.1], [2., -2., 4.1]] {
+        scene.dynamic.vertices.push(crate::api::Vertex {
+            position,
+            color: [0.; 3],
+            alpha: 0.25,
+            uv: [-1.; 2],
+            light: [15., 0.],
+            ..crate::api::Vertex::zeroed()
+        });
+    }
+    scene.dynamic.indices[EntityMaterial::TextBackgroundSeeThrough as usize] =
+        vec![4, 5, 6, 4, 6, 7];
+    for index in 0..4 {
+        let mut vertex = scene.dynamic.vertices[index];
+        vertex.color = [1.; 3];
+        vertex.alpha = 0.5;
+        scene.dynamic.vertices.push(vertex);
+    }
+    scene.dynamic.indices[EntityMaterial::TextSeeThrough as usize] =
+        vec![8, 9, 10, 8, 10, 11];
+    scene.revision += 1;
+    let backed = pixels(&mut renderer, &scene);
+    let center = (32 * 64 + 32) * 4;
+    let edge = (24 * 64 + 24) * 4;
+    assert!(clear[center] > 150, "the foreground glyph control must be visible");
+    // The oracle's daylight glyphs are ~222/255, not full white: the solid
+    // backdrop composites over the normal glyph, then the half-alpha through
+    // glyph composites above it. No foreground tint correction is involved.
+    let expected = (f32::from(clear[center]) * 0.75 * 0.5 + 255. * 0.5).round() as u8;
+    assert!(
+        backed[center].abs_diff(expected) <= 2,
+        "normal -> backdrop -> through glyph composite: {} vs {expected}",
+        backed[center],
+    );
+    assert!(backed[edge] + 20 < clear[edge], "the backdrop must still darken the sky");
+    scene.dynamic.indices[EntityMaterial::TextBackgroundSeeThrough as usize].clear();
+    scene.dynamic.indices[EntityMaterial::TextSeeThrough as usize].clear();
+    scene.dynamic.indices[EntityMaterial::TextBackground as usize] = vec![4, 5, 6, 4, 6, 7];
+    scene.revision += 1;
+    let discrete = pixels(&mut renderer, &scene);
+    assert!(discrete[center].abs_diff(clear[center]) <= 2);
+    assert!(discrete[edge] + 20 < clear[edge]);
+    // Discrete labels have translucent foreground text. Their background must
+    // contribute beneath those glyphs, not fail depth testing after them.
+    for vertex in &mut scene.dynamic.vertices[..4] {
+        vertex.alpha = 0.5;
+    }
+    scene.dynamic.indices[EntityMaterial::TextBackground as usize].clear();
+    scene.revision += 1;
+    let translucent = pixels(&mut renderer, &scene);
+    scene.dynamic.indices[EntityMaterial::TextBackground as usize] = vec![4, 5, 6, 4, 6, 7];
+    scene.revision += 1;
+    let translucent_backed = pixels(&mut renderer, &scene);
+    assert!(translucent_backed[center] + 10 < translucent[center]);
+    for vertex in &mut scene.dynamic.vertices[..4] {
+        vertex.alpha = 1.;
+    }
+    scene.dynamic.indices[EntityMaterial::TextBackground as usize].clear();
+    scene.dynamic.indices[EntityMaterial::TextSeeThrough as usize] = vec![8, 9, 10, 8, 10, 11];
+    for position in [[-4., -4., 8.], [-4., 4., 8.], [4., 4., 8.], [4., -4., 8.]] {
+        scene.dynamic.vertices.push(crate::api::Vertex {
+            position,
+            color: [0.8; 3],
+            alpha: 1.,
+            uv: [0.5; 2],
+            light: [15., 0.],
+            ..crate::api::Vertex::zeroed()
+        });
+    }
+    scene.dynamic.indices[EntityMaterial::CloudsDepth as usize] = vec![12, 13, 14, 12, 14, 15];
+    scene.dynamic.indices[EntityMaterial::Clouds as usize] = vec![12, 13, 14, 12, 14, 15];
+    scene.revision += 1;
+    let cloud = pixels(&mut renderer, &scene);
+    scene.dynamic.indices[EntityMaterial::TextBackgroundSeeThrough as usize] = vec![4, 5, 6, 4, 6, 7];
+    scene.revision += 1;
+    let cloud_backed = pixels(&mut renderer, &scene);
+    assert!(
+        cloud_backed[edge].abs_diff((f32::from(cloud[edge]) * 0.75).round() as u8) <= 2,
+        "clouds behind a label must render before its backdrop",
+    );
+}
+
 #[test]
 fn fancy_shader_gpu_toggle_preserves_ui_and_off_pixels() {
     let _gpu_guard = crate::render::gpu_test_lock();

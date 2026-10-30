@@ -696,7 +696,7 @@ fn source_portal_sample(coord: vec2<f32>, rect: vec4<f32>, layer: f32) -> vec3<f
     var texel = vec4<f32>(1.0);
     let textured = source_kind == 0u || source_kind == 1u || source_kind == 2u || source_kind == 5u
         || source_kind == 6u || source_kind == 8u || source_kind == 9u || source_kind == 10u
-        || source_kind == 11u || source_kind == 15u || source_kind == 19u;
+        || source_kind == 11u || source_kind == 15u || source_kind == 19u || source_kind == 20u;
     if textured {
         var coord = in.uv;
         if source_wrap { coord = in.overlay_uv + fract(coord) * in.overlay_tint.xy; }
@@ -746,6 +746,13 @@ fn source_portal_sample(coord: vec2<f32>, rect: vec4<f32>, layer: f32) -> vec3<f
     }
     if camera.fancy.x > 0.5 {
         color = fancy_lighting(in, vec4<f32>(srgb_to_linear(color.rgb), color.a));
+    }
+    if source_kind == 20u {
+        // Clouds extend beyond the loaded terrain; retain environmental fog
+        // while excluding the terrain render-distance edge.
+        var cloud = in;
+        cloud.fog_distance.y = 0.0;
+        return fogged(cloud, color);
     }
     if source_fog { return fogged(in, color); }
     return target_color(color);

@@ -292,6 +292,18 @@ impl TextSink for WorldPainter<'_> {
             )
         };
     }
+    fn background(&mut self, rect: [f32; 4], color: [f32; 3], alpha: f32) {
+        // A backdrop is solid, not a glyph sampled at the atlas UV sentinel.
+        // Decorations and polygon-offset foreground text keep their material.
+        let foreground = self.color_layer;
+        self.color_layer = if foreground == EntityMaterial::TextSeeThrough {
+            EntityMaterial::TextBackgroundSeeThrough
+        } else {
+            EntityMaterial::TextBackground
+        };
+        self.text_quad(rect, [-1.; 4], 0, color, alpha, 0., true, -0.01);
+        self.color_layer = foreground;
+    }
     fn text_quad(
         &mut self,
         [x, y, w, h]: [f32; 4],
@@ -907,4 +919,28 @@ pub fn argb_color(argb: u32) -> ([f32; 3], f32) {
         ],
         (argb >> 24) as f32 / 255.,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn world_backdrops_preserve_foreground_and_polygon_offset_materials() {
+        let content = Content::test_cube();
+        for material in [EntityMaterial::Text, EntityMaterial::TextPolygonOffset, EntityMaterial::TextSeeThrough] {
+            let mut geometry = DynamicGeometry::default();
+            let mut painter = WorldPainter::new(&content, &mut geometry, Mat4::IDENTITY, [15., 0.], material).unwrap();
+            painter.background([0., 0., 10., 10.], [0.; 3], 0.25);
+            // Underlines/strikethroughs retain the foreground's depth/bias.
+            painter.solid([0., 8., 10., 1.], [1.; 3], 1.);
+            let background = if material == EntityMaterial::TextSeeThrough {
+                EntityMaterial::TextBackgroundSeeThrough
+            } else {
+                EntityMaterial::TextBackground
+            };
+            assert_eq!(geometry.indices[background as usize], [0, 1, 2, 0, 2, 3]);
+            assert_eq!(geometry.indices[material as usize], [4, 5, 6, 4, 6, 7]);
+        }
+    }
 }

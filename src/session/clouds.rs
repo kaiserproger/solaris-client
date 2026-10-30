@@ -10,8 +10,9 @@ const CELL: f64 = 11.8;
 const THICKNESS: f64 = 3.8;
 /// Blocks per game tick the layer drifts toward -X.
 const DRIFT: f64 = 0.028;
-/// Cells drawn on each side of the camera.
-const RADIUS: i32 = 20;
+/// Own visual coverage choice (~700 blocks), fitted to the h-far oracle's
+/// near-horizon cloud band rather than the old ~236-block cutoff.
+const RADIUS: i32 = 60;
 const ALPHA: f32 = 0.8;
 const MAX_VERTICES: usize = 1_900_000;
 const TEXTURE: &str = "minecraft:environment/clouds";
@@ -192,6 +193,29 @@ mod tests {
         assert_eq!(tint(0., 0.), [1.; 3]);
         assert!(tint(180., 0.)[0] < 0.2);
         assert!(tint(0., 1.)[0] < tint(0., 0.)[0]);
+    }
+
+    #[test]
+    fn cloud_geometry_reaches_the_oracle_horizon_band() {
+        let mut content = Content::test_cube();
+        let region = crate::protocol::content::TextureRegion {
+            uv: [0., 0., 1., 1.], layer: 0, width: 1, height: 1,
+        };
+        content.insert_test_texture(TEXTURE, region);
+        content.insert_test_texture("solaris:white", region);
+        let mut clouds = Clouds {
+            cells: Some((1, Cells { size: 1, solid: vec![true] })),
+        };
+        let mut geometry = DynamicGeometry::default();
+        clouds.append(
+            &content,
+            &View { epoch: 1, camera: [0.; 3], origin: [0.; 3], ticks: 0. },
+            &WorldEnvironment { sky_kind: SkyKind::Overworld, cloud_height: 100., ..Default::default() },
+            &mut geometry,
+        ).unwrap();
+        // Own coverage threshold: the h-far oracle has clouds below the band
+        // reached by a roughly 236-block radius, well beyond 500 blocks.
+        assert!(geometry.vertices.iter().any(|vertex| vertex.position[0] > 500.));
     }
 
     #[test]

@@ -581,31 +581,63 @@ fn first_person_arm_uses_baked_geometry_skin_uvs_and_normals() {
         assert!((Vec3::from_array(vertex.normal) - normal).length() < 1e-6);
         assert_eq!(vertex.texture_layer, 7);
     }
+    // Exercise the actual player empty-hand path, not only a supplied rig root.
+    let mut player = crate::player::Player::new();
+    player.pose_known = true;
+    let mut scene = crate::api::Scene::default();
+    player
+        .append_first_person(
+            &Content::test_cube(),
+            &crate::inventory::InventoryStore::default(),
+            &mut store,
+            &mut scene,
+            1.,
+            [15., 0.],
+        )
+        .unwrap();
+    let camera = Mat4::look_to_rh(Vec3::ZERO, Vec3::Z, Vec3::Y);
+    let tip_normal = camera.transform_vector3(Vec3::from_array(scene.dynamic.vertices[0].normal));
+    assert!(
+        tip_normal.z < -0.5,
+        "the fist points away from the camera; the long arm sides, not its end cap, face the viewer",
+    );
 }
 
 #[test]
-fn first_person_missing_local_profile_uses_classic_skin_without_changing_remotes() {
+fn first_person_missing_local_profile_uses_uuid_skin_like_remote_players() {
     let (mut models, mut entity) = fixture();
     entity.type_name = "minecraft:player".into();
     let mut store = Store::new();
-    for (model, path) in [
-        (PlayerModel::Slim, "minecraft:entity/player/slim/alex"),
-        (PlayerModel::Wide, "minecraft:entity/player/wide/steve"),
-    ] {
-        models.default_skins = (0..18)
-            .map(|_| resources::DefaultSkin {
-                texture: "authored:modern-default".into(),
-                model,
-            })
-            .collect();
+    let mut content = Content::test_cube();
+    models.default_skins = (0..18)
+        .map(|index| {
+            let texture = format!("authored:skin-{index}");
+            content.insert_test_texture(&texture, crate::protocol::content::TextureRegion {
+                uv: [0., 0., 1., 1.],
+                layer: index,
+                width: 64,
+                height: 64,
+            });
+            resources::DefaultSkin {
+                texture,
+                model: if index % 2 == 0 { PlayerModel::Slim } else { PlayerModel::Wide },
+            }
+        })
+        .collect();
+    for index in 0..4 {
+        entity.uuid = uuid::Uuid::from_u128(index).to_string();
         store.local_uuid = Some(entity.uuid.clone());
-        let local =
-            presentation::material(&store, &models, &entity, &Content::test_cube()).unwrap_err();
-        assert!(local.ends_with(path), "{local}");
+        let local = presentation::material(&store, &models, &entity, &content).unwrap();
         store.local_uuid = None;
-        let remote =
-            presentation::material(&store, &models, &entity, &Content::test_cube()).unwrap_err();
-        assert!(remote.ends_with("authored:modern-default"), "{remote}");
+        let remote = presentation::material(&store, &models, &entity, &content).unwrap();
+        assert_eq!(local.texture.layer, index as u32);
+        assert_eq!(local.texture.layer, remote.texture.layer);
+        assert_eq!(local.rig, remote.rig);
+        assert_eq!(local.rig, if index % 2 == 0 {
+            "minecraft:player_slim#main"
+        } else {
+            "minecraft:player#main"
+        });
     }
 }
 
