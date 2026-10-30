@@ -607,6 +607,45 @@ fn water_scene() -> Scene {
 }
 
 #[test]
+fn water_obeys_received_lightmap_in_every_preset() {
+    let mut renderer = offscreen("water-lightmap");
+    let mut scene = water_scene();
+    // An unlit night sky keeps High's refracted background from contributing
+    // daylight to this lightmap test.
+    scene.environment = overworld(180., 0.);
+    scene.environment.sky_color = [0.; 3];
+    scene.environment.fog_color = [0.; 3];
+    let geometry = Arc::make_mut(scene.chunks.get_mut(&[0; 3]).unwrap().geometry.as_mut().unwrap());
+    for vertex in &mut geometry.vertices {
+        vertex.light = [0., 0.];
+    }
+    let lightmap = |value, revision| crate::api::LightmapTexture {
+        revision,
+        rgba: Arc::new(std::array::from_fn(|i| if i % 4 == 3 { 255 } else { value })),
+    };
+    let mut low_dark = [0.; 3];
+    for preset in [GraphicsPreset::Low, GraphicsPreset::Medium, GraphicsPreset::High] {
+        renderer.set_graphics_preset(preset);
+        scene.lightmap = Some(lightmap(0, 1));
+        let dark = pixels(&mut renderer, &scene);
+        scene.lightmap = Some(lightmap(255, 2));
+        let lit = pixels(&mut renderer, &scene);
+        let offset = (26 * 64 + 32) * 4;
+        let dark = rgb(&dark, offset);
+        let lit = rgb(&lit, offset);
+        println!("{preset:?}: dark={dark:?}, lit={lit:?}");
+        if preset == GraphicsPreset::Low {
+            low_dark = dark;
+        } else {
+            assert!(dark[2] <= low_dark[2] + 15.,
+                "{preset:?} unlit water glows: {dark:?}, Low={low_dark:?}");
+        }
+        assert!(lit.iter().sum::<f32>() > dark.iter().sum::<f32>() + 20.,
+            "{preset:?} water ignores light: dark={dark:?}, lit={lit:?}");
+    }
+}
+
+#[test]
 fn high_water_refracts_reflects_and_differs_from_medium() {
     let mut renderer = offscreen("water");
     let scene = water_scene();

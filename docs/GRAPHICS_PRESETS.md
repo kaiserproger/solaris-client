@@ -28,6 +28,10 @@ remain the second term of the blend, so the result stays recognisably Minecraft;
 physical term; underwater/special fog (`fog_start < 0`) keeps vanilla fog colours.
 `atmosphere_sky(ray)` is used for the sky pass, terrain fog (distant terrain dissolves into the exact
 pixel the sky drew behind it), and water's reflection fallback.
+Water tint uses the received sky-and-block lightmap, like the underlying terrain. Sky reflections
+and glints use the sky-only lightmap component, so block lights can illuminate water without
+inventing a bright daytime sky reflection at night or under a roof. Medium retains more of the
+animated vanilla water texture, with subtler surface waves.
 
 Sunlight scattered into upward rays enters higher in the atmosphere and crossed less air than light
 scattered along the horizon (`HIGH_RAY_PATH`), and Chappuis-band ozone absorption (`TAU_OZONE`) is
