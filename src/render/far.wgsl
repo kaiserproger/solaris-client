@@ -13,8 +13,14 @@ struct Far {
     camera: vec4<f32>,
     // xy: mask texel of the camera chunk, z: mask side in chunks, w: 1 = mask on.
     mask: vec4<i32>,
-    // x: fade start, y: fade end (blocks), z: daylight brightness, w: 1 = linear output.
+    // x, y: environmental fog start/end (spherical distance), z: daylight
+    // brightness, w: 1 = linear output (Fancy: fog dissolves into the sky).
     fog: vec4<f32>,
+    // x, y: render-distance fog start/end (cylindrical distance), z: fog
+    // alpha, w: Fancy aerial-perspective coefficient (0 = none).
+    edge: vec4<f32>,
+    // rgb: fog colour, the non-Fancy fog target.
+    fog_color: vec4<f32>,
     // xy: camera block x/z; slot origins subtract it in integers.
     anchor: vec4<i32>,
     // xy: camera position inside its block.
@@ -120,6 +126,12 @@ fn srgb_to_linear(color: vec3<f32>) -> vec3<f32> {
         color / 12.92, color <= vec3<f32>(0.04045));
 }
 
+fn linear_fog(distance: f32, start: f32, end: f32) -> f32 {
+    if distance <= start { return 0.0; }
+    if distance >= end { return 1.0; }
+    return (distance - start) / (end - start);
+}
+
 @fragment
 fn far_fragment(in: FarOut) -> @location(0) vec4<f32> {
     // Loaded chunk columns are the real terrain's: the far tile steps aside.
@@ -132,10 +144,17 @@ fn far_fragment(in: FarOut) -> @location(0) vec4<f32> {
         }
     }
     var color = in.color * far.fog.z;
+    // The loaded terrain's fog (shader.wgsl `fogged`), so both meet seamlessly.
+    let spherical = length(in.relative);
+    let cylindrical = max(length(in.relative.xz), abs(in.relative.y));
+    let fog = max(linear_fog(spherical, far.fog.x, far.fog.y),
+        linear_fog(cylindrical, far.edge.x, far.edge.y)) * far.edge.z;
     if far.fog.w > 0.5 {
-        color = srgb_to_linear(color);
+        let aerial = (1.0 - exp(-spherical * far.edge.w)) * far.edge.z;
+        let haze = max(max(fog, smoothstep(far.fog.y * 0.24, far.fog.y, spherical) * 0.72), aerial);
+        // Fancy terrain fades into the atmosphere sky along its ray, which is
+        // the sky pixel already drawn behind this pass.
+        return vec4<f32>(srgb_to_linear(color), 1.0 - haze);
     }
-    // The far edge dissolves into the sky already drawn behind it.
-    let fade = smoothstep(far.fog.x, far.fog.y, length(in.relative.xz));
-    return vec4<f32>(color, 1.0 - fade);
+    return vec4<f32>(mix(color, far.fog_color.rgb, fog), 1.0);
 }

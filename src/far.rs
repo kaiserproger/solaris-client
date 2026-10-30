@@ -46,8 +46,9 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 const CACHE_LOADS_PER_UPDATE: usize = 24;
 /// Tiles in one request payload (the server accepts up to 16).
 const TILES_PER_REQUEST: usize = 16;
-/// Bumped whenever cached colours change meaning (SFL1 stored gray cubes).
-const CACHE_MAGIC: &[u8; 4] = b"SFL2";
+/// Bumped whenever cached colours change meaning (SFL1 stored gray cubes,
+/// SFL2 ignored texture coverage).
+const CACHE_MAGIC: &[u8; 4] = b"SFL3";
 /// Off-screen tiles fed by received chunks stay resident this long.
 const EVICT_AFTER: Duration = Duration::from_secs(30);
 
@@ -501,14 +502,17 @@ const SURFACE_RULES: &[(&str, &str)] = &[
     ("wooded", "oak_leaves"),
 ];
 
-/// Alpha-weighted mean colour of an atlas rectangle (display encoded).
+/// Mean colour of an atlas rectangle (display encoded) seen over black:
+/// translucent water shows the dark deep bed through it and cutout leaves
+/// the shadowed canopy, so their far colour is darker than their pixels.
 fn average(content: &Content, layer: u32, uv: [f32; 4]) -> [f32; 3] {
     let side = content.width as usize;
     let page = side * side * 4;
     let to_pixel = |v: f32| ((v.clamp(0., 1.) * side as f32) as usize).min(side - 1);
     let (x0, y0) = (to_pixel(uv[0]), to_pixel(uv[1]));
     let (x1, y1) = (to_pixel(uv[2]).max(x0 + 1), to_pixel(uv[3]).max(y0 + 1));
-    let mut sum = [0f32; 4];
+    let mut sum = [0f32; 3];
+    let mut pixels = 0u32;
     for y in y0..y1.min(side) {
         for x in x0..x1.min(side) {
             let offset = layer as usize * page + (y * side + x) * 4;
@@ -519,13 +523,13 @@ fn average(content: &Content, layer: u32, uv: [f32; 4]) -> [f32; 3] {
             for channel in 0..3 {
                 sum[channel] += f32::from(pixel[channel]) / 255. * alpha;
             }
-            sum[3] += alpha;
+            pixels += 1;
         }
     }
-    if sum[3] <= 0. {
+    if pixels == 0 {
         return [0.5; 3];
     }
-    [sum[0] / sum[3], sum[1] / sum[3], sum[2] / sum[3]]
+    sum.map(|v| v / pixels as f32)
 }
 
 #[derive(Default, Clone, Copy, Debug)]

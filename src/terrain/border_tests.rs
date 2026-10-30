@@ -496,7 +496,7 @@ fn mesh_view_growth_and_movement_schedule_cached_columns() {
     terrain
         .sync_view(&world, [8., 8., 8.], 3, &mut draws)
         .unwrap();
-    assert!(terrain.sections[&[3, 0, 0]].pending);
+    assert!(terrain.pending.contains(&[3, 0, 0]));
     terrain
         .sync_view(&world, [56., 8., 8.], 1, &mut draws)
         .unwrap();
@@ -575,7 +575,7 @@ fn release_uploaded_frees_pending_bytes_and_keeps_metadata() {
     let (bounds_min, bounds_max, visibility) =
         (built.bounds_min, built.bounds_max, built.visibility);
     terrain.sections.get_mut(&[0, 0, 0]).unwrap().bytes = bytes;
-    terrain.sections.get_mut(&[0, 0, 0]).unwrap().pending = false;
+    terrain.pending.remove(&[0, 0, 0]);
     terrain
         .sections
         .get_mut(&[0, 0, 0])
@@ -608,7 +608,7 @@ fn release_uploaded_frees_pending_bytes_and_keeps_metadata() {
     assert_eq!(terrain.sections[&[0, 0, 0]].bytes, 0);
     assert_eq!(terrain.resident_bytes, 0);
     assert_eq!(terrain.sections[&[0, 0, 0]].unknown_light_samples, 7);
-    assert!(!terrain.sections[&[0, 0, 0]].pending);
+    assert!(!terrain.pending.contains(&[0, 0, 0]));
     // A repeated ack for the same revision must not double-free.
     terrain.release_uploaded(&mut draws, [([0, 0, 0], revision)]);
     assert_eq!(terrain.resident_bytes, 0);
@@ -646,7 +646,7 @@ fn stale_ack_preserves_replacement_payload() {
     // resident: the old ack must not free anything.
     let section = terrain.sections.get_mut(&[0, 0, 0]).unwrap();
     section.revision += 1;
-    section.pending = true;
+    terrain.pending.insert([0, 0, 0]);
     let rev2 = terrain.sections[&[0, 0, 0]].revision;
     terrain.release_uploaded(&mut draws, [([0, 0, 0], rev1)]);
     assert!(
@@ -663,7 +663,7 @@ fn stale_ack_preserves_replacement_payload() {
     let section = terrain.sections.get_mut(&[0, 0, 0]).unwrap();
     terrain.resident_bytes = terrain.resident_bytes - section.bytes + bytes2;
     section.bytes = bytes2;
-    section.pending = false;
+    terrain.pending.remove(&[0, 0, 0]);
     terrain.release_uploaded(&mut draws, [([0, 0, 0], rev1)]);
     assert!(
         draws[&[0, 0, 0]].geometry.is_some(),
@@ -721,7 +721,7 @@ fn idle_sync_skips_rescan_and_direct_lifecycle_change_evicts() {
         .sync_view(&world, [8., 8., 8.], 1, &mut draws)
         .unwrap();
     assert!(
-        terrain.sections[&[0, 0, 0]].pending,
+        terrain.pending.contains(&[0, 0, 0]),
         "reentry must schedule a remesh"
     );
     assert!(terrain.has_pending);
@@ -736,6 +736,230 @@ fn idle_sync_skips_rescan_and_direct_lifecycle_change_evicts() {
             .unwrap(),
         "re-cached same-view sync must skip again"
     );
+}
+
+/// A terrain whose current first-load queue was admitted well before now,
+/// like the backlog left by joining a world.
+fn terrain_with_aged_backlog(
+    world: &World,
+    camera: [f64; 3],
+    radius: u32,
+) -> (super::Terrain, BTreeMap<[i32; 3], crate::api::ChunkDraw>) {
+    let mut terrain = super::Terrain::new(Arc::new(|| {})).unwrap();
+    terrain.activate(&fixture_content(), [1; 3]).unwrap();
+    terrain
+        .set_render_rules([1.; 6], false, 0, Some(0))
+        .unwrap();
+    let mut draws = BTreeMap::new();
+    terrain.sync_view(world, camera, radius, &mut draws).unwrap();
+    let joined = std::time::Instant::now()
+        .checked_sub(std::time::Duration::from_secs(30))
+        .unwrap();
+    for section in terrain.sections.values_mut() {
+        section.queued = joined;
+    }
+    // One free queue slot: whatever is dispatched first is what is asserted.
+    terrain.max_in_flight = 1;
+    (terrain, draws)
+}
+
+/// Owner capture: `/fill` at y=100 left a stone platform invisible (chests
+/// floating) while read_block said stone. Its sections were all air at chunk
+/// load, so the block update created never-drawn entries that queued as first
+/// loads behind the whole older join backlog.
+#[test]
+fn block_edit_in_never_drawn_section_is_prompt_not_first_load() {
+    let mut world = World::new(0, 64);
+    for x in -2..=2 {
+        world
+            .insert([x, 0], lit_chunk(&[[x * 16 + 8, 8, 8]], 4, 64))
+            .unwrap();
+    }
+    // Two sections from the edit: this is not the camera's own neighborhood.
+    let camera = [8., 56., 8.];
+    let (mut terrain, mut draws) = terrain_with_aged_backlog(&world, camera, 2);
+    assert!(
+        !terrain.sections.contains_key(&[2, 2, 0]),
+        "the sky section is all air at chunk load"
+    );
+    // Session::receive_block: apply to the world, then invalidate the mesh.
+    let position = [40, 40, 8];
+    world.set(position, CUBE, |state| Ok(state == AIR)).unwrap();
+    terrain.invalidate_block(&world, position).unwrap();
+    terrain.update(&world, camera, 2, &mut draws).unwrap();
+    assert!(
+        terrain.sections[&[2, 2, 0]].running.is_some(),
+        "a block edit must mesh before older first loads"
+    );
+}
+
+#[test]
+fn camera_neighborhood_first_load_skips_older_far_backlog() {
+    let mut world = World::new(0, 16);
+    for x in [-4, -3, 3, 4] {
+        world
+            .insert([x, 0], lit_chunk(&[[x * 16 + 8, 8, 8]], 1, 16))
+            .unwrap();
+    }
+    let camera = [8., 8., 8.];
+    let (mut terrain, mut draws) = terrain_with_aged_backlog(&world, camera, 4);
+    // The camera's own column arrives after the far backlog.
+    world
+        .insert([0, 0], lit_chunk(&[[8, 8, 8]], 1, 16))
+        .unwrap();
+    terrain.invalidate_chunk(&world, [0, 0]).unwrap();
+    terrain.update(&world, camera, 4, &mut draws).unwrap();
+    assert!(
+        terrain.sections[&[0, 0, 0]].running.is_some(),
+        "the section around the camera must mesh before older far first loads"
+    );
+}
+
+/// Dispatch used to hand each worker one job per session update, so meshing
+/// throughput followed the frame rate (~30 sections/s at 10 FPS with a 40k
+/// backlog). One update now fills every free queue slot from one scored pass.
+#[test]
+fn one_update_fills_every_free_worker_slot() {
+    let mut world = World::new(0, 64);
+    let cells: Vec<_> = (0..4).map(|y| [8, y * 16 + 8, 8]).collect();
+    for x in -4..=4 {
+        for z in -4..=4 {
+            let cells: Vec<_> = cells.iter().map(|c| [c[0] + x * 16, c[1], c[2] + z * 16]).collect();
+            world.insert([x, z], lit_chunk(&cells, 4, 64)).unwrap();
+        }
+    }
+    let mut terrain = super::Terrain::new(Arc::new(|| {})).unwrap();
+    terrain.activate(&fixture_content(), [1; 3]).unwrap();
+    terrain
+        .set_render_rules([1.; 6], false, 0, Some(0))
+        .unwrap();
+    let eligible = 9 * 9 * 4;
+    assert!(terrain.max_in_flight > terrain.threads.len(), "workers keep queued work between updates");
+    assert!(terrain.max_in_flight < eligible, "fixture must exceed the queue bound");
+    let mut draws = BTreeMap::new();
+    terrain.update(&world, [8., 8., 8.], 4, &mut draws).unwrap();
+    let dispatched = terrain.sections.values().filter(|s| s.running.is_some()).count();
+    assert_eq!(dispatched, terrain.max_in_flight, "one update must fill every slot");
+    assert_eq!(terrain.in_flight, terrain.max_in_flight);
+    assert!(terrain.has_pending, "a bounded selection must not claim the backlog is empty");
+    // First loads go nearest first (same centre distance the scheduler uses;
+    // distinct distances differ by over a block here, insertion-time aging by
+    // far less than half a block). The camera's own sections are prompt jobs.
+    let distance = |key: &[i32; 3]| {
+        (0..3)
+            .map(|i| (f64::from(key[i]) * 16. + 8. - 8.).powi(2))
+            .sum::<f64>()
+            .sqrt()
+    };
+    let (running, idle): (Vec<_>, Vec<_>) = terrain
+        .sections
+        .iter()
+        .filter(|(key, _)| key.iter().any(|v| v.abs() > 1))
+        .partition(|(_, s)| s.running.is_some());
+    assert!(!running.is_empty(), "every fourth job is reserved for first loads");
+    let farthest_running = running.iter().map(|(k, _)| distance(k)).fold(0., f64::max);
+    let nearest_idle = idle.iter().map(|(k, _)| distance(k)).fold(f64::MAX, f64::min);
+    assert!(
+        farthest_running <= nearest_idle + 0.5,
+        "dispatch must take the closest first loads first: {farthest_running} > {nearest_idle}"
+    );
+}
+
+#[test]
+fn job_queue_runs_prompt_jobs_before_queued_first_loads() {
+    let queue = super::JobQueue::<u32>::default();
+    queue.push(Vec::new(), vec![10, 11]);
+    queue.push(vec![1, 2], vec![12]);
+    queue.close();
+    let order: Vec<_> = std::iter::from_fn(|| queue.pop()).collect();
+    assert_eq!(order, [1, 2, 10, 11, 12]);
+}
+
+/// Far-terrain coverage is refreshed per touched column instead of rescanning
+/// every loaded column on each scene refresh.
+#[test]
+fn coverage_changes_name_only_touched_columns() {
+    let mut world = World::new(0, 16);
+    for x in 0..3 {
+        world
+            .insert([x, 0], lit_chunk(&[[x * 16 + 8, 8, 8]], 1, 16))
+            .unwrap();
+    }
+    let (woke, wakes) = std::sync::mpsc::channel();
+    let mut terrain = super::Terrain::new(Arc::new(move || {
+        let _ = woke.send(());
+    }))
+    .unwrap();
+    terrain.activate(&fixture_content(), [1; 3]).unwrap();
+    terrain
+        .set_render_rules([1.; 6], false, 0, Some(0))
+        .unwrap();
+    assert_eq!(terrain.take_coverage_changes(), None, "activation re-evaluates everything");
+    let camera = [24., 8., 8.];
+    let mut draws = BTreeMap::new();
+    // Event-driven: each worker completion wakes the owner, like the window loop.
+    let settle = |terrain: &mut super::Terrain, world: &World, draws: &mut BTreeMap<_, _>| loop {
+        terrain.update(world, camera, 1, draws).unwrap();
+        if terrain.in_flight == 0 && !terrain.has_pending {
+            break;
+        }
+        wakes
+            .recv_timeout(std::time::Duration::from_secs(30))
+            .expect("mesh worker completion");
+    };
+    settle(&mut terrain, &world, &mut draws);
+    assert_eq!(draws.len(), 3);
+    assert_eq!(
+        terrain.take_coverage_changes(),
+        Some(BTreeSet::from([[0, 0], [1, 0], [2, 0]])),
+        "first draws change their columns"
+    );
+    // A remesh replaces a draw in place: no column changes coverage.
+    terrain.invalidate_block(&world, [24, 8, 8]).unwrap();
+    settle(&mut terrain, &world, &mut draws);
+    assert_eq!(terrain.take_coverage_changes(), Some(BTreeSet::new()));
+    // Forgetting a column names it, not the neighbours it re-meshes.
+    world.remove([2, 0]);
+    terrain.invalidate_chunk(&world, [2, 0]).unwrap();
+    settle(&mut terrain, &world, &mut draws);
+    assert!(!draws.contains_key(&[2, 0, 0]));
+    assert_eq!(terrain.take_coverage_changes(), Some(BTreeSet::from([[2, 0]])));
+    terrain.reset(&mut draws);
+    assert_eq!(terrain.take_coverage_changes(), None, "a reset re-evaluates everything");
+}
+
+/// A chunk arrival used to rescan every section and loaded column; the
+/// same-view sync now reconciles only columns that came, went or were
+/// replaced, still without relying on any Terrain notification.
+#[test]
+fn lifecycle_sync_reconciles_only_changed_columns() {
+    let mut world = World::new(0, 32);
+    world.insert([0, 0], lit_chunk(&[[8, 8, 8]], 2, 32)).unwrap();
+    world.insert([1, 0], lit_chunk(&[[24, 8, 8]], 2, 32)).unwrap();
+    let mut terrain = super::Terrain::new(Arc::new(|| {})).unwrap();
+    let mut draws = BTreeMap::new();
+    let camera = [8., 8., 8.];
+    terrain.sync_view(&world, camera, 1, &mut draws).unwrap();
+    let keys = |terrain: &super::Terrain| terrain.sections.keys().copied().collect::<BTreeSet<_>>();
+    assert_eq!(keys(&terrain), BTreeSet::from([[0, 0, 0], [1, 0, 0]]));
+    // Silent replacement with a newly non-empty upper section, a silent
+    // arrival and a silent unload.
+    world.insert([1, 0], lit_chunk(&[[24, 8, 8], [24, 24, 8]], 2, 32)).unwrap();
+    world.insert([-1, 0], lit_chunk(&[[-8, 8, 8]], 2, 32)).unwrap();
+    world.remove([0, 0]);
+    terrain.sync_view(&world, camera, 1, &mut draws).unwrap();
+    assert_eq!(
+        keys(&terrain),
+        BTreeSet::from([[-1, 0, 0], [1, 0, 0], [1, 1, 0]])
+    );
+    assert_eq!(
+        terrain.columns.keys().copied().collect::<Vec<_>>(),
+        [[-1, 0], [1, 0]]
+    );
+    // Columns outside the view stay out.
+    world.insert([5, 0], lit_chunk(&[[88, 8, 8]], 2, 32)).unwrap();
+    terrain.sync_view(&world, camera, 1, &mut draws).unwrap();
+    assert!(!terrain.sections.keys().any(|key| key[0] == 5));
 }
 
 fn build_with(content: &Content, world: &World, key: [i32; 3]) -> BuiltSection {

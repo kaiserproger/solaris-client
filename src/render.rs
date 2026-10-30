@@ -400,7 +400,13 @@ pub struct Renderer {
     transparent: Vec<TransparentDraw>,
     transparent_ranges: [std::ops::Range<usize>; EntityMaterial::COUNT + 1],
     /// Reused incoming/expanded-face masks and breadth-first queue.
-    occlusion_reached: std::collections::HashMap<[i32; 3], u16>,
+    occlusion_reached: visibility::Reached,
+    /// Key extents of `chunks`, refreshed only when a section key is added or
+    /// removed (not rescanned every frame).
+    chunk_extents: Option<([i32; 3], [i32; 3])>,
+    /// Columns with a resident section still fading in (or not drawable):
+    /// far terrain stays unmasked there until the near mesh is opaque.
+    fading_columns: Vec<[i32; 2]>,
     occlusion_queue: Vec<([i32; 3], u8)>,
     camera: wgpu::Buffer,
     camera_bind: wgpu::BindGroup,
@@ -803,7 +809,12 @@ impl Renderer {
             terrain_runs: std::array::from_fn(|_| Vec::with_capacity(mesh::MAX_CHUNKS)),
             transparent: Vec::new(),
             transparent_ranges: std::array::from_fn(|_| 0..0),
-            occlusion_reached: std::collections::HashMap::with_capacity(mesh::MAX_CHUNKS / 4),
+            occlusion_reached: visibility::Reached::with_capacity_and_hasher(
+                mesh::MAX_CHUNKS / 4,
+                Default::default(),
+            ),
+            chunk_extents: None,
+            fading_columns: Vec::new(),
             occlusion_queue: Vec::with_capacity(1024),
             camera,
             camera_bind,

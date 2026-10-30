@@ -486,8 +486,16 @@ impl Shadow {
         let vertex_stride = std::mem::size_of::<TerrainVertex>() as u64;
         let count = cascades.count as usize;
         // Casters need not be inside the camera frustum (that would make
-        // shadows pop) but must reach a cascade's orthographic box.
-        for (&key, chunk) in chunks {
+        // shadows pop) but must reach a cascade's orthographic box. Only key
+        // columns within the widest cascade's reach can: scan that x slab of
+        // the ordered map instead of every resident section.
+        let reach = cascades.radii[..count].iter().fold(0f32, |a, r| a.max(*r)) + 32.;
+        // +2 sections: the camera's own offset and bounds protruding a section.
+        let span = (reach / 16.).ceil() as i32 + 2;
+        let column = (scene.camera_position[0] / 16.).floor() as i32;
+        let slab = [column.saturating_sub(span), i32::MIN, i32::MIN]
+            ..=[column.saturating_add(span), i32::MAX, i32::MAX];
+        for (&key, chunk) in chunks.range(slab) {
             if chunk.mesh.indices.is_none() || chunk.visibility.is_none() {
                 continue;
             }

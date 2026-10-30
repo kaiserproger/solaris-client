@@ -694,7 +694,6 @@ impl Environment {
             render_fog_start: distance - (distance / 10.).clamp(4., 64.),
             render_fog_end: distance,
             fog_alpha: 1.,
-            far_fog: false,
             time_of_day: self.default_clock_time() as u64,
             rain,
             thunder,
@@ -719,7 +718,6 @@ impl Environment {
             end_flash_intensity: lerp(self.flash.old, self.flash.intensity, self.partial),
             end_flash_x_angle: self.flash.x,
             end_flash_y_angle: self.flash.y,
-            ..WorldEnvironment::default()
         };
         if dimension.sky_kind == SkyKind::Overworld {
             result.sun_texture = Some(required_texture(

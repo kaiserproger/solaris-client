@@ -58,10 +58,15 @@ and in-game Video options. A multiplayer server can impose a lower view
 distance; its operator must configure `server.view_distance = 32` to allow
 the full setting.
 
-When far terrain is active, ordinary loaded terrain and far tiles share an
-outer-distance fade instead of applying a separate fog cliff at the chunk edge.
-Received terrain also remains represented by far tiles while its section meshes
-are still being built, avoiding gaps during loading.
+When far terrain is active, loaded terrain and far tiles take the same
+environment-owned distance haze and render-distance fade. Increasing the
+far-terrain reach does not move that haze farther away. Coarse tiles can
+therefore cover terrain still loading without exposing a separate distant
+shelf. A column's far tile
+stays visible until every non-empty section of the column has a mesh that has
+finished fading in, avoiding gaps during loading. Far colours are block
+texture averages seen over black (translucent water and cutout leaves read
+darker from afar) times the biome's grass, foliage or water tint.
 
 On Solaris servers with `[lod]` enabled the client draws a coarse heightfield of the overworld beyond the render distance, fading into the sky. `far_terrain` in `client-settings.json` sets its reach in blocks (2048 by default, 1024 with the Low graphics preset, 0 turns it off; the server caps it). It is built from the chunks you received, the server's stored chunks and, for never-generated land, the server's terrain generator. Only if the server operator enables `share_terrain_keys` does the server send its generation program and this machine generate never-generated land itself, on the GPU (or a CPU thread without compute support); singleplayer worlds always enable it. Tiles are cached as heights and colours under `far-terrain/`. `SOLARIS_CLIENT_FAR_TERRAIN=<blocks>` overrides the setting; `SOLARIS_CLIENT_FAR_GPU=0` forces CPU generation.
 
