@@ -313,6 +313,7 @@ fn fancy_shadow_indirect_matches_direct_pixels_with_fewer_calls() {
         PathBuf::from(".analysis/shadow-batch-regression"),
     ))
     .unwrap();
+    renderer.set_graphics_preset(GraphicsPreset::Medium);
     if renderer.shadow.batch.is_none() {
         eprintln!("shadow MDI unavailable; direct fallback covered by other render tests");
         return;
@@ -1225,4 +1226,86 @@ fn hiz_rejects_hidden_sections_and_preserves_every_pixel_across_turns() {
         }
     }
     assert!(seen_rejection);
+}
+#[test]
+fn overlay_vignette_multiplies_without_changing_regular_overlay_layers() {
+    let _gpu_guard = crate::render::gpu_test_lock();
+    let mut renderer = pollster::block_on(Renderer::new_offscreen(
+        64,
+        64,
+        PathBuf::from(".analysis/shaders-regression"),
+    ))
+    .unwrap();
+    renderer.set_graphics_preset(GraphicsPreset::Low);
+    // A sky-less dimension clears to its fog colour: a flat known background.
+    let mut scene = Scene {
+        environment: crate::api::WorldEnvironment {
+            sky_kind: SkyKind::None,
+            display_encoded: true,
+            fog_color: [0.8, 0.6, 0.4],
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    // The HUD vignette quad: left half, untextured, colour = strength 0.5.
+    for position in [[0., 0., 0.], [32., 0., 0.], [32., 64., 0.], [0., 64., 0.]] {
+        scene.overlay.vertices.push(crate::api::Vertex {
+            position,
+            color: [0.5; 3],
+            alpha: 1.,
+            uv: [-1.; 2],
+            overlay_uv: [-1.; 2],
+            overlay_tint: [1.; 3],
+            ..crate::api::Vertex::zeroed()
+        });
+    }
+    scene.overlay.overlay_blends[0] = vec![0, 1, 2, 0, 2, 3];
+    let frame = pixels(&mut renderer, &scene);
+    let at = |x: usize| &frame[(32 * 64 + x) * 4..(32 * 64 + x) * 4 + 3];
+    // Untouched half keeps the background; the vignette half is halved, not covered.
+    assert_eq!(at(48), &[204, 153, 102]);
+    for (value, expected) in at(16).iter().zip([102u8, 77, 51]) {
+        assert!(value.abs_diff(expected) <= 1, "{:?}", at(16));
+    }
+    // A regular cutout-layer UI quad still uses ordinary alpha blending.
+    // Reserving that terrain layer for the vignette used to darken it instead.
+    scene.overlay.indices[crate::api::RenderLayer::Cutout as usize] =
+        std::mem::take(&mut scene.overlay.overlay_blends[0]);
+    let frame = pixels(&mut renderer, &scene);
+    let regular = &frame[(32 * 64 + 16) * 4..(32 * 64 + 16) * 4 + 3];
+    assert!(regular.iter().all(|value| value.abs_diff(128) <= 1), "{regular:?}");
+}
+#[test]
+fn vanilla_stars_add_their_brightness_squared() {
+    let _gpu_guard = crate::render::gpu_test_lock();
+    let mut renderer = pollster::block_on(Renderer::new_offscreen(
+        256,
+        256,
+        PathBuf::from(".analysis/stars-regression"),
+    ))
+    .unwrap();
+    renderer.set_graphics_preset(GraphicsPreset::Low);
+    // A black night sky looking straight up; sun and moon both below the horizon.
+    let sprite = Some(crate::api::SkyTexture { uv: [0., 0., 1., 1.], layer: 0 });
+    let scene = Scene {
+        environment: crate::api::WorldEnvironment {
+            sky_kind: SkyKind::Overworld,
+            display_encoded: true,
+            sky_color: [0.; 3],
+            fog_color: [0.; 3],
+            sun_angle: 180.,
+            moon_angle: 180.,
+            sun_texture: sprite,
+            moon_texture: sprite,
+            star_brightness: 0.5,
+            ..Default::default()
+        },
+        pitch: -90.,
+        ..Default::default()
+    };
+    let frame = pixels(&mut renderer, &scene);
+    let brightest = frame.chunks_exact(4).map(|p| p[0]).max().unwrap();
+    // The oracle's midnight stars (brightness 0.5) add about a quarter of
+    // white over the sky, not half: 69-73 over a background of 8-11.
+    assert!((60..=68).contains(&brightest), "{brightest}");
 }

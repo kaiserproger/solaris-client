@@ -388,7 +388,7 @@ pub struct Renderer {
     uploaded_meshes: Vec<([i32; 3], u64)>,
     fixture: Option<ResidentMesh>,
     dynamic: Stream<{ EntityMaterial::COUNT }>,
-    overlay: Stream,
+    overlay: Stream<5>,
     sunrise: Stream,
     sunrise_geometry: crate::api::MeshGeometry,
     stars: wgpu::Buffer,

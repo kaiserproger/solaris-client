@@ -717,3 +717,20 @@ fn crossed_arms_rigs_emit_the_held_item_at_the_source_anchor() {
         );
     }
 }
+
+#[test]
+fn no_ai_mob_head_never_glances_at_the_local_player() {
+    let (mut models, mut entity) = fixture();
+    models
+        .schemas
+        .get_mut(&entity.type_name)
+        .unwrap()
+        .accessors
+        .insert("DATA_MOB_FLAGS_ID".into(), [15, 0]);
+    assert!(physical::may_glance(&models, &entity), "an AI mob keeps its idle glance");
+    entity.metadata.insert(15, Metadata::Byte(1));
+    assert!(
+        !physical::may_glance(&models, &entity),
+        "a summoned NoAI mob keeps its received head yaw like vanilla"
+    );
+}

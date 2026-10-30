@@ -10,6 +10,7 @@ pub(crate) mod biome;
 mod fading;
 mod lightmap;
 mod point;
+mod vignette;
 use crate::api::{LightmapTexture, SkyKind, SkyTexture, WorldEnvironment};
 use crate::protocol::{Reader, Result, content::Content, world::World};
 use attributes::{
@@ -188,6 +189,7 @@ pub struct Environment {
     flicker: f32,
     random: Random,
     lightmap: LightmapCache,
+    vignette: vignette::Vignette,
 }
 struct Dimension {
     attributes: AttributeMap,
@@ -198,6 +200,8 @@ struct Dimension {
     weather: bool,
     min_y: i32,
     height: i32,
+    /// Brightness floor of the darkest light level (`ambient_light`).
+    ambient_light: f32,
 }
 impl Default for Environment {
     fn default() -> Self {
@@ -228,6 +232,7 @@ impl Default for Environment {
             flicker: 0.,
             random: Random::new(0),
             lightmap: LightmapCache::default(),
+            vignette: vignette::Vignette::default(),
         }
     }
 }
@@ -375,6 +380,7 @@ impl Environment {
             weather: has_skylight && !has_ceiling && name != "minecraft:the_end",
             min_y,
             height,
+            ambient_light: data["ambient_light"].as_f64().unwrap_or(0.) as f32,
         });
         self.point_rules = Some(Arc::new(point::PointRules::new(self, has_skylight)?));
         self.client_tick = tick;
@@ -415,6 +421,24 @@ impl Environment {
     }
     pub fn tick(&mut self, tick: u64) {
         self.advance(tick, 0.);
+    }
+    /// One game tick of the HUD darkness vignette at the camera's eye block,
+    /// read like the light engine does (absent sky storage above the highest
+    /// section is full sky). An unloaded block leaves it where it is.
+    pub fn tick_vignette(&mut self, world: &World, eye: [f64; 3]) -> Result<()> {
+        let Some(dimension) = &self.dimension else {
+            return Ok(());
+        };
+        let Ok([sky, block]) = world.source_light_levels(eye.map(|v| v.floor() as i32)) else {
+            return Ok(());
+        };
+        let sky = sky.saturating_sub(world.source_sky_darken()?);
+        self.vignette.tick(sky.max(block), dimension.ambient_light);
+        Ok(())
+    }
+    /// HUD vignette strength, 0..=1.
+    pub fn vignette(&self) -> f32 {
+        self.vignette.strength()
     }
     fn advance_clocks(&mut self, time: i64) {
         let delta = time.wrapping_sub(self.last_clock_game_time);
@@ -1234,5 +1258,35 @@ mod unloaded_biome_tests {
             e.rain_fog_target(&world, [518, 130, 64], true, 1.).unwrap(),
             0.
         );
+    }
+
+    /// The vignette reads the camera block like the light engine: storage
+    /// above the highest received sky section is open sky, so climbing out of
+    /// a dark section clears the vignette instead of freezing it.
+    #[test]
+    fn vignette_reads_open_sky_above_the_stored_light_sections() {
+        let mut e = environment();
+        e.activate_dimension(
+            "minecraft:overworld",
+            &json!({"min_y":0,"height":16,"has_skylight":true,"has_ceiling":false,"skybox":"overworld"}),
+            0,
+        )
+        .unwrap();
+        let mut world = World::new(0, 16);
+        let mut dark = chunk();
+        dark.sky.insert(1, Arc::new(vec![0; 2048]));
+        world.insert([0, 0], dark).unwrap();
+        e.publish_world(&mut world).unwrap();
+        for _ in 0..200 {
+            e.tick_vignette(&world, [8.5, 8.6, 8.5]).unwrap();
+        }
+        let dark = e.vignette();
+        assert!(dark > 0.8, "{dark}");
+        e.tick_vignette(&world, [8.5, 40.6, 8.5]).unwrap();
+        assert!(e.vignette() < dark, "open sky above the stored sections must clear it");
+        // An unloaded camera chunk keeps the last strength.
+        let held = e.vignette();
+        e.tick_vignette(&world, [100.5, 8.6, 100.5]).unwrap();
+        assert_eq!(e.vignette(), held);
     }
 }

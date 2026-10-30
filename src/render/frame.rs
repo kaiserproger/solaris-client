@@ -1094,14 +1094,20 @@ impl Renderer {
                 timestamp_writes: self.timing.writes(10),
                 occlusion_query_set: None,
             });
-            pass.set_pipeline(&self.pipelines.overlay);
             pass.set_bind_group(0, &self.camera_bind, &[]);
             pass.set_bind_group(1, &self.atlas_bind, &[]);
             pass.set_bind_group(2, &self.shadow.bind, &[]);
             pass.set_vertex_buffer(0, self.overlay.vertices.slice(..));
             pass.set_index_buffer(self.overlay.indices.slice(..), wgpu::IndexFormat::Uint32);
-            for range in &self.overlay.ranges {
+            for layer in [3, 4, 0, 1, 2] {
+                let range = &self.overlay.ranges[layer];
                 if !range.is_empty() {
+                    // Dedicated vignette/crosshair partitions precede the HUD.
+                    pass.set_pipeline(match layer {
+                        3 => &self.pipelines.overlay_vignette,
+                        4 => &self.pipelines.overlay_invert,
+                        _ => &self.pipelines.overlay,
+                    });
                     pass.draw_indexed(range.clone(), 0, 0..1);
                     self.stats.draw_calls += 1;
                     self.stats.submitted_indices += u64::from(range.end - range.start);

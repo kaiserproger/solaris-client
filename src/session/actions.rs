@@ -1557,6 +1557,28 @@ mod render_distance_wire_tests {
         );
     }
 
+    /// Fog and sky use the client option capped by the server's chunk radius.
+    #[test]
+    fn server_chunk_radius_caps_the_effective_render_distance() {
+        use crate::protocol::{packet_ids::play::clientbound as cb, Writer};
+        use crate::session::Phase;
+        let mut session = Session::new_mode("effective-distance".into(), false);
+        let mut content = Content::test_cube();
+        content.creative_tabs_report = Arc::from(br#"{"tabs":[]}"#.as_slice());
+        session.content = Some(content);
+        session.phase = "play".into();
+        session.apply_client_setting("render_distance", &json!(8)).unwrap();
+        assert_eq!(session.effective_render_distance(), 8);
+        for (radius, effective) in [(4, 4), (12, 8), (0, 8)] {
+            let mut packet = Writer::default();
+            packet.var(radius);
+            session.apply(Phase::Play, cb::SET_CHUNK_CACHE_RADIUS, &packet.0).unwrap();
+            assert_eq!(session.effective_render_distance(), effective, "radius {radius}");
+        }
+        // The option still reports what the player chose.
+        assert_eq!(session.render_distance(), 8);
+    }
+
 }
 
 #[cfg(test)]

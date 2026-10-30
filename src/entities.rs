@@ -24,6 +24,7 @@ mod resources;
 mod source_commands;
 mod source_state;
 mod sheep;
+mod shadows;
 mod solaris_models;
 mod villagers;
 use crate::{

@@ -1,5 +1,6 @@
 //! Name-tag geometry from the local 26.1.2 NameTagFeatureRenderer$Storage,
-//! PlayerTeam.getFormattedName and Camera.setRotation javap evidence.
+//! PlayerTeam.getFormattedName and Camera.setRotation javap evidence, plus the
+//! received text of `text_display` entities (server-sent floating labels).
 use super::{
     nameplates::{self, NameSource, Nameplate, NameplateView},
     Handle, PresentationStats, Store,
@@ -8,7 +9,7 @@ use crate::{
     api::{DynamicGeometry, EntityMaterial},
     protocol::{content::Content, Result},
     ui::{
-        render::{TextRenderer, WorldTextOptions},
+        render::{TextAlignment, TextRenderer, WorldTextOptions},
         shaping::TextLayout,
         ScoreboardState, TeamParameters,
     },
@@ -22,11 +23,15 @@ pub(crate) struct Cache {
     layouts: BTreeMap<Handle, CachedLayout>,
     candidates: Vec<Candidate>,
     through_order: Vec<usize>,
+    displays: Vec<DisplayCandidate>,
 }
 struct CachedLayout {
     name: Identity,
     team: Option<Decoration>,
     font: usize,
+    /// Wrap width in font pixels: unbounded for name tags, the received line
+    /// width for text displays.
+    wrap: f32,
     layout: TextLayout,
 }
 enum Identity {
@@ -47,6 +52,21 @@ struct Candidate {
     light: [f32; 2],
     submitted: bool,
 }
+/// One text display this frame: its pose and the received display style.
+struct DisplayCandidate {
+    handle: Handle,
+    transform: Mat4,
+    color: u32,
+    options: WorldTextOptions,
+}
+/// Text-display style flags (`Display$TextDisplay` style byte).
+const DISPLAY_SHADOW: i32 = 1;
+const DISPLAY_SEE_THROUGH: i32 = 2;
+const DISPLAY_DEFAULT_BACKGROUND: i32 = 4;
+const DISPLAY_ALIGN_LEFT: i32 = 8;
+const DISPLAY_ALIGN_RIGHT: i32 = 16;
+/// Font pixels between text-display lines.
+const DISPLAY_LINE_HEIGHT: f32 = 10.;
 impl Identity {
     fn matches(&self, name: NameSource<'_>) -> bool {
         match (self, name) {
@@ -90,6 +110,7 @@ impl Cache {
         let font = text as *const TextRenderer as usize;
         let dirty = self.layouts.get(&handle).is_none_or(|cached| {
             cached.font != font
+                || cached.wrap != f32::MAX
                 || !cached.name.matches(plate.name)
                 || match (&cached.team, plate.team) {
                     (Some(cached), Some(team)) => !cached.matches(team),
@@ -136,11 +157,121 @@ impl Cache {
                     name: Identity::new(plate.name),
                     team: plate.team.map(Decoration::new),
                     font,
+                    wrap: f32::MAX,
                     layout,
                 },
             );
         }
         Ok(())
+    }
+    /// Lays out a received text display and poses it for this frame. The text
+    /// block is centred on the entity and grows upward from it, its backdrop
+    /// resting on the entity position (matches the oracle's settlement label to
+    /// the font pixel); the billboard constraint and display transformation
+    /// orient it; light is the received light at the entity unless the display
+    /// overrides brightness.
+    #[expect(clippy::too_many_arguments, reason = "Shares the nameplate extraction inputs")]
+    fn prepare_text_display(
+        &mut self,
+        entity: &super::Entity,
+        text: &TextRenderer,
+        origin: [f64; 3],
+        camera_rotation: [f32; 2],
+        background_opacity: f32,
+        received_light: [f32; 2],
+        tick: u64,
+        partial: f32,
+    ) -> Result<Option<DisplayCandidate>> {
+        let (Some(state), Some(snapshot)) = (
+            entity.physical.display.as_deref(),
+            entity.source.as_ref().and_then(|source| source.display.as_deref()),
+        ) else {
+            return Ok(None);
+        };
+        if !state.ready {
+            return Ok(None);
+        }
+        let font = text as *const TextRenderer as usize;
+        let wrap = snapshot.line_width.max(1) as f32;
+        let name = NameSource::Component(snapshot.text.as_ref());
+        let dirty = self.layouts.get(&entity.handle).is_none_or(|cached| {
+            cached.font != font || cached.wrap != wrap || !cached.name.matches(name)
+        });
+        if dirty {
+            let layout = text.layout(snapshot.text.as_ref(), wrap)?;
+            self.layouts.insert(
+                entity.handle,
+                CachedLayout {
+                    name: Identity::new(name),
+                    team: None,
+                    font,
+                    wrap,
+                    layout,
+                },
+            );
+        }
+        let layout = &self.layouts[&entity.handle].layout;
+        if layout.glyphs.is_empty() {
+            return Ok(None);
+        }
+        let progress = state.progress(partial);
+        let t = entity.presented_transform(tick, partial);
+        let relative = Vec3::new(
+            (t.position[0] - origin[0]) as f32,
+            (t.position[1] - origin[1]) as f32,
+            (t.position[2] - origin[2]) as f32,
+        );
+        let lines = layout.line_widths.len().max(1) as f32;
+        // The backdrop spans one font pixel above the first line to one below
+        // the last glyph row: [-1, lines * line height - 1].
+        let transform = Mat4::from_translation(relative)
+            * Mat4::from_quat(state.orientation([t.yaw, t.pitch], camera_rotation))
+            * state.transformation(progress)
+            * Mat4::from_scale(Vec3::new(0.025, -0.025, 0.025))
+            * Mat4::from_translation(Vec3::new(
+                -layout.width / 2.,
+                1. - lines * DISPLAY_LINE_HEIGHT,
+                0.,
+            ));
+        let style = snapshot.style_flags;
+        let background = if style & DISPLAY_DEFAULT_BACKGROUND != 0 {
+            ((background_opacity * 255.) as u32) << 24
+        } else {
+            state.background(progress)
+        };
+        // Received light is [sky, block]; the override packs block << 4 | sky << 20.
+        let light = if state.brightness >= 0 {
+            [
+                ((state.brightness >> 20) & 15) as f32,
+                ((state.brightness >> 4) & 15) as f32,
+            ]
+        } else {
+            received_light
+        };
+        Ok(Some(DisplayCandidate {
+            handle: entity.handle,
+            transform,
+            color: u32::from(state.opacity(progress)) << 24 | 0x00ff_ffff,
+            options: WorldTextOptions {
+                line_height: DISPLAY_LINE_HEIGHT,
+                alignment: if style & DISPLAY_ALIGN_LEFT != 0 {
+                    TextAlignment::Left
+                } else if style & DISPLAY_ALIGN_RIGHT != 0 {
+                    TextAlignment::Right
+                } else {
+                    TextAlignment::Center
+                },
+                shadow: style & DISPLAY_SHADOW != 0,
+                light,
+                layer: if style & DISPLAY_SEE_THROUGH != 0 {
+                    EntityMaterial::TextSeeThrough
+                } else {
+                    EntityMaterial::Text
+                },
+                background: (background >> 24 != 0).then_some(background),
+                outline: None,
+            },
+        }))
     }
 }
 
@@ -226,6 +357,7 @@ impl Store {
             });
             cache.candidates.clear();
             cache.through_order.clear();
+            cache.displays.clear();
             let mut stats = PresentationStats {
                 state_revision: self.revision.to_string(),
                 known: self.len(),
@@ -267,6 +399,29 @@ impl Store {
                         continue;
                     }
                     stats.eligible += 1;
+                    if entity.type_name == "minecraft:text_display" {
+                        let (dimensions, scale) = models.dimensions(entity)?;
+                        let Some(received) = super::presentation::entity_light(
+                            entity, models, tick, partial, dimensions, scale, light,
+                        )?
+                        else {
+                            stats.lighting_pending += 1;
+                            continue;
+                        };
+                        if let Some(display) = cache.prepare_text_display(
+                            entity,
+                            text,
+                            origin,
+                            camera_rotation,
+                            view.background_opacity,
+                            received,
+                            tick,
+                            partial,
+                        )? {
+                            cache.displays.push(display);
+                        }
+                        continue;
+                    }
                     let plate = match nameplates::nameplate(
                         self,
                         models,
@@ -354,6 +509,20 @@ impl Store {
                     stats.submitted += 1;
                 }
             }
+            for display in &cache.displays {
+                let before = out.vertices.len();
+                text.append_world_layout(
+                    content,
+                    &cache.layouts[&display.handle].layout,
+                    display.transform,
+                    display.color,
+                    &display.options,
+                    out,
+                )?;
+                if out.vertices.len() > before {
+                    stats.submitted += 1;
+                }
+            }
             stats.vertices = out.vertices.len() - start;
             Ok(stats)
         })();
@@ -402,7 +571,10 @@ mod tests {
         store.set_text_renderer(Arc::new(TextRenderer::load(&content).unwrap()));
         store.activate_models(Arc::new(Models {
             rigs: BTreeMap::new(),
-            schemas: BTreeMap::from([("minecraft:marker".into(), schema)]),
+            schemas: BTreeMap::from([
+                ("minecraft:marker".into(), schema),
+                ("minecraft:text_display".into(), text_display_schema()),
+            ]),
             families: BTreeMap::new(),
             builtin_variants: BTreeMap::new(),
             simple_particles: Vec::new(),
@@ -417,6 +589,30 @@ mod tests {
         (content, store)
     }
 
+    /// Authored `text_display` schema: the data indices the server label uses.
+    fn text_display_schema() -> EntitySchema {
+        serde_json::from_value(serde_json::json!({
+            "protocol_id":1, "width":0., "height":0., "eye_height":0.,
+            "fire_immune":false, "class":"net.minecraft.world.entity.Display$TextDisplay",
+            "hierarchy":["net.minecraft.world.entity.Entity"],
+            "dimension_constants":{}, "enum_ids":{}, "enum_numbers":{},
+            "method_owners":{}, "default_attributes":{},
+            "accessors":{
+                "DATA_SHARED_FLAGS_ID":[0,0],
+                "DATA_BILLBOARD_RENDER_CONSTRAINTS_ID":[15,0],
+                "DATA_TEXT_ID":[23,5],
+                "DATA_LINE_WIDTH_ID":[24,1],
+                "DATA_BACKGROUND_COLOR_ID":[25,1],
+                "DATA_TEXT_OPACITY_ID":[26,0],
+                "DATA_STYLE_FLAGS_ID":[27,0]
+            },
+            "dimensions":{
+                "width":0., "height":0., "eye_height":0., "fixed":true,
+                "attachments":{}
+            }
+        }))
+        .unwrap()
+    }
     fn insert(
         store: &mut Store,
         id: i32,
@@ -938,5 +1134,114 @@ mod tests {
             .vertices
             .iter()
             .all(|vertex| vertex.light == [3., 2.]));
+    }
+
+    #[test]
+    fn settlement_label_text_display_draws_received_text_above_its_anchor() {
+        let (content, mut store) = fixture();
+        let models = Arc::clone(store.models.as_ref().unwrap());
+        let transform = Transform {
+            position: [12., 21., 32.],
+            yaw: 0.,
+            pitch: 0.,
+            head_yaw: 0.,
+        };
+        let mut entity = Entity {
+            handle: Handle {
+                network_id: -1,
+                generation: 1,
+            },
+            uuid: "owned-settlement-label".into(),
+            kind: 0,
+            type_name: "minecraft:text_display".into(),
+            position: transform.position,
+            velocity: [0.; 3],
+            transform,
+            previous: transform,
+            on_ground: false,
+            spawn_data: 0,
+            observed_tick: 0,
+            revision: 1,
+            appearance_revision: 1,
+            physical: Default::default(),
+            binding: None,
+            source: None,
+            minecart_steps: Vec::new(),
+            acceleration_power: None,
+            // Server label wire image: billboard CENTER and the label text.
+            metadata: BTreeMap::from([
+                (15, Metadata::Byte(3)),
+                (
+                    23,
+                    Metadata::Component(serde_json::json!({"text":"Дом · жильцов 1/1"})),
+                ),
+            ]),
+            equipment: std::array::from_fn(|_| None),
+            predicted_metadata: BTreeMap::new(),
+            predicted_equipment: std::array::from_fn(|_| None),
+            predicted_leash: None,
+            effects: BTreeMap::new(),
+            attributes: BTreeMap::new(),
+            passenger_ids: Vec::new(),
+            passengers: Vec::new(),
+            vehicle: None,
+            leash: None,
+            leash_holder_id: None,
+            animation: None,
+            damage_tick: None,
+            death_tick: None,
+            hurt_direction: 0.,
+            submitted_revision: None,
+        };
+        let received = entity.metadata.clone();
+        super::super::display::on_metadata(&models, &mut entity, &received);
+        super::super::display::tick(&models, &mut entity);
+        let mut source = super::super::source_state::SourceState::new(&entity, &models).unwrap();
+        source.display = Some(super::super::render_special::DisplaySnapshot::commit(
+            None, &models, &entity,
+        ));
+        entity.source = Some(source);
+        store.ids.insert(-1, store.slots.len());
+        store
+            .spatial
+            .entry(super::super::cell(transform.position))
+            .or_default()
+            .insert(-1);
+        store.slots.push(entity);
+
+        let out = draw(&mut store, &content, &ScoreboardState::default(), 0.);
+        assert!(!out.vertices.is_empty(), "the received label must be drawn");
+        assert!(
+            !out.indices[EntityMaterial::Text as usize].is_empty()
+                && out.indices[EntityMaterial::TextSeeThrough as usize].is_empty(),
+            "a label is ordinary depth-tested text, not a see-through name tag"
+        );
+        // Anchor relative to the draw origin [12, 20, 30]: the text block grows
+        // upward from it and is centred on it.
+        let anchor = [0., 1., 2.];
+        assert!(
+            out.vertices.iter().all(|v| v.position[1] >= anchor[1] - 1e-4),
+            "text sits above its anchor"
+        );
+        let (low, high) = out
+            .vertices
+            .iter()
+            .map(|v| v.position[0])
+            .fold((f32::MAX, f32::MIN), |(l, h), x| (l.min(x), h.max(x)));
+        close((low + high) / 2., anchor[0]);
+        assert!(
+            out.vertices.iter().all(|v| (v.position[2] - anchor[2]).abs() < 1e-3),
+            "a CENTER label faces the camera"
+        );
+        assert!(
+            out.vertices.iter().all(|v| v.light == [0., 7.]),
+            "a label is lit by the received world light, not full-bright"
+        );
+        assert!(
+            out.vertices
+                .iter()
+                .any(|v| v.color == [0.; 3] && (v.alpha - 64. / 255.).abs() < 1e-3),
+            "default translucent black backdrop"
+        );
     }
 }
