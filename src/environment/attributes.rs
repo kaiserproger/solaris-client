@@ -15,6 +15,7 @@ pub(super) enum Attribute {
     WaterFogStart,
     WaterFogEnd,
     SkyColor,
+    CloudHeight,
     Sunrise,
     SunAngle,
     MoonAngle,
@@ -31,7 +32,7 @@ pub(super) enum Attribute {
     FastLava,
     CreakingActive,
 }
-pub(super) const COUNT: usize = 23;
+pub(super) const COUNT: usize = 24;
 pub(super) const ALL: [Attribute; COUNT] = [
     Attribute::FogColor,
     Attribute::FogStart,
@@ -41,6 +42,7 @@ pub(super) const ALL: [Attribute; COUNT] = [
     Attribute::WaterFogStart,
     Attribute::WaterFogEnd,
     Attribute::SkyColor,
+    Attribute::CloudHeight,
     Attribute::Sunrise,
     Attribute::SunAngle,
     Attribute::MoonAngle,
@@ -68,6 +70,7 @@ impl Attribute {
             "visual/water_fog_start_distance" => Self::WaterFogStart,
             "visual/water_fog_end_distance" => Self::WaterFogEnd,
             "visual/sky_color" => Self::SkyColor,
+            "visual/cloud_height" => Self::CloudHeight,
             "visual/sunrise_sunset_color" => Self::Sunrise,
             "visual/sun_angle" => Self::SunAngle,
             "visual/moon_angle" => Self::MoonAngle,
@@ -584,6 +587,12 @@ fn alpha_blend(a: u32, b: u32) -> u32 {
 mod tests {
     use super::*;
     use serde_json::json;
+    #[test]
+    fn cloud_height_uses_received_attribute() {
+        let dimension = parse_map(&json!({"minecraft:visual/cloud_height": 212.5})).unwrap();
+        let result = apply_map(&dimension, defaults());
+        assert_eq!(result[Attribute::CloudHeight as usize], Datum::Float(212.5));
+    }
     #[test]
     fn duplicate_time_celestial_track_wraps_without_extra_moon_rotation() {
         let track = Track::parse(

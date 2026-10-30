@@ -198,3 +198,34 @@ fn f5_key_cycles_the_camera_through_the_ordinary_key_path() {
     // The look and interaction eye never move with the view.
     assert_eq!(session.look_angles(), (180., 8.));
 }
+
+/// `key.keyboard.f1` from the automation seam toggles the HUD exactly like the
+/// physical key, a second press restores it, and the setting reaches the UI
+/// tree the renderer draws.
+#[test]
+fn f1_key_toggles_hide_hud_through_the_ordinary_key_path() {
+    let mut session = session();
+    let mut content = crate::protocol::content::Content::test_cube();
+    content.creative_tabs_report = Arc::from(br#"{"tabs": []}"#.as_slice());
+    session.ui = Some(crate::ui::UiState::new_state(&content).unwrap());
+    let hidden = |session: &Session| {
+        session
+            .ui
+            .as_ref()
+            .and_then(|ui| ui.setting("hide_hud"))
+            .and_then(Value::as_bool)
+    };
+    assert_eq!(hidden(&session), None);
+    for expected in [true, false] {
+        for pressed in [true, false] {
+            session
+                .input(InputIntent::Key {
+                    key: "key.keyboard.f1".into(),
+                    pressed,
+                })
+                .unwrap();
+        }
+        assert_eq!(hidden(&session), Some(expected));
+        assert!(session.keys.is_empty());
+    }
+}

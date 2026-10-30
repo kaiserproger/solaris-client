@@ -729,6 +729,17 @@ impl Session {
                 self.client_tick as f64 + f64::from(self.presentation_partial),
                 &mut self.scene.dynamic,
             )?;
+            self.clouds.append(
+                self.content.as_ref().ok_or("content unavailable")?,
+                &super::clouds::View {
+                    epoch: self.resource_epoch,
+                    camera: self.scene.camera_position,
+                    origin: self.scene.origin,
+                    ticks: self.client_tick as f64 + f64::from(self.presentation_partial),
+                },
+                &self.scene.environment,
+                &mut self.scene.dynamic,
+            )?;
             let entity_start = self.profile_scene_ms.as_ref().map(|_| std::time::Instant::now());
             {
                 let content = self.content.as_ref().ok_or("content unavailable")?;
@@ -797,14 +808,24 @@ impl Session {
                     .entity_presentation
                     .unrendered
                     .extend(blocks.unrendered);
-                if let Some(ui) = &self.ui {
-                    let crosshair = match self.player.raycast(
-                        world,
+                let hit = self.player.raycast(
+                    world,
+                    content,
+                    &self.entities,
+                    self.client_tick,
+                )?;
+                if let Some(Hit::Block(block)) = &hit {
+                    super::block_outline::append(
                         content,
-                        &self.entities,
-                        self.client_tick,
-                    )? {
-                        Some(Hit::Entity { handle, .. }) => Some(handle),
+                        block.state,
+                        block.position,
+                        self.scene.origin,
+                        &mut self.scene.dynamic,
+                    )?;
+                }
+                if let Some(ui) = &self.ui {
+                    let crosshair = match &hit {
+                        Some(Hit::Entity { handle, .. }) => Some(*handle),
                         _ => None,
                     };
                     let nameplates = self.entities.append_nameplate_geometry(
@@ -861,6 +882,14 @@ impl Session {
                 times[1] += start.elapsed().as_secs_f64() * 1000.;
             }
             self.append_destruction_overlays()?;
+            self.torch_particles.append(
+                &self.world,
+                self.content.as_ref().ok_or("content unavailable")?,
+                self.scene.origin,
+                [self.player.yaw, self.player.pitch],
+                self.presentation_partial,
+                &mut self.scene.dynamic,
+            )?;
             self.block_effects.append(
                 &self.world,
                 self.scene.origin,

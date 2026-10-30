@@ -147,6 +147,18 @@ fn rc1_hud_f1_toggles_game_hud() {
         assert_eq!(ui.observed_nodes().iter().any(|n| n["id"] == "hud/crosshair"), !hidden);
     }
 }
+#[test]
+fn hide_hud_setting_hides_and_restores_the_hud() {
+    let (content, inventory, mut ui) = state();
+    ui.resize(427, 240, 1.);
+    for hidden in [true, false] {
+        ui.apply_setting("hide_hud", serde_json::json!(hidden)).unwrap();
+        ui.rebuild_for_test(&inventory, &content).unwrap();
+        assert_eq!(ui.observed_nodes().iter().any(|n| n["id"] == "hud/hotbar"), !hidden);
+        assert_eq!(ui.observed_nodes().iter().any(|n| n["id"] == "hud/crosshair"), !hidden);
+    }
+}
+
 
 
 fn dead(ui: &mut UiState) {
@@ -1098,4 +1110,69 @@ fn p1_review_sign_close_uses_current_fields_without_container_close() {
         [UiCommand::Sign { pos: actual, front: false, lines: submitted }]
             if actual == &pos && submitted == &lines));
     assert_eq!(ui.screen(), Screen::Game);
+}
+
+fn vitals_hud() -> HudState {
+    HudState {
+        health: Some(20.),
+        max_health: Some(20.),
+        food: Some(20),
+        armor: Some(10),
+        air: Some(150),
+        max_air: Some(300),
+        ..HudState::default()
+    }
+}
+fn hud_has(ui: &UiState, prefix: &str) -> bool {
+    ui.observed_nodes()
+        .iter()
+        .any(|n| n["id"].as_str().is_some_and(|id| id.starts_with(prefix)))
+}
+
+/// Vanilla `canHurtPlayer`: only survival/adventure draw health, hunger, armour
+/// and air; creative and spectator hide all four rows but keep the hotbar.
+#[test]
+fn rc2_hud_vitals_follow_the_game_mode() {
+    assert!(UiState::hud_shows_vitals(0) && UiState::hud_shows_vitals(2));
+    assert!(!UiState::hud_shows_vitals(1) && !UiState::hud_shows_vitals(3));
+    for (mode, shown) in [(0, true), (1, false), (2, true), (3, false)] {
+        let (content, mut inventory, mut ui) = state();
+        inventory.game_mode = mode;
+        ui.resize(427, 240, 1.);
+        ui.set_presentation(UiPresentation {
+            hud: vitals_hud(),
+            loading: None,
+            death: None,
+            can_respawn: false,
+            editor: None,
+            can_edit_operator_blocks: false,
+        })
+        .unwrap();
+        ui.rebuild_for_test(&inventory, &content).unwrap();
+        for row in ["hud/heart/", "hud/food/", "hud/armor/", "hud/air/"] {
+            assert_eq!(hud_has(&ui, row), shown, "game mode {mode} row {row}");
+        }
+        assert!(hud_has(&ui, "hud/hotbar"), "game mode {mode} keeps the hotbar");
+        assert!(hud_has(&ui, "hud/crosshair"));
+    }
+}
+
+/// The hotbar and its selection frame are the game's own GUI sprites, not the
+/// themed rectangles the options screens use.
+#[test]
+fn rc2_hud_hotbar_uses_vanilla_sprites() {
+    let (content, inventory, mut ui) = state();
+    ui.resize(427, 240, 1.);
+    ui.rebuild_for_test(&inventory, &content).unwrap();
+    let nodes = ui.observed_nodes();
+    let bounds = |id: &str| {
+        nodes.iter().find(|n| n["id"] == id).unwrap()["bounds"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_f64().unwrap())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(bounds("hud/hotbar")[2..], [182., 22.]);
+    assert_eq!(bounds("hud/selection")[2..], [24., 23.]);
 }

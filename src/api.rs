@@ -198,10 +198,13 @@ pub enum EntityMaterial {
     TranslucentMovingBlock,
     WaterMask,
     Precipitation,
+    /// Cloud slab depth pre-pass: only the nearest cloud surface is then blended.
+    CloudsDepth,
+    Clouds,
 }
 
 impl EntityMaterial {
-    pub const COUNT: usize = Self::Precipitation as usize + 1;
+    pub const COUNT: usize = Self::Clouds as usize + 1;
     pub const ALL: [Self; Self::COUNT] = [
         Self::ArmorCutoutNoCull,
         Self::ArmorEntityGlint,
@@ -260,6 +263,8 @@ impl EntityMaterial {
         Self::TranslucentMovingBlock,
         Self::WaterMask,
         Self::Precipitation,
+        Self::CloudsDepth,
+        Self::Clouds,
     ];
 }
 
@@ -336,6 +341,8 @@ pub struct WorldEnvironment {
     pub rain: f32,
     pub thunder: f32,
     pub sky_kind: SkyKind,
+    /// Cloud layer height from the received environment attributes.
+    pub cloud_height: f32,
     pub dark_sky_disc: bool,
     // 26.1.2 camera environment attributes, in degrees; these are not derived
     // from a renderer wall clock or assumed 24000-tick legacy day.
@@ -371,6 +378,7 @@ impl Default for WorldEnvironment {
             rain: 0.,
             thunder: 0.,
             sky_kind: SkyKind::None,
+            cloud_height: 0.,
             dark_sky_disc: false,
             sun_angle: 0.,
             moon_angle: 0.,

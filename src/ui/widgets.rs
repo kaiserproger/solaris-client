@@ -164,16 +164,6 @@ impl UiState {
                     color,
                 )?;
             }
-            Paint::Hotbar => {
-                p.themed_panel(node.bounds, 0.95);
-                for i in 0..9 {
-                    p.solid([x + 3. + i as f32 * 20., y + 3., 16., 16.], TRACK, 0.55);
-                }
-            }
-            Paint::HotbarSelection => {
-                p.pixel_ring(node.bounds, ACCENT, 1.);
-                p.pixel_ring([x + 1., y + 1., w - 2., h - 2.], ACCENT_HI, 0.55);
-            }
             _ => {}
         }
         Ok(())

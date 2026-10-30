@@ -1157,6 +1157,11 @@ impl UiState {
     pub(crate) const HUD_HEART: f32 = 9.;
     pub(crate) const HUD_CROSSHAIR: f32 = 15.;
     pub(crate) const HUD_BUTTON_MIN: [f32; 2] = [200., 20.];
+    /// Survival and adventure show health, armour, hunger and air; creative
+    /// and spectator hide those rows.
+    pub(crate) fn hud_shows_vitals(game_mode: u8) -> bool {
+        matches!(game_mode, 0 | 2)
+    }
     /// Fail-closed clickability gate shared by tests and the windowed proof driver:
     /// a dialog button must be enabled, fully inside the viewport, and at least
     /// 200x20 logical px (vanilla-scale) to count as playable at 1280x720.
@@ -1206,30 +1211,22 @@ impl UiState {
         // Vanilla hotbar strip: 182x22 logical px; the window scale factor
         // (not this tree) makes it readable at 1280x720.
         let bottom = self.height - 22.;
-        self.add(
-            "hud/hotbar".into(),
-            "image",
-            String::new(),
+        // Vanilla hotbar (182x22) and selection frame (24x23, one pixel proud of
+        // the slot on every side) are the game's own GUI sprites.
+        self.sprite(
+            "hud/hotbar",
+            "gui/sprites/hud/hotbar",
             [cx - 91., bottom, 182., 22.],
-            true,
-            None,
-            NodeAction::None,
-            Paint::Hotbar,
         )?;
-        self.add(
-            "hud/selection".into(),
-            "image",
-            String::new(),
+        self.sprite(
+            "hud/selection",
+            "gui/sprites/hud/hotbar_selection",
             [
                 cx - 92. + f32::from(inventory.selected_slot) * 20.,
                 bottom - 1.,
                 24.,
                 23.,
             ],
-            true,
-            None,
-            NodeAction::None,
-            Paint::HotbarSelection,
         )?;
         for i in 0..9 {
             // 18x18 logical cells on the vanilla 20px pitch: parent-owned
@@ -1247,10 +1244,15 @@ impl UiState {
             )?;
         }
         // Vanilla crosshair: 15px logical.
-        self.sprite(
-            "hud/crosshair",
-            "gui/sprites/hud/crosshair",
+        self.add(
+            "hud/crosshair".into(),
+            "image",
+            String::new(),
             [cx - 7.5, self.height / 2. - 7.5, 15., 15.],
+            true,
+            None,
+            NodeAction::None,
+            Paint::Crosshair("gui/sprites/hud/crosshair".into()),
         )?;
         // Attack-strength indicator next to the crosshair: vanilla draws the
         // hotbar/crosshair attack marker only while it recharges.
@@ -1293,11 +1295,12 @@ impl UiState {
                 }
             }
         }
-        let health = self.hud.health;
+        let vitals = Self::hud_shows_vitals(inventory.game_mode);
+        let health = self.hud.health.filter(|_| vitals);
         let max_health = self.hud.max_health;
-        let food = self.hud.food;
-        let armor = self.hud.armor;
-        let air = self.hud.air;
+        let food = self.hud.food.filter(|_| vitals);
+        let armor = self.hud.armor.filter(|_| vitals);
+        let air = self.hud.air.filter(|_| vitals);
         let max_air = self.hud.max_air;
         let riding = self.hud.riding_health;
         let riding_max = self.hud.riding_max_health;
