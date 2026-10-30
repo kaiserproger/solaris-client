@@ -167,7 +167,7 @@ struct Spec {
 fn spec(key: &str) -> Option<Spec> {
     let (min, step, positions) = match key {
         "fov" => (30., 1., 81),
-        "render_distance" => (2., 1., 15),
+        "render_distance" => (2., 1., 31),
         "mouse_sensitivity" => (0.1, 0.05, 59),
         // 30..=260 in tens, then one extra stop for Unlimited (value 0).
         "max_fps" => (30., 10., 25),
@@ -701,7 +701,7 @@ mod tests {
         assert_eq!(setting_commands(&right, "render_distance"), vec![json!(9)]);
         ui.rebuild_for_test(&inventory, &content).unwrap();
         let end = key(&mut ui, &mut inventory, "End", false);
-        assert_eq!(setting_commands(&end, "render_distance"), vec![json!(16)]);
+        assert_eq!(setting_commands(&end, "render_distance"), vec![json!(32)]);
         ui.rebuild_for_test(&inventory, &content).unwrap();
         let home = key(&mut ui, &mut inventory, "Home", false);
         assert_eq!(setting_commands(&home, "render_distance"), vec![json!(2)]);
@@ -786,6 +786,7 @@ mod tests {
         assert_eq!(slider_value("fov", 0), Some(json!(30.)));
         assert_eq!(slider_value("fov", 80), Some(json!(110.)));
         assert_eq!(slider_value("render_distance", 14), Some(json!(16)));
+        assert_eq!(slider_value("render_distance", 30), Some(json!(32)));
         assert_eq!(slider_value("max_fps", 0), Some(json!(30)));
         assert_eq!(slider_value("max_fps", 23), Some(json!(260)));
         assert_eq!(slider_value("max_fps", 24), Some(json!(0)));

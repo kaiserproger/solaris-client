@@ -6,7 +6,8 @@ use std::ops::Range;
 const FACE_GROUPS_LAST: usize = FACE_GROUPS - 1;
 pub(super) const VERTEX_BUDGET: u64 = 1024 * 1024 * 1024;
 pub(super) const INDEX_BUDGET: u64 = 512 * 1024 * 1024;
-pub(super) const MAX_CHUNKS: usize = 32768;
+// Match the terrain scheduler's capacity for a full 32-chunk view.
+pub(super) const MAX_CHUNKS: usize = crate::terrain::MAX_SECTIONS;
 pub(super) const MAX_TRANSPARENT_PRIMITIVES: usize = 1_048_576;
 
 #[derive(Debug)]

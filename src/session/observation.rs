@@ -518,14 +518,41 @@ impl Session {
         self.refresh_scene_mode(false)
     }
 
+    fn far_column_ready(&self, column: [i32; 2]) -> bool {
+        self.world.chunk(column).is_some_and(|chunk| {
+            chunk.sections.iter().enumerate().all(|(index, section)| {
+                section.non_empty_block_count == 0
+                    || self.scene.chunks.contains_key(&[
+                        column[0],
+                        self.world.min_y.div_euclid(16) + index as i32,
+                        column[1],
+                    ])
+            })
+        })
+    }
+
     /// Choose far-terrain tiles around the camera, send the server requests
     /// they need and publish changed tiles. True when the draw list changed.
     fn refresh_far(&mut self) -> bool {
-        let world = &self.world;
+        // World columns are stored in key order. Reuse the published buffer
+        // rather than allocating and sorting a new mask on every refresh.
+        let coverage_changed = !self.world.chunks()
+            .map(|(&column, _)| column)
+            .filter(|&column| self.far_column_ready(column))
+            .eq(self.scene.far.covered_columns.iter().copied());
+        if coverage_changed {
+            let mut covered = std::mem::take(&mut self.scene.far.covered_columns);
+            covered.clear();
+            covered.extend(self.world.chunks()
+                .map(|(&column, _)| column)
+                .filter(|&column| self.far_column_ready(column)));
+            self.scene.far.covered_columns = covered;
+        }
+        let covered = &self.scene.far.covered_columns;
         let requests = self.far.update(
             self.scene.camera_position,
-            world.chunk_lifecycle_revision(),
-            &|column| world.chunk(column).is_some(),
+            self.world.chunk_lifecycle_revision().wrapping_add(self.scene.revision),
+            &|column| covered.binary_search(&column).is_ok(),
         );
         for payload in requests {
             if let Err(error) = self.send_custom("solaris:lod/request", &payload) {
@@ -538,7 +565,7 @@ impl Session {
         {
             self.event(json!({"type":"far_terrain_generation_failed","error":error}));
         }
-        self.far.scene(&mut self.scene.far)
+        self.far.scene(&mut self.scene.far) || coverage_changed
     }
 
     pub(super) fn refresh_scene_mode(&mut self, animation_only: bool) -> Result<bool> {
@@ -673,6 +700,11 @@ impl Session {
             // render-distance fog moves out to the far distance with it.
             let far = self.far.active_distance() as f32;
             let environment = &mut self.scene.environment;
+            environment.far_fog = facts.medium == CameraMedium::Atmospheric
+                && facts.blindness_duration.is_none()
+                && !facts.darkness_present
+                && !facts.boss_fog
+                && environment.rain == 0.;
             if far > environment.render_fog_end {
                 environment.render_fog_start = far - (far / 10.).clamp(4., 64.);
                 environment.render_fog_end = far;
@@ -1331,6 +1363,22 @@ mod destruction_tests {
             .set(position, 1, |state| Ok(state == 0))
             .unwrap();
         session
+    }
+
+    #[test]
+    fn far_terrain_stays_visible_until_column_mesh_is_ready() {
+        let mut session = session_with_cube([0, 0, 0], true);
+        assert!(!session.far_column_ready([0, 0]));
+        session.scene.chunks.insert([0, 0, 0], crate::api::ChunkDraw {
+            revision: 1,
+            origin: [0.; 3],
+            bounds_min: [0.; 3],
+            bounds_max: [16.; 3],
+            visibility: 0,
+            geometry: None,
+            fade_duration_ms: Some(0),
+        });
+        assert!(session.far_column_ready([0, 0]));
     }
 
     fn with_stage_texture(session: &mut Session, stage: u8) {

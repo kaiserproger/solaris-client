@@ -676,13 +676,13 @@ mod tests {
             write(&mut login, 3, &[], None).unwrap();
             assert_eq!(read_packet(&mut login), (3, Vec::new()));
             ready.send(Phase::Play).unwrap();
-            assert_eq!(read_packet(&mut login), (0x0e, client_information(16)));
+            assert_eq!(read_packet(&mut login), (0x0e, client_information(32)));
 
             // A reconfiguration must use the latest published radius, not the
             // startup value and not the session owner's potentially stale phase.
             write(&mut login, 120, &[], None).unwrap();
             assert_eq!(read_packet(&mut login), (16, Vec::new()));
-            assert_eq!(read_packet(&mut login), (0, client_information(16)));
+            assert_eq!(read_packet(&mut login), (0, client_information(32)));
             login.shutdown(Shutdown::Write).unwrap();
         });
         let mut network =
@@ -696,7 +696,7 @@ mod tests {
             stages.recv_timeout(Duration::from_secs(5)).unwrap(),
             Phase::Play
         );
-        network.set_view_distance(16);
+        network.set_view_distance(32);
         peer.join().unwrap();
         network.worker.take().unwrap().join().unwrap();
     }

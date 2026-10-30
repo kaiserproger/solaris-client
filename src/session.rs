@@ -540,6 +540,7 @@ impl Session {
             .map_err(|e| e.to_string())?;
         self.loading = Some(receiver);
         self.scene = Scene::default();
+        self.scene.render_distance = self.render_distance;
         if let (Some(mut ui), Some(content)) = (previous_ui, previous_content) {
             ui.clear_session();
             ui.release_all();

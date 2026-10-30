@@ -670,6 +670,7 @@ impl Environment {
             render_fog_start: distance - (distance / 10.).clamp(4., 64.),
             render_fog_end: distance,
             fog_alpha: 1.,
+            far_fog: false,
             time_of_day: self.default_clock_time() as u64,
             rain,
             thunder,

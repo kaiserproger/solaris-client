@@ -79,6 +79,25 @@ fn lit_chunk_of(cells: &[[i32; 3]], state: u32, section_count: usize, height: i3
     }
 }
 
+#[test]
+fn full_32_chunk_view_can_queue_terrain_sections() {
+    let mut world = World::new(0, 128);
+    world.set_view_distance(32);
+    let cells: Vec<_> = (0..8).map(|y| [0, y * 16, 0]).collect();
+    let template = lit_chunk(&cells, 8, 128);
+    let mut terrain = super::Terrain::new(Arc::new(|| {})).unwrap();
+    terrain.view = Some(super::MeshView { center: [0, 0], radius: 32 });
+    for z in -32..=32 {
+        for x in -32..=32 {
+            world.insert([x, z], template.clone()).unwrap();
+            for y in 0..8 {
+                terrain.invalidate_section(&world, [x, y, z]).unwrap();
+            }
+        }
+    }
+    assert_eq!(terrain.sections.len(), 65 * 65 * 8);
+}
+
 /// Repo-owned cube content plus the minimum received facts
 /// [`Catalog::capture`] requires: fluid sprites, one biome holder, and fluid
 /// overlay metadata for both states. Each model face gets its face index as a

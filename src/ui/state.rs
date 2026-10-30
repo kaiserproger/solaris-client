@@ -643,7 +643,7 @@ impl UiState {
     /// `<exe-dir>/client-settings.json` (see `crate::local_config`).
     pub const DEFAULT_RENDER_DISTANCE: u32 = 8;
     pub const MIN_RENDER_DISTANCE: u32 = 2;
-    pub const MAX_RENDER_DISTANCE: u32 = 16;
+    pub const MAX_RENDER_DISTANCE: u32 = 32;
     pub const DEFAULT_FOV_DEG: f32 = 70.;
     pub const MIN_FOV_DEG: f32 = 30.;
     pub const MAX_FOV_DEG: f32 = 110.;

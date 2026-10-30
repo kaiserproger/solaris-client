@@ -695,6 +695,8 @@ impl Session {
                     .as_u64()
                     .ok_or("client setting render_distance lost its number")?
                     as u32;
+                self.world.set_view_distance(self.render_distance);
+                self.scene.render_distance = self.render_distance;
                 self.push_render_distance();
             }
             "fov" => {
@@ -792,6 +794,8 @@ impl Session {
                 "render_distance" => {
                     if let Some(n) = clean.as_u64() {
                         self.render_distance = n as u32;
+                        self.world.set_view_distance(self.render_distance);
+                        self.scene.render_distance = self.render_distance;
                     }
                 }
                 "fov" => {
@@ -1537,6 +1541,10 @@ mod render_distance_wire_tests {
 
     #[test]
     fn render_distance_wire_inputs_reuse_ui_bounds() {
+        let mut session = Session::new_mode("distance-32".into(), false);
+        session.apply_client_setting("render_distance", &json!(32)).unwrap();
+        assert_eq!(session.render_distance(), 32);
+        assert_eq!(session.client_settings_snapshot()["render_distance"], json!(32));
         assert_eq!(
             UiState::sanitize_setting_value("render_distance", &json!(100)),
             Some(json!(UiState::MAX_RENDER_DISTANCE)),

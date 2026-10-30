@@ -26,7 +26,13 @@ use catalog::Catalog;
 use mesher::{BuiltSection, Rules};
 
 const WORKERS: usize = 2;
-const MAX_SECTIONS: usize = 32768;
+// A 65×65 view may contain up to 24 nonempty vertical sections per column.
+pub(crate) const MAX_SECTIONS: usize = 131072;
+
+pub(crate) fn section_limit(radius: u32) -> usize {
+    let side = radius.clamp(16, 32) as usize * 2 + 1;
+    (32768 * side * side / (33 * 33)).min(MAX_SECTIONS)
+}
 // CPU payload budget covers only geometry awaiting a submitted GPU upload.
 const CPU_MESH_BUDGET: usize = 512 * 1024 * 1024;
 const RESULT_BYTE_LIMIT: usize = 8 * 1024 * 1024;
@@ -284,7 +290,9 @@ impl Terrain {
         if !self.sections.contains_key(&key) && chunk.sections[index].non_empty_block_count == 0 {
             return Ok(());
         }
-        if !self.sections.contains_key(&key) && self.sections.len() >= MAX_SECTIONS {
+        if !self.sections.contains_key(&key)
+            && self.sections.len() >= section_limit(self.view.map_or(16, |view| view.radius))
+        {
             return Err("terrain_section_queue_bound_reached".into());
         }
         self.next_revision = self
