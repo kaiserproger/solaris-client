@@ -410,15 +410,15 @@ impl<const N: usize> Stream<N> {
     }
     pub fn validate_size(
         vertices: &[Vertex],
-        indices: &[Vec<u32>; N],
+        indices: &[&[u32]; N],
         layers: u32,
     ) -> Result<(), String> {
-        validate(vertices, &indices.each_ref().map(Vec::as_slice), layers)?;
+        validate(vertices, indices, layers)?;
         let vertex_bytes = std::mem::size_of_val(vertices) as u64;
         let index_bytes = indices.iter().map(|i| i.len() as u64 * 4).sum::<u64>();
         if vertex_bytes > 32 * 1024 * 1024
             || index_bytes > 16 * 1024 * 1024
-            || indices.iter().map(Vec::len).sum::<usize>() > MAX_TRANSPARENT_PRIMITIVES * 3
+            || indices.iter().map(|i| i.len()).sum::<usize>() > MAX_TRANSPARENT_PRIMITIVES * 3
         {
             return Err("dynamic_or_ui_stream_budget_exceeded".into());
         }
@@ -429,7 +429,7 @@ impl<const N: usize> Stream<N> {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         vertices: &[Vertex],
-        indices: &[Vec<u32>; N],
+        indices: &[&[u32]; N],
         sort: [bool; N],
     ) -> Result<(), String> {
         // sync_scene validates both streams before reserving terrain replacements.
@@ -454,7 +454,7 @@ impl<const N: usize> Stream<N> {
                 queue.write_buffer(
                     &self.indices,
                     u64::from(first) * 4,
-                    bytemuck::cast_slice(&indices[layer]),
+                    bytemuck::cast_slice(indices[layer]),
                 );
             }
             first += count;
@@ -462,7 +462,7 @@ impl<const N: usize> Stream<N> {
             if sort[layer] {
                 primitives_into(
                     vertices,
-                    &indices[layer],
+                    indices[layer],
                     self.ranges[layer].start,
                     &mut self.transparent[layer],
                 )?;

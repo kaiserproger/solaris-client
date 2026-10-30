@@ -1127,7 +1127,7 @@
  },
  {
   "name": "minecraft_press_inputs",
-  "description": "Activate vanilla inputs or named key.keyboard.* keys for exact client ticks. Named keys use the native keyboard callback; swap_offhand clicks once; key.keyboard.f5 cycles the camera perspective once on press.",
+  "description": "Activate vanilla inputs or named key.keyboard.* keys for exact client ticks. Named keys use the native keyboard callback; swap_offhand clicks once; key.keyboard.f5 cycles the camera perspective once on press; key.keyboard.f1 toggles the HUD (hide_hud) once on press.",
   "inputSchema": {
    "type": "object",
    "properties": {

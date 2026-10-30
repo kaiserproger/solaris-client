@@ -466,6 +466,13 @@ fn trace_reflection(origin: vec3<f32>, direction: vec3<f32>, noise: f32) -> vec4
     out.fog_distance = vec2<f32>(0.0); return out;
 }
 @fragment fn overlay_fragment(in: SceneOut) -> @location(0) vec4<f32> { return material(in, true, false); }
+// Crosshair: the inverting blend ignores alpha, so fully transparent texels
+// must not reach it.
+@fragment fn overlay_invert_fragment(in: SceneOut) -> @location(0) vec4<f32> {
+    let color = material(in, true, false);
+    if color.a == 0.0 { discard; }
+    return color;
+}
 
 struct BlitOut { @builtin(position) position: vec4<f32>, @location(0) ndc: vec2<f32> };
 @vertex fn blit_vertex(@builtin(vertex_index) index: u32) -> BlitOut {

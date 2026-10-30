@@ -125,6 +125,14 @@ fn fancy_shader_gpu_toggle_preserves_ui_and_off_pixels() {
     );
     let ui_pixel = (8 * 64 + 8) * 4;
     assert_eq!(&off[ui_pixel..ui_pixel + 4], &fancy[ui_pixel..ui_pixel + 4]);
+    // Ordinary cutout-partition UI is also alpha-composited, not a special blend.
+    scene.overlay.indices.swap(0, 1);
+    renderer.set_graphics_preset(GraphicsPreset::Low);
+    let cutout_off = pixels(&mut renderer, &scene);
+    renderer.set_graphics_preset(GraphicsPreset::Medium);
+    let cutout_fancy = pixels(&mut renderer, &scene);
+    assert_eq!(&cutout_off[ui_pixel..ui_pixel + 4], &cutout_fancy[ui_pixel..ui_pixel + 4]);
+    assert_eq!(&cutout_off[ui_pixel..ui_pixel + 4], &off[ui_pixel..ui_pixel + 4]);
     let sky_pixel = (32 * 64 + 32) * 4;
     assert_ne!(
         &off[sky_pixel..sky_pixel + 3],

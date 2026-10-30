@@ -138,6 +138,14 @@ impl Session {
                         "perspective" if self.phase == "play" && self.screen() == "game" => {
                             self.cycle_camera();
                         }
+                        // F1: the same UI intent the native keyboard path sends.
+                        "hide_hud" if self.phase == "play" && self.screen() == "game" => {
+                            self.execute_ui(UiIntent::Key {
+                                key: "F1".into(),
+                                pressed: true,
+                                modifiers: crate::ui::Modifiers::default(),
+                            })?;
+                        }
                         _ => {}
                     }
                 }
@@ -1059,6 +1067,7 @@ impl Session {
         self.install_atlas(&content);
         self.content = Some(content);
         self.block_effects.clear();
+        self.torch_particles.clear();
         self.block_motion.clear();
         if self.dimension.is_some() {
             let terrain = self.terrain.as_mut().ok_or("terrain unavailable")?;
@@ -1097,6 +1106,7 @@ fn normalize_key(key: &str) -> Option<&'static str> {
         "inventory" | "e" => Some("inventory"),
         "swap_offhand" | "f" => Some("swap_offhand"),
         "f5" | "perspective" => Some("perspective"),
+        "f1" | "hide_hud" => Some("hide_hud"),
         "pick" | "mouse_middle" => Some("pick"),
         "player_list" => Some("player_list"),
         // Dialog-screen UI keys (death/pause overlays): cancel/confirm/focus-next.

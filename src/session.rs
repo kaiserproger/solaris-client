@@ -2,6 +2,9 @@
 use crate::protocol::packet_ids::play::serverbound as sb;
 mod actions;
 mod block_effects;
+mod block_outline;
+mod clouds;
+mod torch_particles;
 mod block_motion;
 mod local_server;
 #[cfg(test)]
@@ -132,6 +135,8 @@ pub struct Session {
     /// bound at 4096 entries.
     destruction: BTreeMap<i32, ([i32; 3], u8)>,
     block_effects: block_effects::BlockEffects,
+    clouds: clouds::Clouds,
+    torch_particles: torch_particles::TorchParticles,
     block_motion: block_motion::BlockMotions,
     commands: Vec<PacketCommand>,
     events: VecDeque<Value>,
@@ -228,6 +233,8 @@ impl Session {
             received_blocks: BTreeMap::new(),
             destruction: BTreeMap::new(),
             block_effects: block_effects::BlockEffects::default(),
+            clouds: clouds::Clouds::default(),
+            torch_particles: torch_particles::TorchParticles::default(),
             block_motion: block_motion::BlockMotions::default(),
             commands: Vec::with_capacity(32),
             events: VecDeque::with_capacity(64),
@@ -595,6 +602,7 @@ impl Session {
         self.received_blocks.clear();
         self.destruction.clear();
         self.block_effects.clear();
+        self.torch_particles.clear();
         self.block_motion.clear();
         self.dimension = None;
         if let Some(terrain) = &mut self.terrain {
@@ -961,6 +969,9 @@ impl Session {
             // after the chunk gate exactly as before, only timed now.
             start = Instant::now();
             self.block_effects.tick(&self.world, content);
+            if self.presentation {
+                self.torch_particles.tick(&self.world, content, self.player.position, self.client_tick);
+            }
             self.tick_detail_ms[4] += start.elapsed().as_secs_f64() * 1000.;
             start = Instant::now();
             self.player.tick(
@@ -1091,6 +1102,9 @@ impl Session {
         let result = if ui.advance_animations(now) {
             self.scene.overlay.vertices.clear();
             for indices in &mut self.scene.overlay.indices {
+                indices.clear();
+            }
+            for indices in &mut self.scene.overlay.overlay_blends {
                 indices.clear();
             }
             ui.render(content, &self.inventory, &mut self.scene.overlay)

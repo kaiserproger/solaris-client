@@ -675,6 +675,7 @@ impl Environment {
             rain,
             thunder,
             sky_kind: dimension.sky_kind,
+            cloud_height: float(A::CloudHeight),
             light_directions: Some(dimension.light_directions),
             dark_sky_disc: camera[1]
                 < if facts.flat_world {

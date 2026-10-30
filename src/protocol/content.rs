@@ -1452,6 +1452,17 @@ impl Content {
     pub fn resource_bytes(&self, path: &str) -> Result<Vec<u8>> {
         self.source.bytes(path)
     }
+    /// Decoded `(width, height, RGBA8)` of a verified resource texture, read
+    /// at runtime from the active resource stack like any other asset.
+    pub fn texture_pixels(&self, name: &str) -> Result<(u32, u32, Vec<u8>)> {
+        let id = if name.contains(':') {
+            name.to_owned()
+        } else {
+            format!("minecraft:{name}")
+        };
+        let image = decode_texture(&self.source, &id)?;
+        Ok((image.width, image.height, image.rgba))
+    }
     pub fn resource_stack(&self, path: &str) -> Result<Vec<Arc<[u8]>>> {
         self.source.stack(path)
     }

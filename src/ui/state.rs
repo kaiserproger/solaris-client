@@ -374,8 +374,8 @@ pub(crate) enum Paint {
     },
     /// Themed translucent panel.
     Frame,
-    Hotbar,
-    HotbarSelection,
+    /// HUD crosshair sprite, composited with an inverting blend.
+    Crosshair(String),
     Field(String),
     Image(String, [f32; 4]),
     TintedImage(String, [f32; 3]),
@@ -680,7 +680,7 @@ impl UiState {
     pub fn sanitize_setting_value(key: &str, value: &Value) -> Option<Value> {
         match key {
             "key_bindings" => crate::controls::Bindings::from_value(value).map(|bindings| bindings.value()),
-            "fullscreen" | "vsync" => value.as_bool().map(|v| json!(v)),
+            "fullscreen" | "vsync" | "hide_hud" => value.as_bool().map(|v| json!(v)),
             "graphics_preset" => {
                 GraphicsPreset::from_setting(value).map(|preset| json!(preset.as_str()))
             }
@@ -3484,10 +3484,12 @@ impl UiState {
                 | Paint::Slider { .. }
                 | Paint::Toggle { .. }
                 | Paint::Split { .. }
-                | Paint::Frame
-                | Paint::Hotbar
-                | Paint::HotbarSelection => {
+                | Paint::Frame => {
                     self.paint_widget(node, &fx, content, transform, p.out)?;
+                }
+                Paint::Crosshair(name) => {
+                    p.render_layer = RenderLayer::Translucent;
+                    p.image(name, node.bounds, [0., 0., 1., 1.], [1.; 3], 1.)?;
                 }
                 Paint::Solid(color, a) => {
                     if node.id == "screen/background" {
@@ -3782,8 +3784,7 @@ impl UiState {
                     | Paint::Toggle { .. }
                     | Paint::Split { .. }
                     | Paint::Frame
-                    | Paint::Hotbar
-                    | Paint::HotbarSelection
+                    | Paint::Crosshair(_)
             ) {
                 ""
             } else {
@@ -3914,6 +3915,9 @@ impl UiState {
                     (ch + pad * 2.) * scale,
                 ],
             )?;
+            if matches!(node.paint, Paint::Crosshair(_)) {
+                p.out.overlay_blends[1].extend(p.out.indices[RenderLayer::Translucent as usize].drain(index_start..));
+            }
             if let Paint::Slider { desc, .. }
             | Paint::Toggle { desc, .. }
             | Paint::Split { desc, .. } = &node.paint

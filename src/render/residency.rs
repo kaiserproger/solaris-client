@@ -238,8 +238,15 @@ impl Renderer {
             }
         }
         // Validate independent presentation streams before any resident replacement.
-        Stream::validate_size(&scene.dynamic.vertices, &scene.dynamic.indices, layers)?;
-        Stream::validate_size(&scene.overlay.vertices, &scene.overlay.indices, layers)?;
+        Stream::validate_size(&scene.dynamic.vertices, &scene.dynamic.indices.each_ref().map(Vec::as_slice), layers)?;
+        let overlay_indices = [
+            scene.overlay.indices[0].as_slice(),
+            scene.overlay.indices[1].as_slice(),
+            scene.overlay.indices[2].as_slice(),
+            scene.overlay.overlay_blends[0].as_slice(),
+            scene.overlay.overlay_blends[1].as_slice(),
+        ];
+        Stream::validate_size(&scene.overlay.vertices, &overlay_indices, layers)?;
         if scene.lightmap.is_none()
             && scene
                 .vertices
@@ -384,22 +391,22 @@ impl Renderer {
             &self.device,
             &self.queue,
             &scene.dynamic.vertices,
-            &scene.dynamic.indices,
+            &scene.dynamic.indices.each_ref().map(Vec::as_slice),
             material::MATERIALS.map(|m| m.sort),
         )?;
         self.overlay.upload(
             &self.device,
             &self.queue,
             &scene.overlay.vertices,
-            &scene.overlay.indices,
-            [false; 3],
+            &overlay_indices,
+            [false; 5],
         )?;
         sky::sunrise(&mut self.sunrise_geometry, &scene.environment);
         self.sunrise.upload(
             &self.device,
             &self.queue,
             &self.sunrise_geometry.vertices,
-            &self.sunrise_geometry.indices,
+            &self.sunrise_geometry.indices.each_ref().map(Vec::as_slice),
             [false; 3],
         )?;
         self.stats.terrain_upload_bytes += self.tiles.flush(&self.queue, &self.tile_texture);
