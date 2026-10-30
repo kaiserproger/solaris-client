@@ -13,6 +13,9 @@ ends on that handoff, the next writer action, or lease release; a failed click
 does not retain it. This is the real UI action, not a protocol respawn fallback.
 The `ui_respawn_` automation unit tests cover the handoff and its boundaries;
 they do not replace the windowed survival gate.
+A `minecraft_observe` queued before that epoch change returns the current
+owner snapshot instead of failing on the earlier dimension epoch. Connection
+fences still apply, and writer actions and captures remain dimension-fenced.
 
 ### Arm, nameplates and clouds (vanilla oracle fit)
 

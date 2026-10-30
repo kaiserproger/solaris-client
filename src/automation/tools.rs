@@ -102,7 +102,9 @@ pub(super) fn execute(
     } else {
         Some(observation.connection_epoch.clone())
     };
-    let dimension = if lifecycle || name == "minecraft_respawn" {
+    // Observe returns the owner's current snapshot, including across a
+    // respawn that lands after the request was queued. Writes remain fenced.
+    let dimension = if lifecycle || matches!(name, "minecraft_respawn" | "minecraft_observe") {
         None
     } else {
         Some(observation.dimension_epoch.clone())
