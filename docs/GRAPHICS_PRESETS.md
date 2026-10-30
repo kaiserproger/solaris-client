@@ -31,7 +31,8 @@ pixel the sky drew behind it), and water's reflection fallback.
 Water tint uses the received sky-and-block lightmap, like the underlying terrain. Sky reflections
 and glints use the sky-only lightmap component, so block lights can illuminate water without
 inventing a bright daytime sky reflection at night or under a roof. Medium retains more of the
-animated vanilla water texture, with subtler surface waves.
+animated vanilla water texture, with subtler surface waves. High includes the texture's surface
+opacity in its refraction transmission, so shallow water still has a visible surface.
 
 Sunlight scattered into upward rays enters higher in the atmosphere and crossed less air than light
 scattered along the horizon (`HIGH_RAY_PATH`), and Chappuis-band ozone absorption (`TAU_OZONE`) is

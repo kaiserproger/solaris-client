@@ -420,9 +420,12 @@ fn trace_reflection(origin: vec3<f32>, direction: vec3<f32>, noise: f32) -> vec4
             let behind = textureLoad(opaque_depth, vec2<i32>(offset_uv * size), 0);
             let source_uv = select(uv, offset_uv, behind > in.position.z);
             let bed = textureSampleLevel(scene_copy, scene_sampler, source_uv, 0.0).rgb;
-            let absorption = exp(-vec3<f32>(0.45, 0.12, 0.06) * thickness);
-            // Mostly the vanilla water colour (texture x biome tint): recognisably Minecraft.
-            let body = mix(vec3<f32>(0.03, 0.2, 0.3) * in.light_color.rgb, color.rgb, 0.7);
+            // Keep the texture's surface opacity even for a shallow column.
+            // The bed is already exposed; blend the water body's terrain
+            // lighting with its received-lightmap colour only once.
+            let absorption = exp(-vec3<f32>(0.45, 0.12, 0.06) * thickness) * (1.0 - color.a);
+            let body_color = mix(vec3<f32>(0.03, 0.2, 0.3) * in.light_color.rgb, color.rgb, 0.7);
+            let body = mix(body_color, fancy_lighting(in, vec4<f32>(body_color, 1.0)).rgb, 0.7);
             let refracted = bed * absorption + body * (vec3<f32>(1.0) - absorption * absorption);
             var reflection = sky;
             if reflected.y > 0.0 {
