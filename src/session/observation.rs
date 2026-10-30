@@ -572,6 +572,7 @@ impl Session {
         // Early v2 login may deliver player state before the spawn chunk and
         // its light. Do not submit known-lit meshes until the causal lightmap
         // can be built; that is a loading state, not a fatal renderer error.
+        let terrain_start = self.profile_scene_ms.as_ref().map(|_| std::time::Instant::now());
         let mesh_changed = if !animation_only && (world_ready || self.scene.lightmap.is_some()) {
             self.terrain.as_mut().ok_or("terrain unavailable")?.update(
                 &self.world,
@@ -582,6 +583,9 @@ impl Session {
         } else {
             false
         };
+        if let (Some(start), Some(times)) = (terrain_start, &mut self.profile_scene_ms) {
+            times[0] += start.elapsed().as_secs_f64() * 1000.;
+        }
         let far_changed = !animation_only && world_ready && self.refresh_far();
         let state_changed = self.scene_state_revision != self.revision;
         if !animation_only
@@ -686,6 +690,7 @@ impl Session {
                 self.client_tick as f64 + f64::from(self.presentation_partial),
                 &mut self.scene.dynamic,
             )?;
+            let entity_start = self.profile_scene_ms.as_ref().map(|_| std::time::Instant::now());
             {
                 let content = self.content.as_ref().ok_or("content unavailable")?;
                 let world = &self.world;
@@ -791,6 +796,9 @@ impl Session {
                     }
                 }
             }
+            if let (Some(start), Some(times)) = (entity_start, &mut self.profile_scene_ms) {
+                times[1] += start.elapsed().as_secs_f64() * 1000.;
+            }
             self.append_destruction_overlays()?;
             self.block_effects.append(
                 &self.world,
@@ -811,9 +819,13 @@ impl Session {
                 )?;
             }
         }
+        let ui_start = self.profile_scene_ms.as_ref().map(|_| std::time::Instant::now());
         if !animation_only && let Some(ui) = &mut self.ui {
             let content = self.content.as_ref().ok_or("content unavailable")?;
             ui.render(content, &self.inventory, &mut self.scene.overlay)?;
+        }
+        if let (Some(start), Some(times)) = (ui_start, &mut self.profile_scene_ms) {
+            times[2] += start.elapsed().as_secs_f64() * 1000.;
         }
         self.scene_state_revision = self.revision;
         self.scene.revision += 1;

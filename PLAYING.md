@@ -87,6 +87,23 @@ Options → Controls lists the current keyboard and mouse bindings. Click a
 binding and press its replacement; conflicts appear in red. Each action has a
 Reset button, and Reset all restores the defaults. Bindings are saved locally.
 
+### Recording a performance profile
+
+While playing, press **F10** to start recording and press **F10** again to
+stop. The chat shows the saved file's full path under the client data directory;
+send that file when reporting low FPS. Recording is off by default. The TSV
+contains raw frame timings and supported GPU pass timestamps; the header
+identifies the graphics adapter, driver, resolution and graphics settings.
+
+For startup diagnostics, set `SOLARIS_CLIENT_FRAME_TRACE` to an absolute output
+file path before launching. Recording starts immediately and the file is
+completed when the client exits. The footer reports any dropped rows.
+To summarize a saved or interrupted recording, run
+`solaris-client profile-summary /absolute/path/to/profile.tsv`. An interrupted
+file has no completion footer; the summary reports `complete: false` and
+ignores a partial final row. Timings overlap and should not be added together.
+
+
 Received weather levels drive rain and snow around the camera. Precipitation
 uses the active pack's environment textures, stops at motion-blocking roofs and
 fluids, and chooses snow from the received biome temperature and altitude.
