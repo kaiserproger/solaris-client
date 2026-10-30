@@ -212,9 +212,16 @@ fn fancy_lighting(in: SceneOut, color: vec4<f32>) -> vec4<f32> {
     out.position = camera.view_projection * vec4<f32>(relative_position, 1.0);
     out.color = color; out.uv = uv; out.overlay_uv = overlay_uv; out.overlay_tint = overlay_tint;
     // The pinned terrain.vsh samples light at vertices before interpolation.
+    out.light_color = vec4<f32>(1.0);
     if all(light >= vec2<f32>(0.0)) {
         let coord = (light.yx + vec2<f32>(0.5)) / 16.0;
-        out.color *= textureSampleLevel(lightmap_texture, lightmap_sampler, coord, 0.0).rgb;
+        let received = textureSampleLevel(lightmap_texture, lightmap_sampler, coord, 0.0).rgb;
+        out.color *= received;
+        if camera.fancy.x > 0.5 && out.block_class == 4u {
+            let sky = textureSampleLevel(lightmap_texture, lightmap_sampler, vec2<f32>(0.5, light.x + 0.5) / 16.0, 0.0).rgb;
+            let sky_linear = srgb_to_linear(sky);
+            out.light_color = vec4<f32>(srgb_to_linear(received), max(max(sky_linear.r, sky_linear.g), sky_linear.b));
+        }
     }
     if camera.fancy.x > 0.5 { out.color = srgb_to_linear(out.color); }
     out.alpha = alpha; out.layer = layer;
@@ -234,9 +241,16 @@ fn fancy_lighting(in: SceneOut, color: vec4<f32>) -> vec4<f32> {
     out.position = camera.view_projection * vec4<f32>(relative_position, 1.0);
     out.color = t.color; out.uv = t.uv; out.overlay_uv = t.tile_origin; out.overlay_tint = t.tile;
     // The pinned terrain.vsh samples light at vertices before interpolation.
+    out.light_color = vec4<f32>(1.0);
     if all(t.light >= vec2<f32>(0.0)) {
         let coord = (t.light.yx + vec2<f32>(0.5)) / 16.0;
-        out.color *= textureSampleLevel(lightmap_texture, lightmap_sampler, coord, 0.0).rgb;
+        let received = textureSampleLevel(lightmap_texture, lightmap_sampler, coord, 0.0).rgb;
+        out.color *= received;
+        if camera.fancy.x > 0.5 && t.class_kind == 4u {
+            let sky = textureSampleLevel(lightmap_texture, lightmap_sampler, vec2<f32>(0.5, t.light.x + 0.5) / 16.0, 0.0).rgb;
+            let sky_linear = srgb_to_linear(sky);
+            out.light_color = vec4<f32>(srgb_to_linear(received), max(max(sky_linear.r, sky_linear.g), sky_linear.b));
+        }
     }
     if camera.fancy.x > 0.5 { out.color = srgb_to_linear(out.color); }
     out.alpha = t.alpha; out.layer = t.layer;
@@ -381,12 +395,12 @@ fn trace_reflection(origin: vec3<f32>, direction: vec3<f32>, noise: f32) -> vec4
         let t = camera.fancy.y;
         let wave = vec2<f32>(
             cos(world.x * 1.4 + world.z * 0.6 + camera.world_origin.x + t * 1.5),
-            sin(world.z * 1.7 - world.x * 0.5 + camera.world_origin.y + t * 1.1)) * 0.085;
+            sin(world.z * 1.7 - world.x * 0.5 + camera.world_origin.y + t * 1.1)) * 0.025;
         let n = normalize(normalize(in.normal) + vec3<f32>(wave.x, 0.0, wave.y));
         let view = normalize(-in.relative);
         let fresnel = 0.02 + 0.98 * pow(1.0 - max(dot(n, view), 0.0), 5.0);
         let reflected = reflect(-view, n);
-        let sky = atmosphere_sky(vec3<f32>(reflected.x, max(reflected.y, 0.01), reflected.z));
+        let sky = atmosphere_sky(vec3<f32>(reflected.x, max(reflected.y, 0.01), reflected.z)) * in.light_color.a;
         let size = vec2<f32>(textureDimensions(opaque_depth));
         let pixel = clamp(vec2<i32>(in.position.xy), vec2<i32>(0), vec2<i32>(size) - vec2<i32>(1));
         let depth = textureLoad(opaque_depth, pixel, 0);
@@ -395,7 +409,7 @@ fn trace_reflection(origin: vec3<f32>, direction: vec3<f32>, noise: f32) -> vec4
         let thickness = clamp(length(background.xyz / background.w - in.relative), 0.0, 24.0);
         let half_vector = normalize(view + camera.sun_direction.xyz);
         let specular = pow(max(dot(n, half_vector), 0.0), 180.0) * camera.sun_direction.w * 2.5;
-        let glint = vec3<f32>(1.0, 0.9, 0.7) * dominant_light_tint() * specular;
+        let glint = vec3<f32>(1.0, 0.9, 0.7) * dominant_light_tint() * specular * in.light_color.a;
         if camera.atmosphere.z > 0.5 {
             // High: refract the copied opaque scene (offset kept only where the
             // sample lies behind the surface), absorb it with Beer-Lambert along
@@ -406,10 +420,12 @@ fn trace_reflection(origin: vec3<f32>, direction: vec3<f32>, noise: f32) -> vec4
             let behind = textureLoad(opaque_depth, vec2<i32>(offset_uv * size), 0);
             let source_uv = select(uv, offset_uv, behind > in.position.z);
             let bed = textureSampleLevel(scene_copy, scene_sampler, source_uv, 0.0).rgb;
-            let lit = clamp(0.3 + camera.sun_direction.w * camera.sun_direction.y, 0.0, 1.0);
-            let absorption = exp(-vec3<f32>(0.45, 0.12, 0.06) * thickness);
-            // Mostly the vanilla water colour (texture x biome tint): recognisably Minecraft.
-            let body = mix(vec3<f32>(0.03, 0.2, 0.3), color.rgb, 0.7) * lit;
+            // Keep the texture's surface opacity even for a shallow column.
+            // The bed is already exposed; blend the water body's terrain
+            // lighting with its received-lightmap colour only once.
+            let absorption = exp(-vec3<f32>(0.45, 0.12, 0.06) * thickness) * (1.0 - color.a);
+            let body_color = mix(vec3<f32>(0.03, 0.2, 0.3) * in.light_color.rgb, color.rgb, 0.7);
+            let body = mix(body_color, fancy_lighting(in, vec4<f32>(body_color, 1.0)).rgb, 0.7);
             let refracted = bed * absorption + body * (vec3<f32>(1.0) - absorption * absorption);
             var reflection = sky;
             if reflected.y > 0.0 {
@@ -420,7 +436,7 @@ fn trace_reflection(origin: vec3<f32>, direction: vec3<f32>, noise: f32) -> vec4
             return fogged(in, vec4<f32>(rgb, 1.0));
         }
         let tint = mix(vec3<f32>(0.035, 0.24, 0.27), vec3<f32>(0.008, 0.055, 0.11), 1.0 - exp(-thickness * 0.14));
-        color = vec4<f32>(mix(mix(color.rgb, tint, 0.68), sky, fresnel * 0.85) + glint,
+        color = vec4<f32>(mix(mix(color.rgb, tint * in.light_color.rgb, 0.2), sky, fresnel * 0.85) + glint,
             clamp(0.38 + thickness * 0.025 + fresnel * 0.45, 0.38, 0.92));
     }
     return fogged(in, fancy_lighting(in, color));
