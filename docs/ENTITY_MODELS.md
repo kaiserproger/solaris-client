@@ -65,6 +65,11 @@ They receive both NBT text payload forms, assert text material indices and outwa
 winding on both faces, and reject duplicate body indices. Ordinary non-glowing
 and glowing text are covered; windowed pixels remain a separate acceptance gate.
 
+Chest and bell rigs use the same +Y-down authoring convention as living
+entities. Their block-entity roots convert that space to world coordinates;
+the bell's two cuboids follow the body and rim regions of its supplied texture.
+Double-chest halves each occupy their own block and share the centered latch.
+
 ## Missing models
 
 `Models::rig(key)` never fails. A key with no authored model renders a **magenta, entity-sized

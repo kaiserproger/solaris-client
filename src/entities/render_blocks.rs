@@ -643,6 +643,10 @@ fn bell(
         .bell_direction
         .map(|d| math::bell_angles(s.bell_ticks as f32 + f.partial, d))
         .unwrap_or([0.; 2]);
+    // Authored model coordinates have +Y down, unlike block/world space.
+    let root = root
+        * Mat4::from_translation(Vec3::new(0.5, 1., 0.5))
+        * Mat4::from_scale(Vec3::new(1., -1., -1.));
     paint_rig(
         rig(m, "minecraft:bell#main")?,
         root,
@@ -728,10 +732,9 @@ fn chest(
     }
     let angle = math::lid_angle(progress);
     let root = root
-        * around(
-            Vec3::new(0.5, 0., 0.5),
-            Mat4::from_rotation_y(-yaw(prop(e, c, "facing").unwrap_or("north")).to_radians()),
-        );
+        * Mat4::from_translation(Vec3::new(0.5, 18. / 16., 0.5))
+        * Mat4::from_rotation_y(-yaw(prop(e, c, "facing").unwrap_or("north")).to_radians())
+        * Mat4::from_scale(Vec3::new(1., -1., -1.));
     paint_rig(
         rig(m, key)?,
         root,
