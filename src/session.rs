@@ -111,6 +111,7 @@ pub struct Session {
     /// Per-subsystem tick accumulator, drained by App.draw into
     /// `render["cpu_session_tick_detail_ms"]` for Xvfb profiling.
     tick_detail_ms: [f64; 11],
+    profile_scene_ms: Option<[f64; 3]>,
     state_version: u64,
     health_version: u64,
     container_packet_version: u64,
@@ -210,6 +211,7 @@ impl Session {
             scene_state_revision: 0,
             last_published_snapshot: (1, 0, 0),
             tick_detail_ms: [0.; 11],
+            profile_scene_ms: None,
             state_version: 1,
             health_version: 0,
             container_packet_version: 0,
@@ -348,6 +350,19 @@ impl Session {
     /// Drain per-subsystem tick timings for App.draw profiling output.
     pub(crate) fn take_tick_detail(&mut self) -> [f64; 11] {
         std::mem::take(&mut self.tick_detail_ms)
+    }
+    pub(crate) fn enable_scene_profile(&mut self, enabled: bool) {
+        if enabled && self.profile_scene_ms.is_none() {
+            self.profile_scene_ms = Some([0.; 3]);
+        } else if !enabled {
+            self.profile_scene_ms = None;
+        }
+    }
+    pub(crate) fn take_scene_profile(&mut self) -> Option<[f64; 3]> {
+        self.profile_scene_ms.as_mut().map(std::mem::take)
+    }
+    pub(crate) fn profile_mesh_cpu_total_ms(&self) -> Option<f64> {
+        self.terrain.as_ref().map(Terrain::mesh_cpu_total_ms)
     }
     pub fn health_version(&self) -> u64 {
         self.health_version

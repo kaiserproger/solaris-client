@@ -129,6 +129,15 @@ pub fn cli(args: impl IntoIterator<Item = String>) -> Result<(), String> {
         return launch::play(args);
     }
     match args.next().as_deref() {
+        Some("profile-summary") => {
+            let path = args.next().ok_or("usage: solaris-client profile-summary <file>")?;
+            if args.next().is_some() {
+                return Err("usage: solaris-client profile-summary <file>".into());
+            }
+            let summary = frame_trace::summarize(Path::new(&path))?;
+            println!("{}", serde_json::to_string_pretty(&summary).map_err(|e| e.to_string())?);
+            Ok(())
+        }
         Some("doctor") => {
             let json_output = match args.next().as_deref() {
                 Some("--json") => true,
@@ -261,6 +270,8 @@ struct App {
     events_cpu_ms: f64,
     publish_skipped: u64,
     frame_trace: Option<frame_trace::FrameTrace>,
+    profile_path: Option<PathBuf>,
+    profile_save: Option<mpsc::Receiver<(PathBuf, Result<(), String>)>>,
     look_events: u32,
     captured_frame: Option<String>,
     pending_capture: Option<Request>,
@@ -289,6 +300,8 @@ impl App {
         if options.fullscreen {
             session.apply_client_setting("fullscreen", &json!(true))?;
         }
+        let frame_trace = frame_trace::FrameTrace::from_env();
+        session.enable_scene_profile(frame_trace.is_some());
         session.set_wake(wake.clone());
         let tick_interval = session.tick_interval();
         let shared = Arc::new(Shared {
@@ -329,7 +342,9 @@ impl App {
             tick_cpu_ms: 0.,
             events_cpu_ms: 0.,
             publish_skipped: 0,
-            frame_trace: frame_trace::FrameTrace::from_env(),
+            frame_trace,
+            profile_path: None,
+            profile_save: None,
             look_events: 0,
             captured_frame: None,
             pending_capture: None,
@@ -741,6 +756,7 @@ impl App {
     }
 
     fn draw(&mut self) -> Result<(), String> {
+        frame_trace::supply_metadata(self);
         let draw_start = Instant::now();
         let capture = self.pending_capture.take();
         let capture = match capture {
@@ -795,6 +811,12 @@ impl App {
             for (key, value) in session::TICK_DETAIL_NAMES.iter().zip(self.session.take_tick_detail()) {
                 render["cpu_session_tick_detail_ms"][*key] = json!(value);
             }
+            if let Some([terrain, entities, ui]) = self.session.take_scene_profile() {
+                render["cpu_terrain_update_ms"] = json!(terrain);
+                render["cpu_entity_extract_ms"] = json!(entities);
+                render["cpu_ui_geometry_ms"] = json!(ui);
+                render["terrain_mesh_cpu_total_ms"] = json!(self.session.profile_mesh_cpu_total_ms());
+            }
             if let Some(trace) = &mut self.frame_trace {
                 trace.record(render, self.look_events);
             }
@@ -811,6 +833,7 @@ impl App {
     }
 
     fn advance(&mut self) {
+        frame_trace::complete(self);
         let advance_start = Instant::now();
         let drain_start = Instant::now();
         self.drain_requests();
@@ -1110,6 +1133,10 @@ impl ApplicationHandler for App {
                     self.sync_native_window();
                     self.publish_session();
                     self.dispatch_binding(controls::Binding::Key(code), pressed);
+                    return;
+                }
+                if frame_trace::is_toggle_key(code, pressed, event.repeat, self.session.screen()) {
+                    frame_trace::toggle(self);
                     return;
                 }
                 if code == KeyCode::F1 && pressed && !event.repeat && self.session.screen() == "game" {

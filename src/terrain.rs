@@ -601,6 +601,9 @@ impl Terrain {
             out,
         )
     }
+    pub(crate) fn mesh_cpu_total_ms(&self) -> f64 {
+        self.counters.cpu_ms
+    }
     pub fn metrics(&self) -> Value {
         let pending = self.sections.values().filter(|s| s.pending).count();
         let running = self.workers.iter().filter(|w| w.busy).count();
