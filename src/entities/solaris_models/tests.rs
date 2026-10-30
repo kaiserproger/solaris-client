@@ -33,8 +33,9 @@ fn rc2_authored_village_models_have_coherent_body_parts() {
     assert!(torso.cubes.len() >= 2 && torso.cubes[0].size[0] > torso.cubes[1].size[0],
         "golem shoulders must taper to a narrower waist");
     let head = golem.bones.iter().find(|b| b.name == "head").unwrap();
-    assert!(head.pivot[2] < torso.pivot[2] && head.pivot[1] > torso.pivot[1],
-        "golem head must sit forward and partially inside the torso");
+    let chin = head.pivot[1] + head.cubes[0].origin[1] + head.cubes[0].size[1];
+    assert!(head.pivot[2] < torso.pivot[2] && chin == torso.pivot[1] + torso.cubes[0].origin[1],
+        "golem head must sit forward on the shoulder line, as on the oracle");
     for name in ["right_arm", "left_arm"] {
         let arm = golem.bones.iter().find(|b| b.name == name).unwrap();
         assert_eq!(arm.cubes[0].size, [4., 30., 6.], "arm texture net dimensions");
@@ -303,4 +304,77 @@ fn malformed_and_duplicate_files_are_skipped_not_fatal() {
     ]);
     assert_eq!(catalog.rigs.keys().collect::<Vec<_>>(), ["ok"]);
     assert_eq!(catalog.textures["ok"], "entity/t.png");
+}
+
+fn embedded(id: &str) -> ModelFile {
+    let (_, source) = EMBEDDED.iter().find(|(name, _)| *name == format!("{id}.json")).unwrap();
+    ModelFile::parse(source).unwrap()
+}
+/// `(min, max)` of a top-level bone's cubes along `axis`, in model pixels.
+fn extent(model: &ModelFile, bone: &str, axis: usize) -> (f32, f32) {
+    let bone = model.bones.iter().find(|b| b.name == bone).unwrap();
+    bone.cubes.iter().fold((f32::MAX, f32::MIN), |(low, high), c| {
+        let start = bone.pivot[axis] + c.origin[axis];
+        (low.min(start), high.max(start + c.size[axis]))
+    })
+}
+
+#[test]
+fn iron_golem_matches_the_oracle_silhouette() {
+    // Measured on the vanilla Java oracle (golem-ortho side and front shots)
+    // in model pixels: +Y down, feet at 24, front -Z.
+    let golem = embedded("iron_golem");
+    let top = golem
+        .bones
+        .iter()
+        .map(|b| extent(&golem, &b.name, 1).0)
+        .fold(f32::MAX, f32::min);
+    // 43 px = 2.69 blocks: the golem stands its full 2.7-block hitbox height.
+    assert_eq!(top, -19., "head top");
+    assert_eq!(extent(&golem, "head", 2), (-9.5, 0.5), "head and nose sit forward of the torso");
+    assert_eq!(extent(&golem, "body", 1), (-9., 8.), "chest over waist");
+    assert_eq!(extent(&golem, "body", 2), (-6., 5.));
+    assert_eq!(extent(&golem, "right_arm", 1), (-9.5, 20.5), "arms hang from the shoulders");
+    assert_eq!(extent(&golem, "right_leg", 1), (8., 24.));
+    assert_eq!(extent(&golem, "right_leg", 0), (-7.5, -1.5));
+}
+
+#[test]
+fn child_villager_nose_is_a_small_bump_over_the_mouth() {
+    // Texture net: the child nose is a 2x2x1 box at (23, 0); the oracle side
+    // and front shots put it on the two lowest face rows, over the mouth.
+    let child = embedded("villager_baby");
+    let head = child.bones.iter().find(|b| b.name == "head").unwrap();
+    let nose = &head.cubes[1];
+    assert_eq!((nose.size, nose.uv), ([2., 2., 1.], [23., 0.]));
+    let face = &head.cubes[0];
+    assert_eq!(nose.origin[1] + nose.size[1], face.origin[1] + face.size[1], "nose ends at the chin");
+    assert_eq!(nose.origin[2] + nose.size[2], face.origin[2], "nose protrudes one pixel");
+    // Limbs follow their texture nets instead of stretched strips.
+    for (bone, size) in [("body", [4., 5., 3.]), ("right_leg", [2., 3., 2.]), ("left_leg", [2., 3., 2.])] {
+        let cube = &child.bones.iter().find(|b| b.name == bone).unwrap().cubes[0];
+        assert_eq!(cube.size, size, "{bone}");
+        assert!(cube.faces.is_empty(), "{bone} uses the plain box unwrap");
+    }
+}
+
+#[test]
+fn chest_rims_are_single_and_the_latch_straddles_the_lid_seam() {
+    for id in ["chest", "double_chest_left", "double_chest_right"] {
+        let chest = embedded(id);
+        let base = &chest.bones.iter().find(|b| b.name == "body").unwrap().cubes[0];
+        // The lid's bottom rim is the only rim at the seam: the base's sides
+        // start one texel below the base's own top rim row (v = 33).
+        for face in [Face::Front, Face::Back, Face::Left, Face::Right] {
+            let rect = base.faces[&face];
+            assert_eq!((rect[1], rect[3] - rect[1]), (34., base.size[1]), "{id} {face:?}");
+        }
+        let (_, lid_bottom) = extent(&chest, "lid", 1);
+        let (latch_top, latch_bottom) = extent(&chest, "lock", 1);
+        assert_eq!(
+            (lid_bottom - latch_top, latch_bottom - lid_bottom),
+            (2., 2.),
+            "{id}: latch hangs across the seam"
+        );
+    }
 }

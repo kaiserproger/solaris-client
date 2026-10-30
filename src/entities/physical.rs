@@ -57,6 +57,20 @@ pub(crate) fn number(models: &Models, e: &Entity, name: &str, default: i32) -> i
         .and_then(Metadata::int)
         .unwrap_or(default)
 }
+/// Whether the client's idle head glance at the local player may drive this
+/// entity. Vanilla clients never turn a NoAI mob's head (Mob flags bit 0): its
+/// look comes only from received rotation.
+pub(crate) fn may_glance(models: &Models, e: &Entity) -> bool {
+    models.motion.get(&e.type_name).is_some_and(|f| f.is_mob)
+        && e.source
+            .as_ref()
+            .is_some_and(|source| source.living.is_some())
+        && e.vehicle.is_none()
+        && e.death_tick.is_none()
+        && number(models, e, "DATA_POSE", 0) == 0
+        && number(models, e, "DATA_MOB_FLAGS_ID", 0) & 1 == 0
+        && e.type_name != "minecraft:armor_stand"
+}
 pub(crate) fn boolean(models: &Models, e: &Entity, name: &str, default: bool) -> bool {
     value(models, e, name)
         .and_then(Metadata::boolean)
@@ -694,14 +708,7 @@ impl Store {
                 .map_or((0., e.transform.yaw), |living| {
                     (living.walk.speed(1.), living.body(1.))
                 });
-            let can_look = models.motion.get(&e.type_name).is_some_and(|f| f.is_mob)
-                && e.source
-                    .as_ref()
-                    .is_some_and(|source| source.living.is_some())
-                && e.vehicle.is_none()
-                && e.death_tick.is_none()
-                && number(&models, e, "DATA_POSE", 0) == 0
-                && e.type_name != "minecraft:armor_stand";
+            let can_look = may_glance(&models, e);
             let at = e.presented_transform(tick, 0.);
             e.physical.motion.tick(&crate::motion::EntityTick {
                 tick,

@@ -71,6 +71,39 @@ Chest and bell rigs use the same +Y-down authoring convention as living
 entities. Their block-entity roots convert that space to world coordinates;
 the bell's two cuboids follow the body and rim regions of its supplied texture.
 Double-chest halves each occupy their own block and share the centered latch.
+The base's sides start one texel below its own top rim row (faces `v = 34`), so
+the lid's bottom rim is the single dark band at the seam; the latch hangs two
+pixels above and two below that seam.
+
+### Oracle-measured silhouettes
+
+Box sizes and UV rectangles are authored by inspecting the texture nets supplied
+by the local resource pack, not by importing a game model or renderer. Relative
+positions are fitted to the Java oracle screenshots: the golem is 43 authored
+model units tall, with its head on the shoulder line and its arms ending 3.5
+units above the feet; the child's nose covers the lowest two face rows.
+These are our reconstruction parameters, not extracted Mojang model constants.
+Tests in `solaris_models/tests.rs` pin that authored reconstruction.
+
+### Labels and shadows
+
+`text_display` entities (server settlement labels) are drawn by the name-tag pass
+(`render_nameplates.rs`): received text, line width, billboard, transformation,
+background, opacity, style flags and brightness override; the backdrop rests on the
+entity position and the text is lit by the received light. Living entities cast a
+blob shadow (`shadows.rs`): the runtime-supplied `misc/shadow` disc on full-block
+tops under the feet. Opacity 0.5, height fade 2 blocks, distance fade 16 blocks
+and squared light falloff are chosen approximation parameters, not measured
+vanilla formulae. The radius fit (`0.55 * width + 0.17`, golem 0.7) and extra baby
+factor 0.5 approximate the observed discs; other mobs are not individually
+measured yet.
+
+Text-display style bits and packed brightness are interpreted from server-sent
+metadata, using the existing display transform owner. Font scale 0.025 reuses the
+authored nameplate convention; the 10-unit line step and bottom-aligned backdrop
+are fitted to the visible settlement label. These values are not read from Java
+bytecode. The NoAI head-glance gate uses the server's mob flags rather than
+inventing a local look target for a stationary oracle fixture.
 
 ## Missing models
 

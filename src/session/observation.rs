@@ -757,6 +757,15 @@ impl Session {
                     },
                     &mut self.scene.dynamic,
                 )?;
+                self.entities.append_shadow_geometry(
+                    content,
+                    world,
+                    self.scene.origin,
+                    self.scene.camera_position,
+                    self.client_tick,
+                    self.presentation_partial,
+                    &mut self.scene.dynamic,
+                )?;
                 let entity_indices = self.scene.dynamic.indices.iter().map(Vec::len).sum::<usize>();
                 self.scene.entity_presentation.entity_indices = entity_indices;
                 let blocks = self.entities.append_static_block_geometry(
