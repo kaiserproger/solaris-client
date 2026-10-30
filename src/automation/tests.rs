@@ -105,6 +105,74 @@ fn respawn_handoff_preserves_writer_for_one_expected_dimension_reset() {
 }
 
 #[test]
+fn ui_respawn_click_preserves_lease_until_one_dimension_handoff() {
+    let (core, receiver) = client();
+    core.shared.observation.lock().unwrap().data = json!({"presentation_available": true});
+    let live = core.admit("a", "1", "2").unwrap();
+    let owner = std::thread::spawn(move || {
+        let request = receiver.recv_timeout(Duration::from_secs(10)).unwrap();
+        request.reply.send(Ok(json!({"status": "ok"}))).unwrap();
+    });
+    super::tools::execute(
+        &core,
+        "a",
+        "minecraft_click_screen_button",
+        &json!({
+            "expected_screen_class": "net.minecraft.client.gui.screens.DeathScreen",
+            "expected_title": "You Died!",
+            "button_label": "Respawn"
+        }),
+        &Arc::new(AtomicBool::new(false)),
+    )
+    .unwrap();
+    owner.join().unwrap();
+    let (verdict, _) = Core::lease_verdict(&mut core.control.lock(), "1", "3");
+    assert!(verdict.is_none(), "respawn must preserve the controller");
+    assert!(Arc::ptr_eq(&live, &core.admit("a", "1", "3").unwrap()));
+    let (verdict, _) = Core::lease_verdict(&mut core.control.lock(), "1", "4");
+    assert_eq!(verdict.unwrap().0, "context_changed");
+}
+
+#[test]
+fn ui_respawn_authorization_expires_on_next_writer_and_rejects_other_clicks() {
+    for (class, label, succeeds, next_writer, connection, dimension) in [
+        ("net.minecraft.client.gui.screens.DeathScreen", "Respawn", true, true, "1", "3"),
+        ("net.minecraft.client.gui.screens.DeathScreen", "Respawn", false, false, "1", "3"),
+        ("net.minecraft.client.gui.screens.DeathScreen", "Quit", true, false, "1", "3"),
+        ("net.minecraft.client.gui.screens.PauseScreen", "Respawn", true, false, "1", "3"),
+        ("net.minecraft.client.gui.screens.DeathScreen", "Respawn", true, false, "1", "4"),
+        ("net.minecraft.client.gui.screens.DeathScreen", "Respawn", true, false, "2", "3"),
+    ] {
+        let (core, receiver) = client();
+        core.shared.observation.lock().unwrap().data = json!({"presentation_available": true});
+        core.admit("a", "1", "2").unwrap();
+        let owner = std::thread::spawn(move || {
+            let request = receiver.recv_timeout(Duration::from_secs(10)).unwrap();
+            let result = if succeeds {
+                Ok(json!({"status": "ok"}))
+            } else {
+                Err("button not found".to_string())
+            };
+            request.reply.send(result).unwrap();
+        });
+        let result = super::tools::execute(
+            &core,
+            "a",
+            "minecraft_click_screen_button",
+            &json!({"expected_screen_class": class, "expected_title": "title", "button_label": label}),
+            &Arc::new(AtomicBool::new(false)),
+        );
+        assert_eq!(result.is_ok(), succeeds);
+        owner.join().unwrap();
+        if next_writer {
+            core.admit("a", "1", "2").unwrap();
+        }
+        let (verdict, _) = Core::lease_verdict(&mut core.control.lock(), connection, dimension);
+        assert_eq!(verdict.unwrap().0, "context_changed");
+    }
+}
+
+#[test]
 fn respawn_handoff_refuses_unarmed_cancelled_switched_or_skipped_contexts() {
     for (connection, dimension, armed, cancelled) in [
         ("1", "3", false, false),

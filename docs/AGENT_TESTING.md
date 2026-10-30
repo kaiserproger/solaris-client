@@ -4,6 +4,16 @@
 
 Read ../SPECIFICATION.md (especially original §16–19, §23), ../COMPATIBILITY_MATRIX.md and the sole cursor in ../LONG_TERM_PLAN.md. A requirement is not an implemented tool. The integration evidence below records exercised preview behavior, not full-client acceptance. Obtain the live schemas, supported protocol revisions, limits and actual features from discovery; do not infer support from a proposed name or cached conversation.
 
+### Death-screen respawn and controller leases
+
+Clicking the exact `DeathScreen` `Respawn` button through
+`minecraft_click_screen_button` authorizes the controller lease to follow one
+subsequent dimension-epoch increment on the same connection. The authorization
+ends on that handoff, the next writer action, or lease release; a failed click
+does not retain it. This is the real UI action, not a protocol respawn fallback.
+The `ui_respawn_` automation unit tests cover the handoff and its boundaries;
+they do not replace the windowed survival gate.
+
 ### Teleport loading versus disconnect
 
 `minecraft_observe.in_play` means the current world is ready for interaction,

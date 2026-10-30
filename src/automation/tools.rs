@@ -16,6 +16,7 @@ use std::{
 struct RespawnFence<'a> {
     core: &'a Core,
     cancelled: &'a Arc<AtomicBool>,
+    retain_after_success: bool,
 }
 
 impl Drop for RespawnFence<'_> {
@@ -35,7 +36,10 @@ impl Drop for RespawnFence<'_> {
                 // Complete the authorized handoff even if the owner reply won
                 // the race with the watchdog's context-change notification.
                 lease.observe_respawn(&observed.connection_epoch, &observed.dimension_epoch);
-                lease.pending_respawn = None;
+                if !self.retain_after_success {
+                    lease.pending_respawn = None;
+                    lease.pending_ui_respawn = false;
+                }
             }
         }
     }
@@ -168,7 +172,10 @@ pub(super) fn execute(
     };
     // Respawn authorizes one server dimension-epoch reset, not a connection
     // switch. The live writer/cancellation fences remain active across it.
-    let _respawn_fence = if name == "minecraft_respawn" {
+    let ui_respawn = name == "minecraft_click_screen_button"
+        && args["expected_screen_class"] == "net.minecraft.client.gui.screens.DeathScreen"
+        && args["button_label"] == "Respawn";
+    let mut respawn_fence = if name == "minecraft_respawn" || ui_respawn {
         let mut control = core.control.lock();
         let lease = control.lease.as_mut().ok_or("lease_expired")?;
         if lease.session != session {
@@ -178,7 +185,12 @@ pub(super) fn execute(
             return Err("writer_action_busy".into());
         }
         lease.pending_respawn = Some(cancelled.clone());
-        Some(RespawnFence { core, cancelled })
+        lease.pending_ui_respawn = ui_respawn;
+        Some(RespawnFence {
+            core,
+            cancelled,
+            retain_after_success: false,
+        })
     } else {
         None
     };
@@ -215,6 +227,11 @@ pub(super) fn execute(
             return Err("owner_result_unknown".into());
         }
     };
+    if ui_respawn && result.is_ok()
+        && let Some(fence) = &mut respawn_fence
+    {
+        fence.retain_after_success = true;
+    }
     if let Ok(value) = &result {
         if value["gpu_completion"] == true {
             if let (Some(uri), Some(path)) =

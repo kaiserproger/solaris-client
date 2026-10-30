@@ -26,6 +26,7 @@ pub(super) struct Lease {
     pub connection: String,
     pub dimension: String,
     pub pending_respawn: Option<Arc<AtomicBool>>,
+    pub pending_ui_respawn: bool,
 }
 impl Lease {
     pub fn observe_respawn(&mut self, connection: &str, dimension: &str) {
@@ -45,6 +46,7 @@ impl Lease {
             self.dimension.clear();
             self.dimension.push_str(dimension);
             self.pending_respawn = None;
+            self.pending_ui_respawn = false;
         }
     }
 }
@@ -208,8 +210,13 @@ impl Core {
             if lease.expires <= Instant::now() || !lease.live.load(Ordering::Acquire) {
                 return Err("lease_expired".into());
             }
+            lease.observe_respawn(connection, dimension);
             if lease.connection != connection || lease.dimension != dimension {
                 return Err("stale_context".into());
+            }
+            if lease.pending_ui_respawn {
+                lease.pending_respawn = None;
+                lease.pending_ui_respawn = false;
             }
             lease.expires = Instant::now() + Duration::from_secs(120);
             return Ok(lease.live.clone());
@@ -223,6 +230,7 @@ impl Core {
             connection: connection.into(),
             dimension: dimension.into(),
             pending_respawn: None,
+            pending_ui_respawn: false,
         });
         c.controller_revision = c.controller_revision.wrapping_add(1);
         Ok(live)
