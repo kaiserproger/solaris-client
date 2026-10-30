@@ -108,3 +108,30 @@ fn ordinary_placement_is_immediate_and_reconciles_server_updates_and_ack() {
         assert!(!session.predicted_blocks.contains_key(&PLACED));
     }
 }
+
+#[test]
+fn door_use_predicts_both_halves_and_reconciles_server_rejection() {
+    for (clicked_upper, accepted) in [(false, false), (true, false), (false, true), (true, true)] {
+        let mut session = super::mining_start_tests::session();
+        let _peer = super::mining_start_tests::connect(&mut session);
+        session.content.as_mut().unwrap().insert_test_door();
+        let upper = [PLACED[0], PLACED[1] + 1, PLACED[2]];
+        session.world.set(PLACED, 1, |state| Ok(state == 0)).unwrap();
+        session.world.set(upper, 3, |state| Ok(state == 0)).unwrap();
+        session.use_item_on(if clicked_upper { upper } else { PLACED }, 3, 0).unwrap();
+        assert_eq!(session.world.block(PLACED), Some(2));
+        assert_eq!(session.world.block(upper), Some(4), "the paired door half follows the click");
+        assert_eq!(session.predicted_blocks[&PLACED].sequence, 1);
+        assert_eq!(session.predicted_blocks[&upper].sequence, 1);
+        for (position, state) in [(PLACED, if accepted { 2 } else { 1 }), (upper, if accepted { 4 } else { 3 })] {
+            let mut packet = Writer::default();
+            packet.i64(protocol::pack_pos(position));
+            packet.var(state);
+            session.apply(Phase::Play, cb::BLOCK_UPDATE, &packet.0).unwrap();
+        }
+        ack(&mut session, 1);
+        assert_eq!(session.world.block(PLACED), Some(if accepted { 2 } else { 1 }));
+        assert_eq!(session.world.block(upper), Some(if accepted { 4 } else { 3 }));
+        assert!(session.predicted_blocks.is_empty());
+    }
+}

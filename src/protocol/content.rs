@@ -2193,6 +2193,38 @@ impl Content {
         }
     }
     #[cfg(test)]
+    pub(crate) fn insert_test_door(&mut self) {
+        self.insert_test_block_interaction(0, true);
+        self.insert_test_block_interaction(1, false);
+        self.block_interactions[1].use_without_item = Arc::from("DoorBlock");
+        self.block_interactions[1].hand_open = Some(true);
+        self.required_features.blocks.insert(self.names[1].clone(), Arc::from([]));
+        self.property_domains.insert(self.names[1].clone(), BTreeMap::from([
+            ("half".into(), vec!["lower".into(), "upper".into()]),
+            ("open".into(), vec!["false".into(), "true".into()]),
+        ]));
+        for _ in 0..3 {
+            self.states.push(self.states[1].clone());
+            self.properties.push(BTreeMap::new());
+        }
+        let domains = &self.property_domains[&self.names[1]];
+        let mut states = vec![u32::MAX; 4];
+        for (id, half, open) in [(1, "lower", "false"), (2, "lower", "true"),
+                                 (3, "upper", "false"), (4, "upper", "true")] {
+            let properties = BTreeMap::from([
+                ("half".to_owned(), half.to_owned()),
+                ("open".to_owned(), open.to_owned()),
+            ]);
+            let key = property_key(domains, |key| properties.get(key).map(String::as_str)).unwrap();
+            states[key] = id;
+            self.properties[id as usize] = properties;
+        }
+        self.block_states[1] = states;
+        self.insert_test_block_sound(1, 1., 1., BTreeMap::from([
+            ("open".into(), "test:open".into()), ("close".into(), "test:close".into()),
+        ]));
+    }
+    #[cfg(test)]
     pub(crate) fn test_cube() -> Self {
         let quad = |face| BakedQuad {
             positions: super::models::face_positions(face, [0.; 3], [1.; 3]),

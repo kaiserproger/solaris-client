@@ -162,6 +162,26 @@ impl Player {
                     10
                 };
                 self.predict_block(world, position, next, flags)?;
+                if short_class(owner) == "DoorBlock" {
+                    let half = property(content, state, "half")?;
+                    let (direction, other_half) = match half {
+                        "lower" => (1, "upper"),
+                        "upper" => (0, "lower"),
+                        _ => return Err(format!("invalid door half {half}")),
+                    };
+                    let other_position = relative(position, direction)?;
+                    let other = self.use_block(world, other_position)?;
+                    if short_class(content.block_use_owners(other)?.1) == "DoorBlock"
+                        && property(content, other, "half")? == other_half
+                    {
+                        self.predict_block(
+                            world,
+                            other_position,
+                            set(content, next, "half", other_half)?,
+                            flags,
+                        )?;
+                    }
+                }
                 let pitch = world.next_float()? * 0.1 + 0.9;
                 self.play_use_level_sound(
                     world,
