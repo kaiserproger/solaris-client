@@ -327,6 +327,7 @@ pub struct World {
     pub height: i32,
     pub border: Border,
     resident_bytes: usize,
+    view_distance: u32,
     chunk_lifecycle_revision: u64,
     random: random::RandomSources,
     pub(crate) environment: crate::environment::PointState,
@@ -369,6 +370,20 @@ impl World {
     pub fn resident_bytes(&self) -> usize {
         self.resident_bytes
     }
+    pub(crate) fn set_view_distance(&mut self, distance: u32) {
+        self.view_distance = distance.clamp(2, 32);
+    }
+
+    fn view_columns(&self) -> usize {
+        let side = self.view_distance.max(16) as usize * 2 + 1;
+        side * side
+    }
+
+    fn byte_limit(&self) -> usize {
+        // Seed-100 measured 134,358 bytes per column at 32 chunks. The 192 KiB
+        // allowance leaves ~46% headroom and retains the <=16 512 MiB floor.
+        (self.view_columns() * 192 * 1024).max(512 * 1024 * 1024)
+    }
     pub fn chunk(&self, pos: [i32; 2]) -> Option<&Chunk> {
         self.chunks.get(&pos).map(Arc::as_ref)
     }
@@ -376,7 +391,10 @@ impl World {
         self.chunks.iter()
     }
     pub fn insert(&mut self, pos: [i32; 2], mut chunk: Chunk) -> Result<()> {
-        if self.chunks.len() >= 2048 && !self.chunks.contains_key(&pos) {
+        // Allow two view squares during movement while preserving the old floor.
+        if self.chunks.len() >= (self.view_columns() * 2).max(2048)
+            && !self.chunks.contains_key(&pos)
+        {
             return Err("client chunk residency count bound reached".into());
         }
         if !chunk.surface_heightmap_received {
@@ -386,8 +404,11 @@ impl World {
         }
         let old_bytes = self.chunks.get(&pos).map_or(0, |c| c.resident_bytes());
         let next_bytes = self.resident_bytes - old_bytes + chunk.resident_bytes();
-        if next_bytes > 512 * 1024 * 1024 {
-            return Err("client decoded chunk residency byte bound reached".into());
+        if next_bytes > self.byte_limit() {
+            return Err(format!(
+                "client decoded chunk residency byte bound reached: {} bytes across {} columns, next {} bytes",
+                self.resident_bytes, self.chunks.len(), next_bytes
+            ));
         }
         self.chunks.insert(pos, Arc::new(chunk));
         self.resident_bytes = next_bytes;
@@ -479,6 +500,7 @@ impl World {
         state: u32,
         mut is_air: impl FnMut(u32) -> Result<bool>,
     ) -> Result<()> {
+        let byte_limit = self.byte_limit();
         let s =
             section_index(self.min_y, self.height, p[1]).ok_or("block update outside dimension")?;
         if let Some(chunk) = self.chunks.get_mut(&chunk_position(p)) {
@@ -503,7 +525,7 @@ impl World {
             } else {
                 chunk.sections[s].blocks.size.div_ceil(2) * 8
             };
-            if self.resident_bytes + growth_bound > 512 * 1024 * 1024 {
+            if self.resident_bytes + growth_bound > byte_limit {
                 return Err("client decoded chunk residency byte bound reached".into());
             }
             let chunk = Arc::make_mut(chunk);
@@ -639,6 +661,44 @@ mod tests {
             surface_heightmap: Arc::new(SurfaceHeightmap::new(16).unwrap()),
             surface_heightmap_received: false,
         }
+    }
+
+    #[test]
+    fn world_accepts_a_full_32_chunk_view_square() {
+        let mut world = World::new(0, 16);
+        world.set_view_distance(32);
+        for z in -32..=32 {
+            for x in -32..=32 {
+                world.insert([x, z], chunk(1, 0)).unwrap();
+            }
+        }
+        assert_eq!(world.chunk_count(), 65 * 65);
+    }
+
+    #[test]
+    fn radius_32_allows_observed_column_memory_with_margin() {
+        let mut world = World::new(0, 384);
+        world.set_view_distance(32);
+        let mut template = chunk(1, 0);
+        let mut section = (*template.sections[0]).clone();
+        section.blocks.bits = 4;
+        section.blocks.words = vec![0; 256];
+        let section = Arc::new(section);
+        template.sections = vec![section; 24];
+        let light = Arc::new(vec![0xff; 2048]);
+        for layer in 0..26 {
+            template.sky.insert(layer, light.clone());
+            template.block.insert(layer, light.clone());
+        }
+        assert!(template.resident_bytes() >= 134_000);
+        for z in -32..=32 {
+            for x in -32..=32 {
+                world.insert([x, z], template.clone()).unwrap();
+            }
+        }
+        assert_eq!(world.chunk_count(), 65 * 65);
+        world.set([0, 0, 0], 2, |state| Ok(state == 0)).unwrap();
+        assert!(world.resident_bytes() > 512 * 1024 * 1024);
     }
 
     #[test]

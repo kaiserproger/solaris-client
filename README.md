@@ -53,6 +53,15 @@ The first Play installs the server's content cache (Minecraft 26.3 registries, t
 The client renders vanilla 26.1.2 server-driven dialogs (`show_dialog`/`clear_dialog`): `notice`, `confirmation` and `multi_action` with plain-message bodies and `text`, `number_range`, `boolean` and `single_option` inputs. Buttons answer with `custom_click_action` (`dynamic/custom` and `custom` actions carry the typed input values; `run_command` actions send the templated command). `after_action`, `can_close_with_escape` and Escape-as-cancel follow vanilla. Not rendered: `server_links`/`dialog_list`, item bodies, button tooltips and vanilla's "custom screen" warning button. The server side is documented in the Solaris repo (`docs/DIALOGS.md`).
 
 ### Far terrain
+The render-distance setting ranges from 2 to 32 chunks in both the launcher
+and in-game Video options. A multiplayer server can impose a lower view
+distance; its operator must configure `server.view_distance = 32` to allow
+the full setting.
+
+When far terrain is active, ordinary loaded terrain and far tiles share an
+outer-distance fade instead of applying a separate fog cliff at the chunk edge.
+Received terrain also remains represented by far tiles while its section meshes
+are still being built, avoiding gaps during loading.
 
 On Solaris servers with `[lod]` enabled the client draws a coarse heightfield of the overworld beyond the render distance, fading into the sky. `far_terrain` in `client-settings.json` sets its reach in blocks (2048 by default, 1024 with the Low graphics preset, 0 turns it off; the server caps it). It is built from the chunks you received, the server's stored chunks and, for never-generated land, the server's terrain generator. Only if the server operator enables `share_terrain_keys` does the server send its generation program and this machine generate never-generated land itself, on the GPU (or a CPU thread without compute support); singleplayer worlds always enable it. Tiles are cached as heights and colours under `far-terrain/`. `SOLARIS_CLIENT_FAR_TERRAIN=<blocks>` overrides the setting; `SOLARIS_CLIENT_FAR_GPU=0` forces CPU generation.
 

@@ -83,7 +83,8 @@ impl Renderer {
         let fully_fogged = !self.reference_mode
             && self.graphics.features().hdr
             && env.sky_kind == SkyKind::Overworld
-            && env.fog_alpha >= 1.;
+            && env.fog_alpha >= 1.
+            && !(env.far_fog && scene.far.distance > 0.);
         let fog_sphere = (env.fog_start < env.fog_end).then_some(env.fog_end + FOG_MARGIN);
         let fog_cylinder = (env.render_fog_start < env.render_fog_end)
             .then_some(env.render_fog_end + FOG_MARGIN);
@@ -348,7 +349,7 @@ impl Renderer {
             fov.to_radians(),
             self.config.width as f32 / self.config.height as f32,
             fancy,
-            self.chunks.keys().map(|key| [key[0], key[2]]),
+            scene.far.covered_columns.iter().copied(),
         );
         let taa = fancy && self.post.taa();
         let open_air = fancy && env.fog_start >= 0.;
@@ -473,7 +474,7 @@ impl Renderer {
                 portal_layer(0),
                 portal_layer(1),
                 scene.shader_game_time.unwrap_or(0.),
-                0.,
+                if env.far_fog { scene.far.distance } else { 0. },
             ],
             // Source beacon_beam.fsh reconstructs eye depth using the OpenGL
             // projection's row 3 coefficients, not WebGPU's zero-to-one matrix.
@@ -1485,6 +1486,14 @@ mod terrain_translucency_tests {
         renderer.prepare_visibility(&scene, view).unwrap();
         assert_eq!(renderer.stats.visible_chunks, 1);
         assert_eq!(renderer.stats.fog_rejected_chunks, 1);
+        // Far terrain moves the visible fog edge beyond the ordinary chunk
+        // fog end, so that old end must not cull real geometry.
+        scene.environment.far_fog = true;
+        scene.far.distance = 2048.;
+        renderer.prepare_visibility(&scene, view).unwrap();
+        assert_eq!(renderer.stats.visible_chunks, 2);
+        assert_eq!(renderer.stats.fog_rejected_chunks, 0);
+        scene.environment.far_fog = false;
         // Reference rendering and non-Fancy shading keep every section.
         renderer.set_graphics_preset(GraphicsPreset::Low);
         renderer.prepare_visibility(&scene, view).unwrap();

@@ -653,6 +653,7 @@ impl Session {
             return Err("unsupported dimension height/min_y bounds".into());
         }
         self.world = World::new(min_y as i32, height as i32);
+        self.world.set_view_distance(self.render_distance);
         self.world.initialize_random_sources()?;
         self.world
             .configure_environment_context(&dimension, seed, sea_level)?;

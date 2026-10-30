@@ -257,7 +257,7 @@ pub fn render_distance(settings: &ClientSettings) -> u32 {
     settings
         .get("render_distance")
         .and_then(|v| v.as_u64())
-        .map_or(8, |v| v.clamp(2, 16) as u32)
+        .map_or(8, |v| v.clamp(2, 32) as u32)
 }
 
 pub fn fullscreen(settings: &ClientSettings) -> bool {

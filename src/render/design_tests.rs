@@ -268,6 +268,16 @@ fn terrain_fog_ends_exactly_on_the_sky_pixel_behind_it() {
             );
         }
     }
+    // With far terrain, the loaded terrain must use the far edge fog curve,
+    // not disappear at the old near fog boundary.
+    scene.far.distance = 1000.;
+    scene.environment.far_fog = true;
+    let with_far = pixels(&mut renderer, &scene);
+    assert!(
+        mean_abs_diff(&sky, &with_far) > 20.,
+        "loaded terrain must remain visible when far terrain is enabled"
+    );
+    scene.far.distance = 0.;
     // Control: without fog the quad is visible, so the match above is not vacuous.
     scene.environment.fog_start = 5000.;
     scene.environment.fog_end = 6000.;

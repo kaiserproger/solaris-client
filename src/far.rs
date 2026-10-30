@@ -154,11 +154,24 @@ pub(crate) fn desired_tiles(
         if d > distance {
             return;
         }
-        if key.level > MIN_LEVEL && d < SPLIT * key.size() as f64 {
+        if covered(key) {
+            return;
+        }
+        // Keep a block-resolution band beside resident chunks, independent
+        // of the camera distance (including a 32-chunk view). Coarser tiles
+        // elsewhere retain the regular quadtree budget.
+        let borders_loaded = key.level <= 3 && key.level > MIN_LEVEL
+            && (-1..=1).any(|dx| {
+                (-1..=1).any(|dz| {
+                    (dx != 0 || dz != 0)
+                        && covered(TileKey { x: key.x + dx, z: key.z + dz, ..key })
+                })
+            });
+        if key.level > MIN_LEVEL && (d < SPLIT * key.size() as f64 || borders_loaded) {
             for child in key.children() {
                 visit(child, centre, distance, covered, out);
             }
-        } else if !covered(key) {
+        } else {
             out.push((d, key));
         }
     }
@@ -1102,6 +1115,28 @@ mod tests {
                 .windows(2)
                 .all(|w| w[0].distance([10., -20.]) <= w[1].distance([10., -20.]))
         );
+    }
+
+    #[test]
+    fn far_tiles_next_to_loaded_terrain_keep_block_resolution() {
+        for radius in [16, 32] {
+            let covered = |key: TileKey| {
+                let [x, z] = key.origin();
+                let size = key.size();
+                x >= -i64::from(radius) * 16
+                    && z >= -i64::from(radius) * 16
+                    && x + size <= i64::from(radius + 1) * 16
+                    && z + size <= i64::from(radius + 1) * 16
+            };
+            let tiles = desired_tiles([8., 8.], 2048., &covered);
+            let edge = i64::from(radius + 1) * 16;
+            let tile = tiles.iter().find(|tile| {
+                let [x, z] = tile.origin();
+                x <= edge && x + tile.size() > edge && z <= 8 && z + tile.size() > 8
+            }).expect("far terrain just outside loaded chunks");
+            assert_eq!(tile.level, 0, "radius {radius}: {tile:?}");
+            assert!(tiles.len() < 4096, "radius {radius}: {} tiles", tiles.len());
+        }
     }
 
     #[test]

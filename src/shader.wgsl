@@ -301,6 +301,18 @@ fn sky_disc_fog(radius_fraction: f32) -> f32 {
         linear_fog(cylindrical, camera.viewport.z, camera.viewport.z)) * camera.star.w;
 }
 fn fogged(in: SceneOut, color: vec4<f32>) -> vec4<f32> {
+    // Far and loaded terrain share the same horizontal outer-edge fade.
+    // Special near-camera fog (underwater, blindness) retains its own path.
+    if camera.material_globals.w > 0.0 {
+        let distance = length(in.relative.xz);
+        let far_fog = smoothstep(camera.material_globals.w * 0.75, camera.material_globals.w, distance);
+        if camera.fancy.x > 0.5 {
+            let ray = normalize(in.relative + vec3<f32>(0.0, 0.00001, 0.0));
+            let sky = select(srgb_to_linear(camera.fog.rgb), atmosphere_sky(ray), camera.viewport.w == 1.0);
+            return vec4<f32>(mix(color.rgb, sky, far_fog), color.a);
+        }
+        return target_color(vec4<f32>(mix(color.rgb, camera.fog.rgb, far_fog), color.a));
+    }
     let fog = max(linear_fog(in.fog_distance.x, camera.fog.w, camera.sky.w),
         linear_fog(in.fog_distance.y, camera.star.y, camera.star.z)) * camera.star.w;
     if camera.fancy.x > 0.5 {

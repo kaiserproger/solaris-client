@@ -18,7 +18,7 @@ impl Renderer {
         scene: &Scene,
         observation: &Observation,
     ) -> Result<(), String> {
-        if scene.chunks.len() > mesh::MAX_CHUNKS {
+        if scene.chunks.len() > crate::terrain::section_limit(scene.render_distance) {
             return Err("terrain_chunk_residency_limit".into());
         }
         for chunk in scene.chunks.values() {

@@ -615,10 +615,11 @@ fn client_settings_merge_does_not_erase_game_options() {
     .into_iter()
     .collect();
     config::save_client_settings(&app.layout.client_settings(), &settings).unwrap();
-    app.save_setting("render_distance", serde_json::json!(12));
+    app.save_setting("render_distance", serde_json::json!(32));
     let saved = config::load_client_settings(&app.layout.client_settings());
     assert_eq!(saved["fov"], 92);
-    assert_eq!(saved["render_distance"], 12);
+    assert_eq!(saved["render_distance"], 32);
+    assert_eq!(config::render_distance(&saved), 32);
 }
 
 #[test]

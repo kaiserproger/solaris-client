@@ -737,7 +737,7 @@ impl App {
                     let mut distance = config::render_distance(&self.settings);
                     ui.label("Render distance");
                     ui.spacing_mut().slider_width = (ui.available_width() - 130.0).clamp(160.0, 300.0);
-                    if ui.add(egui::Slider::new(&mut distance, 2..=16).suffix(" chunks")).changed() { self.save_setting("render_distance", serde_json::json!(distance)); }
+                    if ui.add(egui::Slider::new(&mut distance, 2..=32).suffix(" chunks")).changed() { self.save_setting("render_distance", serde_json::json!(distance)); }
                     let mut fullscreen = config::fullscreen(&self.settings);
                     if ui.checkbox(&mut fullscreen, "Start Minecraft in fullscreen").changed() { self.save_setting("fullscreen", serde_json::json!(fullscreen)); }
                     });
