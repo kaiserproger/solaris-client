@@ -156,6 +156,10 @@ the confirmed state; rejected or unconfirmed actions restore the latest known
 server state and collision. The real-session `prediction_tests` regressions
 exercise these paths without a graphical seat; visual mining/placement checks
 remain a separate acceptance gate.
+Hand-use prediction for a door also updates its matching other half under the
+same sequence; the received updates and acknowledgement reconcile both halves.
+`door_use_predicts_both_halves_and_reconciles_server_rejection` covers clicks on
+either half and accepted and rejected updates.
 
 Opaque face shading samples the outward neighbor's received sky/block light, including chunk boundaries and the received layer above/below the dimension. A light update invalidates adjacent cached meshes as well as its own chunk. Missing light remains unknown rather than invented full brightness. Terminal transport errors are retained independently of the bounded packet queue; after queued packets drain, the original error is delivered exactly once, and closed streams fail the session instead of looking connected indefinitely.
 
