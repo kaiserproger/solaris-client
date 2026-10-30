@@ -118,6 +118,61 @@ fn camera_for(position: [i32; 3]) -> ([f64; 3], [f64; 3]) {
     (origin, camera)
 }
 
+#[test]
+fn authored_village_models_have_upright_geometry() {
+    use super::super::solaris_models::ModelFile;
+    let world = World::new(0, 256);
+    let position = [0, 64, 0];
+    let (origin, camera) = camera_for(position);
+    for (part, model, key, texture) in [
+        ("single", include_str!("../../../assets/solaris/models/entity/chest.json"), "minecraft:chest#main", "minecraft:entity/chest/normal"),
+        ("left", include_str!("../../../assets/solaris/models/entity/double_chest_left.json"), "minecraft:double_chest_left#main", "minecraft:entity/chest/normal_left"),
+        ("right", include_str!("../../../assets/solaris/models/entity/double_chest_right.json"), "minecraft:double_chest_right#main", "minecraft:entity/chest/normal_right"),
+    ] {
+        for facing in ["north", "south", "east", "west"] {
+            let content = village_content("minecraft:chest", "minecraft:chest",
+                BTreeMap::from([("type".into(), part.into()), ("facing".into(), facing.into())]),
+                vec![(texture, 3)]);
+            let mut store = super::super::Store::new();
+            store.activate_models(Arc::new(models_with(vec![(key.into(), ModelFile::parse(model).unwrap().bake().unwrap())])));
+            place(&mut store, &content, position);
+            let mut geometry = DynamicGeometry::default();
+            render_static(&mut store, &content, &world, origin, camera, 0., &mut geometry);
+            assert_eq!(geometry.vertices.len(), 72);
+            let body_y = geometry.vertices[..24].iter().map(|v| v.position[1]).sum::<f32>();
+            let lid_y = geometry.vertices[24..48].iter().map(|v| v.position[1]).sum::<f32>();
+            assert!(lid_y > body_y, "{part} {facing}: lid must be above base");
+            let latch = &geometry.vertices[48..72];
+            let center = |axis: usize| latch.iter().map(|v| v.position[axis]).sum::<f32>() / latch.len() as f32;
+            let (axis, sign) = match facing {
+                "north" => (2, -1.),
+                "south" => (2, 1.),
+                "east" => (0, 1.),
+                _ => (0, -1.),
+            };
+            assert!((center(axis) - 0.5) * sign > 0.4, "{part} {facing}: latch must face outward");
+            assert!(geometry.vertices[..48].iter().all(|v| (-0.00001..=1.00001).contains(&v.position[0]) && (-0.00001..=1.00001).contains(&v.position[2])), "{part} {facing}: chest body must stay in its block");
+        }
+    }
+    for attachment in ["floor", "ceiling", "single_wall", "double_wall"] {
+        let content = village_content("minecraft:bell", "minecraft:bell",
+            BTreeMap::from([("attachment".into(), attachment.into()), ("facing".into(), "north".into())]),
+            vec![("minecraft:entity/bell/bell_body", 3)]);
+        let rig = ModelFile::parse(include_str!("../../../assets/solaris/models/entity/bell.json")).unwrap().bake().unwrap();
+        let mut store = super::super::Store::new();
+        store.activate_models(Arc::new(models_with(vec![("minecraft:bell#main".into(), rig)])));
+        place(&mut store, &content, position);
+        let mut geometry = DynamicGeometry::default();
+        render_static(&mut store, &content, &world, origin, camera, 0., &mut geometry);
+        assert!(!geometry.vertices.is_empty());
+        assert!(geometry.vertices.iter().all(|v| (0.0..=1.0).contains(&v.position[0]) && (0.0..=1.0).contains(&v.position[1]) && (0.0..=1.0).contains(&v.position[2])), "{attachment}: bell must hang inside its block");
+        let top = geometry.vertices.iter().map(|v| v.position[1]).fold(f32::NEG_INFINITY, f32::max);
+        let bottom = geometry.vertices.iter().map(|v| v.position[1]).fold(f32::INFINITY, f32::min);
+        assert_eq!(top, 13. / 16., "{attachment}: bell top must meet its support");
+        assert_eq!(bottom, 4. / 16., "{attachment}: bell rim must hang below support");
+    }
+}
+
 fn chest_rig() -> Rig {
     Rig {
         bones: vec![
