@@ -14,7 +14,7 @@ env:
   # `local_addr` listening-line change the singleplayer port discovery relies on.
   # Push both pinned commits before CI runs; re-bump the core SHA if
   # pauline/release moves before the release tag is created.
-  SOLARIS_REVISION: cc3b2663bcae8f8a6838cd5dff77d136ee7b0435
+  SOLARIS_REVISION: 954833419395c29af30cd0d06524b1097594e4cd
   SOLARIS_PLUGINS_REVISION: 63540715138d5e74d5a00a595992d5ebe9056371
 
 permissions:
