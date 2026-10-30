@@ -1,8 +1,8 @@
 # Graphics presets and shader design passes
 
 Client setting `graphics_preset` (Options > Video > Graphics, cycles Low → Medium → High; persisted
-client-locally; default `medium`). It replaces the old boolean `fancy_shaders`; a persisted
-`fancy_shaders: false` migrates once to `low`, `true` to `medium`.
+client-locally; default `low`, the vanilla look). It replaces the old boolean `fancy_shaders`; a
+persisted `fancy_shaders: false` migrates once to `low`, `true` to `medium`.
 
 | Pass / feature | Low | Medium | High |
 | --- | --- | --- | --- |
@@ -14,9 +14,20 @@ client-locally; default `medium`). It replaces the old boolean `fancy_shaders`; 
 | Water | vanilla | sky reflection + depth tint | + refraction of the opaque scene, Beer–Lambert absorption, screen-space reflection with sky fallback |
 | TAA | – | – | 8-sample Halton jitter, Catmull-Rom history, variance clipping |
 
-Low is the GT 1030 target: it runs none of the new passes and renders exactly the former `Off` pixels.
+Low is the default because the client must look like vanilla Minecraft; Medium and High are opt-in
+shader looks. Low is also the GT 1030 target: it runs none of the optional HDR design passes and
+keeps world colours display-encoded instead of applying bloom or ACES.
 Presets switch at runtime (`Renderer::set_graphics_preset` rebuilds cascade array, scene copy, post
 targets and TAA history); a resize reallocates the same set.
+
+The HUD darkness vignette uses the runtime-loaded `misc/vignette` texture and multiplicative
+blending below the HUD. Its target follows received camera-block light and dimension ambient
+light; a 1% per-tick easing rate was fitted to paired Java/native night/day captures. Low stars
+use brightness squared, fitted to their observed contribution over the night sky. No game
+implementation or model data was copied for either change. Sky colour and fog use the client
+render-distance option capped by the server-announced chunk radius.
+The vignette and inverting crosshair have dedicated UI index partitions; neither changes the
+normal alpha blend of the three ordinary overlay layers.
 
 ## Atmosphere (`src/render/atmosphere.wgsl`)
 
@@ -65,6 +76,10 @@ visible through it.
 `src/render/design_tests.rs` (real GPU): sunset warmth, Low sky untouched, fog ends on the sky pixel,
 god rays vs occluder, shadows in every cascade count, High water, jitter, TAA convergence/reprojection,
 runtime preset switching, plus unit tests in `graphics.rs`/`shadow.rs`/`post.rs`.
+`src/render/shader_tests.rs` covers multiplicative vignette output without changing normal UI
+alpha blending, and the observed Low star contribution. `environment/vignette.rs` covers easing
+and dimension ambient light; session regressions cover server-capped render distance and sampling
+open sky above stored light sections.
 Capture tooling for the before/after receipts: `.analysis/shaderdesign/capture_poses.py`.
 
 ## Receipts (RTX 4050 laptop, shared machine, plains render distance 12, uncapped fps)

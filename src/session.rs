@@ -144,6 +144,8 @@ pub struct Session {
     /// distance is in chunks, FOV in degrees, sensitivity multiplies the 0.12
     /// base look scale, volume is the Master gain. All defaults live on UiState.
     render_distance: u32,
+    /// Chunk radius the server last announced (login, set_chunk_cache_radius).
+    server_view_distance: Option<u32>,
     fov_deg: f32,
     mouse_sensitivity: f32,
     damage_tilt_strength: f64,
@@ -240,6 +242,7 @@ impl Session {
             shutdown_requested: false,
             debug_overlay_pending: false,
             render_distance: UiState::DEFAULT_RENDER_DISTANCE,
+            server_view_distance: None,
             fov_deg: UiState::DEFAULT_FOV_DEG,
             mouse_sensitivity: UiState::DEFAULT_MOUSE_SENSITIVITY,
             damage_tilt_strength: UiState::DEFAULT_DAMAGE_TILT_STRENGTH,
@@ -420,6 +423,14 @@ impl Session {
     pub fn render_distance(&self) -> u32 {
         self.render_distance
     }
+    /// The render distance the world is seen with: the client option capped
+    /// by the server's chunk radius once one arrived, as in vanilla. Fog and
+    /// sky colour follow it, so a server with a short radius fogs closer.
+    pub(super) fn effective_render_distance(&self) -> u32 {
+        self.server_view_distance
+            .filter(|radius| *radius > 0)
+            .map_or(self.render_distance, |radius| self.render_distance.min(radius))
+    }
     pub fn fov_deg(&self) -> f32 {
         self.fov_deg
     }
@@ -541,6 +552,7 @@ impl Session {
         self.loading = Some(receiver);
         self.scene = Scene::default();
         self.scene.render_distance = self.render_distance;
+        self.server_view_distance = None;
         if let (Some(mut ui), Some(content)) = (previous_ui, previous_content) {
             ui.clear_session();
             ui.release_all();
@@ -972,6 +984,8 @@ impl Session {
                 self.client_tick,
                 &mut self.commands,
             )?;
+            self.environment
+                .tick_vignette(&self.world, self.player.eye_position())?;
             self.tick_detail_ms[5] += start.elapsed().as_secs_f64() * 1000.;
             start = Instant::now();
             self.entities.set_look_target(
@@ -1091,6 +1105,9 @@ impl Session {
         let result = if ui.advance_animations(now) {
             self.scene.overlay.vertices.clear();
             for indices in &mut self.scene.overlay.indices {
+                indices.clear();
+            }
+            for indices in &mut self.scene.overlay.overlay_blends {
                 indices.clear();
             }
             ui.render(content, &self.inventory, &mut self.scene.overlay)

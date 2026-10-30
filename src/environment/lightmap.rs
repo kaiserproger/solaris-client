@@ -24,8 +24,8 @@ impl LightmapInputs {
             for block in 0..16 {
                 let b = block as f32 / 15.;
                 let s = sky as f32 / 15.;
-                let b = b / (4. - 3. * b) * self.block_factor;
-                let s = s / (4. - 3. * s) * self.sky_factor;
+                let b = level_brightness(b) * self.block_factor;
+                let s = level_brightness(s) * self.sky_factor;
                 let tint_mix = 0.9 * (2. * block as f32 / 15. - 1.).powi(2);
                 let mut color = [0.; 3];
                 for (i, c) in color.iter_mut().enumerate() {
@@ -53,6 +53,10 @@ impl LightmapInputs {
         }
         out
     }
+}
+/// Perceived brightness of a light level given as a 0..=1 fraction of 15.
+pub(super) fn level_brightness(fraction: f32) -> f32 {
+    fraction / (4. - 3. * fraction)
 }
 #[derive(Default)]
 pub(super) struct LightmapCache {

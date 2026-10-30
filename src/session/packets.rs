@@ -312,7 +312,7 @@ impl Session {
                     r.string(32767)?;
                 }
                 r.var()?;
-                r.var()?;
+                self.server_view_distance = u32::try_from(r.var()?).ok();
                 r.var()?;
                 r.bool()?;
                 r.bool()?;
@@ -326,6 +326,10 @@ impl Session {
                     self.entities
                         .set_local_player(self.player.entity_id, uuid)?;
                 }
+            }
+            cb::SET_CHUNK_CACHE_RADIUS => {
+                self.server_view_distance = u32::try_from(r.var()?).ok();
+                r.done()?;
             }
             cb::RESPAWN => {
                 self.spawn_info(r)?;
@@ -618,7 +622,7 @@ impl Session {
             // predictions already emit unsupported_local_particle_presentation).
             cb::ANIMATE | cb::AWARD_STATS | cb::BOSS_EVENT | cb::CHANGE_DIFFICULTY | cb::CHUNKS_BIOMES | cb::CLEAR_TITLES | cb::COMMAND_SUGGESTIONS | cb::COMMANDS | cb::CUSTOM_CHAT_COMPLETIONS | cb::DEBUG_BLOCK_VALUE | cb::DEBUG_CHUNK_VALUE | cb::DEBUG_ENTITY_VALUE | cb::DEBUG_EVENT | cb::DEBUG_SAMPLE | cb::DELETE_CHAT | cb::DISGUISED_CHAT | cb::ENTITY_EVENT
             | cb::INITIALIZE_BORDER | cb::PLAYER_LOOK_AT | cb::RESET_SCORE | cb::ROTATE_HEAD | cb::SELECT_ADVANCEMENTS_TAB | cb::SERVER_DATA | cb::SET_ACTION_BAR_TEXT | cb::SET_BORDER_CENTER | cb::SET_BORDER_LERP_SIZE | cb::SET_BORDER_SIZE | cb::SET_BORDER_WARNING_DELAY | cb::SET_BORDER_WARNING_DISTANCE | cb::SET_CHUNK_CACHE_CENTER
-            | cb::SET_CHUNK_CACHE_RADIUS | cb::SET_DEFAULT_SPAWN_POSITION | cb::SET_DISPLAY_OBJECTIVE | cb::SET_ENTITY_DATA | cb::SET_ENTITY_LINK | cb::SET_EQUIPMENT | cb::SET_OBJECTIVE | cb::SET_PLAYER_TEAM | cb::SET_SCORE | cb::SET_SIMULATION_DISTANCE | cb::SET_SUBTITLE_TEXT | cb::SET_TITLE_TEXT | cb::SET_TITLES_ANIMATION | cb::SYSTEM_CHAT
+            | cb::SET_DEFAULT_SPAWN_POSITION | cb::SET_DISPLAY_OBJECTIVE | cb::SET_ENTITY_DATA | cb::SET_ENTITY_LINK | cb::SET_EQUIPMENT | cb::SET_OBJECTIVE | cb::SET_PLAYER_TEAM | cb::SET_SCORE | cb::SET_SIMULATION_DISTANCE | cb::SET_SUBTITLE_TEXT | cb::SET_TITLE_TEXT | cb::SET_TITLES_ANIMATION | cb::SYSTEM_CHAT
             | cb::TAB_LIST | cb::TAG_QUERY | cb::TELEPORT_ENTITY | cb::TEST_INSTANCE_BLOCK_STATUS | cb::UPDATE_ADVANCEMENTS | cb::PROJECTILE_POWER | cb::CUSTOM_REPORT_DETAILS | cb::SERVER_LINKS | cb::WAYPOINT | cb::CLEAR_DIALOG | cb::SHOW_DIALOG | cb::ADD_TRANSIENT_BLOCK | cb::GAME_RULE_VALUES | cb::LEVEL_PARTICLES | cb::LOW_DISK_SPACE_WARNING | cb::OPEN_BOOK | cb::PONG_RESPONSE | cb::PLAYER_COMBAT_END | cb::PLAYER_COMBAT_ENTER | cb::RESOURCE_PACK_POP | cb::POST_EFFECTS | cb::SWING_ANIMATION => {
                 *self.ignored_presentation.entry(id).or_default() += 1;
             }

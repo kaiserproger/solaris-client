@@ -129,6 +129,9 @@ pub struct FaceGroups {
 pub struct MeshGeometry {
     pub vertices: Vec<Vertex>,
     pub indices: [Vec<u32>; 3],
+    /// Extra UI-only index partitions: multiply vignette, then invert crosshair.
+    /// They address the same vertices and are not terrain render layers.
+    pub overlay_blends: [Vec<u32>; 2],
     /// Facing partition of `indices[0]` and `indices[1]`. `None` means the
     /// layer is undivided and always drawn whole.
     pub faces: [Option<FaceGroups>; 2],

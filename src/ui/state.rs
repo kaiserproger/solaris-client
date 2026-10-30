@@ -198,6 +198,8 @@ pub struct HudState {
     pub riding_max_health: Option<f32>,
     pub jump: Option<f32>,
     pub attack: Option<f32>,
+    /// Darkness vignette strength under the HUD, 0 (none) ..= 1.
+    pub vignette: f32,
     pub hardcore: bool,
     pub heart_kind: String,
     pub hunger: bool,
@@ -3386,11 +3388,42 @@ impl UiState {
         self.prepare_loader_previews(content)?;
         self.anim_register_nodes();
         let transform = Mat4::from_scale(Vec3::new(self.scale as f32, self.scale as f32, 1.));
+        self.paint_vignette(content, out, transform)?;
         let nodes = std::mem::take(&mut self.nodes);
         let exit = self.anim.exit.take();
         let result = self.render_nodes(content, inventory, out, transform, &nodes, exit.as_ref());
         self.nodes = nodes;
         self.anim.exit = exit;
+        result
+    }
+    /// The darkness vignette lies under the whole HUD. Its dedicated overlay
+    /// partition multiplies the frame by `1 - texel * colour`, so the quad
+    /// colour carries the strength.
+    fn paint_vignette(&self, content: &Content, out: &mut MeshGeometry, transform: Mat4) -> Result<()> {
+        let strength = self.hud.vignette.clamp(0., 1.);
+        if strength < 1. / 512.
+            || self.shell_screen_active()
+            || self.settings.get("hide_hud").and_then(Value::as_bool) == Some(true)
+        {
+            return Ok(());
+        }
+        let layer = RenderLayer::Cutout as usize;
+        std::mem::swap(&mut out.indices[layer], &mut out.overlay_blends[0]);
+        let result = Painter {
+            content,
+            out,
+            transform,
+            light: [-1.; 2],
+            render_layer: RenderLayer::Cutout,
+        }
+        .image(
+            "minecraft:misc/vignette",
+            [0., 0., self.width, self.height],
+            [0., 0., 1., 1.],
+            [strength; 3],
+            1.,
+        );
+        std::mem::swap(&mut out.indices[layer], &mut out.overlay_blends[0]);
         result
     }
     fn render_nodes(
@@ -4254,10 +4287,10 @@ mod client_settings_tests {
             None
         );
         assert_eq!(UiState::next_setting_value("hide_hud", None), None);
-        // Graphics preset cycles Low -> Medium -> High -> Low; unset is Medium.
+        // Graphics preset cycles Low -> Medium -> High -> Low; unset is Low.
         assert_eq!(
             UiState::next_setting_value("graphics_preset", None),
-            Some(json!("high"))
+            Some(json!("medium"))
         );
         assert_eq!(
             UiState::next_setting_value("graphics_preset", Some(&json!("low"))),
@@ -4301,9 +4334,61 @@ mod client_settings_tests {
         );
         assert_eq!(
             UiState::default_setting_value("graphics_preset"),
-            Some(json!("medium"))
+            Some(json!("low"))
         );
         assert!(UiState::sanitize_setting_value("graphics_preset", &json!("ultra")).is_none());
         assert!(UiState::sanitize_setting_value("graphics_preset", &json!(true)).is_none());
+    }
+}
+#[cfg(test)]
+mod vignette_tests {
+    use super::*;
+    use crate::protocol::content::TextureRegion;
+
+    /// The HUD darkness vignette is one window-sized `misc/vignette` quad on
+    /// the dedicated multiply partition, whose colour is the strength.
+    /// No darkness, a hidden HUD or a shell screen paint nothing.
+    #[test]
+    fn vignette_is_one_full_window_quad_on_the_multiply_layer() {
+        let mut content = Content::test_cube();
+        content.creative_tabs_report = Arc::from(br#"{"tabs": []}"#.as_slice());
+        let region = TextureRegion { uv: [0.25, 0.5, 0.75, 1.], layer: 3, width: 256, height: 256 };
+        content.insert_test_texture("minecraft:misc/vignette", region);
+        let mut ui = UiState::new_state(&content).unwrap();
+        // 1920x1080 divides evenly by every GUI scale, so the quad ends exactly at the edge.
+        ui.resize(1920, 1080, 1.);
+        let transform = Mat4::from_scale(Vec3::new(ui.scale as f32, ui.scale as f32, 1.));
+        let paint = |ui: &UiState| {
+            let mut out = MeshGeometry::default();
+            ui.paint_vignette(&content, &mut out, transform).unwrap();
+            out
+        };
+        ui.hud.vignette = 0.6;
+        let out = paint(&ui);
+        let layer = &out.overlay_blends[0];
+        assert_eq!(layer.len(), 6);
+        assert!(out.indices.iter().all(Vec::is_empty));
+        assert!(out.overlay_blends[1].is_empty());
+        let corners: Vec<_> = layer.iter().map(|&i| out.vertices[i as usize]).collect();
+        for vertex in &corners {
+            assert_eq!(vertex.color, [0.6; 3]);
+            assert_eq!(vertex.texture_layer, 3);
+        }
+        let extent = |axis: usize| {
+            corners.iter().map(|v| v.position[axis]).fold((f32::MAX, f32::MIN), |(lo, hi), x| (lo.min(x), hi.max(x)))
+        };
+        assert_eq!(extent(0), (0., 1920.));
+        assert_eq!(extent(1), (0., 1080.));
+        let us = corners.iter().map(|v| v.uv[0]).fold((f32::MAX, f32::MIN), |(lo, hi), x| (lo.min(x), hi.max(x)));
+        assert_eq!(us, (0.25, 0.75));
+
+        ui.hud.vignette = 0.;
+        assert!(paint(&ui).vertices.is_empty());
+        ui.hud.vignette = 0.6;
+        ui.settings.insert("hide_hud".into(), json!(true));
+        assert!(paint(&ui).vertices.is_empty());
+        ui.settings.remove("hide_hud");
+        ui.transition(Screen::Title);
+        assert!(paint(&ui).vertices.is_empty());
     }
 }

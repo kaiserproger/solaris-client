@@ -14,6 +14,10 @@ pub(super) struct Pipelines {
     pub dynamic_index: [usize; EntityMaterial::COUNT],
     pub dynamic_order: [usize; EntityMaterial::COUNT],
     pub overlay: wgpu::RenderPipeline,
+    /// Dedicated HUD darkness partition: frame * (1 - source colour).
+    pub overlay_vignette: wgpu::RenderPipeline,
+    /// Dedicated inverting-crosshair partition.
+    pub overlay_invert: wgpu::RenderPipeline,
     pub sky: wgpu::RenderPipeline,
     pub celestials: wgpu::RenderPipeline,
     pub dark_disc: wgpu::RenderPipeline,
@@ -192,6 +196,52 @@ impl Pipelines {
             None,
             None,
         );
+        let overlay_vignette = create(
+            device,
+            &shader,
+            Some(&layout),
+            "overlay_vertex",
+            "overlay_fragment",
+            &world_buffers[..1],
+            COLOR,
+            Some(wgpu::BlendState {
+                color: wgpu::BlendComponent {
+                    src_factor: wgpu::BlendFactor::Zero,
+                    dst_factor: wgpu::BlendFactor::OneMinusSrc,
+                    operation: wgpu::BlendOperation::Add,
+                },
+                alpha: wgpu::BlendComponent {
+                    src_factor: wgpu::BlendFactor::Zero,
+                    dst_factor: wgpu::BlendFactor::One,
+                    operation: wgpu::BlendOperation::Add,
+                },
+            }),
+            None,
+            None,
+        );
+        let overlay_invert = create(
+            device,
+            &shader,
+            Some(&layout),
+            "overlay_vertex",
+            "overlay_invert_fragment",
+            &world_buffers[..1],
+            COLOR,
+            Some(wgpu::BlendState {
+                color: wgpu::BlendComponent {
+                    src_factor: wgpu::BlendFactor::OneMinusDst,
+                    dst_factor: wgpu::BlendFactor::OneMinusSrc,
+                    operation: wgpu::BlendOperation::Add,
+                },
+                alpha: wgpu::BlendComponent {
+                    src_factor: wgpu::BlendFactor::One,
+                    dst_factor: wgpu::BlendFactor::Zero,
+                    operation: wgpu::BlendOperation::Add,
+                },
+            }),
+            None,
+            None,
+        );
         let sky = create(
             device,
             &shader,
@@ -279,6 +329,8 @@ impl Pipelines {
             dynamic_index,
             dynamic_order,
             overlay,
+            overlay_vignette,
+            overlay_invert,
             sky,
             celestials,
             dark_disc,

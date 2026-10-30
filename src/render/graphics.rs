@@ -1,9 +1,10 @@
 //! Graphics presets: the single switch between the vanilla-exact path and the
 //! optional shader design passes.
 //!
-//! * `Low` is the GT 1030 preset: the display-encoded vanilla pipeline with no
-//!   HDR post, shadow, atmosphere, god-ray, water or TAA work at all.
-//! * `Medium` is the former "Fancy" path (HDR, bloom, ACES, one 2048 shadow
+//! * `Low` is the default and the vanilla look: the display-encoded vanilla
+//!   pipeline with no HDR post, shadow, atmosphere, god-ray, water or TAA work
+//!   at all. It also stays cheap enough for a GT 1030.
+//! * `Medium` is the opt-in shader look (HDR, bloom, ACES, one 2048 shadow
 //!   cascade, reflective/tinted water) plus the analytic atmosphere sky/fog
 //!   and cheap half-resolution god rays.
 //! * `High` adds three shadow cascades, screen-space water reflection and
@@ -13,8 +14,8 @@ use serde_json::Value;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum GraphicsPreset {
-    Low,
     #[default]
+    Low,
     Medium,
     High,
 }
@@ -214,6 +215,6 @@ mod tests {
             GraphicsPreset::Low.next().next().next(),
             GraphicsPreset::Low
         );
-        assert_eq!(GraphicsPreset::default(), GraphicsPreset::Medium);
+        assert_eq!(GraphicsPreset::default(), GraphicsPreset::Low);
     }
 }

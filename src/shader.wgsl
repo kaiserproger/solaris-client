@@ -466,6 +466,13 @@ fn trace_reflection(origin: vec3<f32>, direction: vec3<f32>, noise: f32) -> vec4
     out.fog_distance = vec2<f32>(0.0); return out;
 }
 @fragment fn overlay_fragment(in: SceneOut) -> @location(0) vec4<f32> { return material(in, true, false); }
+// Inverting crosshair blending ignores source alpha, so transparent texels
+// must not touch the destination.
+@fragment fn overlay_invert_fragment(in: SceneOut) -> @location(0) vec4<f32> {
+    let color = material(in, true, false);
+    if color.a == 0.0 { discard; }
+    return color;
+}
 
 struct BlitOut { @builtin(position) position: vec4<f32>, @location(0) ndc: vec2<f32> };
 @vertex fn blit_vertex(@builtin(vertex_index) index: u32) -> BlitOut {
@@ -579,7 +586,11 @@ struct StarOut { @builtin(position) position: vec4<f32> };
     var out: StarOut; out.position = camera.view_projection * vec4<f32>(rotated, 1.0); return out;
 }
 @fragment fn star_fragment() -> @location(0) vec4<f32> {
-    return vec4<f32>(vec3<f32>(camera.celestial.w * camera.celestial.z), 1.0);
+    // Vanilla stars both cover and tint by their brightness, so they add its
+    // square over the sky (oracle: +~64 at brightness 0.5). The HDR presets
+    // keep their own linear star level.
+    let brightness = camera.celestial.w * camera.celestial.z;
+    return vec4<f32>(vec3<f32>(select(brightness * brightness, brightness, camera.fancy.x > 0.5)), 1.0);
 }
 
 // Specializations are pinned Source RenderPipeline shader defines, not chunk layers.
