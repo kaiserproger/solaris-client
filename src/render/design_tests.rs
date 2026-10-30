@@ -268,16 +268,6 @@ fn terrain_fog_ends_exactly_on_the_sky_pixel_behind_it() {
             );
         }
     }
-    // With far terrain, the loaded terrain must use the far edge fog curve,
-    // not disappear at the old near fog boundary.
-    scene.far.distance = 1000.;
-    scene.environment.far_fog = true;
-    let with_far = pixels(&mut renderer, &scene);
-    assert!(
-        mean_abs_diff(&sky, &with_far) > 20.,
-        "loaded terrain must remain visible when far terrain is enabled"
-    );
-    scene.far.distance = 0.;
     // Control: without fog the quad is visible, so the match above is not vacuous.
     scene.environment.fog_start = 5000.;
     scene.environment.fog_end = 6000.;
@@ -288,6 +278,86 @@ fn terrain_fog_ends_exactly_on_the_sky_pixel_behind_it() {
         mean_abs_diff(&sky, &visible) > 20.,
         "unfogged quad must differ from the sky"
     );
+}
+
+/// A level-4 far tile (16-block samples) of flat red ground at height 0
+/// (top face at y 1), spanning x and z 0..256.
+fn far_ground(scene: &mut Scene) {
+    let mut data = [0u32; crate::far::WORDS];
+    for sample in data.chunks_exact_mut(2) {
+        sample[0] = crate::far::pack(0, crate::far::Source::Received);
+        sample[1] = u32::from_le_bytes([200, 40, 30, 255]);
+    }
+    scene.far = crate::api::FarScene {
+        distance: 1000.,
+        revision: 1,
+        tiles: vec![crate::api::FarTileDraw {
+            level: 4,
+            x: 0,
+            z: 0,
+            revision: 1,
+            data: Arc::new(data),
+        }],
+        ..Default::default()
+    };
+}
+
+#[test]
+fn far_terrain_takes_the_loaded_terrain_fog() {
+    // Loaded terrain fogs by the environmental and render-distance linear
+    // ramps (`fogged`); far terrain past the loaded chunks must take the same
+    // fog or its edge reads as a detached shelf.
+    let mut renderer = offscreen("far-fog");
+    for preset in [GraphicsPreset::Medium, GraphicsPreset::Low] {
+        renderer.set_graphics_preset(preset);
+        let mut scene = Scene {
+            environment: crate::api::WorldEnvironment {
+                fog_start: 5000.,
+                fog_end: 6000.,
+                render_fog_start: 5000.,
+                render_fog_end: 6000.,
+                ..overworld(0., 180.)
+            },
+            ..transparent_atlas()
+        };
+        // 12 blocks above the ground, looking down (90 would be degenerate).
+        scene.camera_position = [128., 13., 128.];
+        scene.pitch = 89.;
+        let sky = pixels(&mut renderer, &scene);
+        far_ground(&mut scene);
+        let clear = pixels(&mut renderer, &scene);
+        assert!(
+            mean_abs_diff(&sky, &clear) > 20.,
+            "{preset:?}: unfogged far ground must differ from the sky"
+        );
+        // Ground 12 blocks below the camera, past both fog ends.
+        for (start, end, render_start, render_end) in [(0., 10., 5000., 6000.), (5000., 6000., 4., 10.)] {
+            scene.environment.fog_start = start;
+            scene.environment.fog_end = end;
+            scene.environment.render_fog_start = render_start;
+            scene.environment.render_fog_end = render_end;
+            let fogged = pixels(&mut renderer, &scene);
+            let reference = if preset == GraphicsPreset::Low {
+                // Non-Fancy fog targets the fog colour (display encoded).
+                let mut fog = sky.clone();
+                for pixel in fog.chunks_exact_mut(4) {
+                    for (channel, fog_channel) in pixel[..3]
+                        .iter_mut()
+                        .zip(scene.environment.fog_color)
+                    {
+                        *channel = (fog_channel * 255.).round() as u8;
+                    }
+                }
+                fog
+            } else {
+                sky.clone()
+            };
+            assert!(
+                mean_abs_diff(&reference, &fogged) < 2.,
+                "{preset:?}: far ground past fog ({start}..{end}, {render_start}..{render_end}) must be fully fogged"
+            );
+        }
+    }
 }
 
 /// Left-half depth occluder + sky elsewhere, run through the real post chain.

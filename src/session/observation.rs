@@ -534,19 +534,42 @@ impl Session {
     /// Choose far-terrain tiles around the camera, send the server requests
     /// they need and publish changed tiles. True when the draw list changed.
     fn refresh_far(&mut self) -> bool {
-        // World columns are stored in key order. Reuse the published buffer
-        // rather than allocating and sorting a new mask on every refresh.
-        let coverage_changed = !self.world.chunks()
-            .map(|(&column, _)| column)
-            .filter(|&column| self.far_column_ready(column))
-            .eq(self.scene.far.covered_columns.iter().copied());
-        if coverage_changed {
-            let mut covered = std::mem::take(&mut self.scene.far.covered_columns);
-            covered.clear();
-            covered.extend(self.world.chunks()
-                .map(|(&column, _)| column)
-                .filter(|&column| self.far_column_ready(column)));
-            self.scene.far.covered_columns = covered;
+        // Coverage only moves where a column arrived or left or one of its
+        // sections gained or lost a draw; re-evaluate just those columns.
+        // Rescanning every loaded column on each refresh cost milliseconds
+        // per call at a 32-chunk view.
+        let changes = self.terrain.as_mut().and_then(Terrain::take_coverage_changes);
+        let mut coverage_changed = false;
+        match changes {
+            Some(columns) => {
+                for column in columns {
+                    let ready = self.far_column_ready(column);
+                    let covered = &mut self.scene.far.covered_columns;
+                    match covered.binary_search(&column) {
+                        Ok(index) if !ready => {
+                            covered.remove(index);
+                            coverage_changed = true;
+                        }
+                        Err(index) if ready => {
+                            covered.insert(index, column);
+                            coverage_changed = true;
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            None => {
+                // World columns are stored in key order, so the rebuilt list
+                // stays sorted for the binary searches above and below.
+                let mut covered = std::mem::take(&mut self.scene.far.covered_columns);
+                let previous = covered.clone();
+                covered.clear();
+                covered.extend(self.world.chunks()
+                    .map(|(&column, _)| column)
+                    .filter(|&column| self.far_column_ready(column)));
+                coverage_changed = covered != previous;
+                self.scene.far.covered_columns = covered;
+            }
         }
         let covered = &self.scene.far.covered_columns;
         let requests = self.far.update(
@@ -696,19 +719,6 @@ impl Session {
                 self.render_distance,
                 &facts,
             )?;
-            // Far terrain continues past the loaded chunks: the vanilla
-            // render-distance fog moves out to the far distance with it.
-            let far = self.far.active_distance() as f32;
-            let environment = &mut self.scene.environment;
-            environment.far_fog = facts.medium == CameraMedium::Atmospheric
-                && facts.blindness_duration.is_none()
-                && !facts.darkness_present
-                && !facts.boss_fog
-                && environment.rain == 0.;
-            if far > environment.render_fog_end {
-                environment.render_fog_start = far - (far / 10.).clamp(4., 64.);
-                environment.render_fog_end = far;
-            }
             self.scene.lightmap = self.environment.lightmap_texture();
             self.scene.shader_game_time =
                 Some((self.environment.game_time().rem_euclid(24000) as f32) / 24000.);
@@ -1379,6 +1389,74 @@ mod destruction_tests {
             fade_duration_ms: Some(0),
         });
         assert!(session.far_column_ready([0, 0]));
+    }
+
+    #[test]
+    fn far_offer_does_not_extend_environment_fog_range() {
+        let mut session = session_with_cube([0, 0, 0], true);
+        session.entities = crate::session::mining_start_tests::session().entities;
+        let chunk = session.world.chunk([0, 0]).unwrap().clone();
+        for x in -1..=1 {
+            for z in -1..=1 {
+                session.world.insert([x, z], chunk.clone()).unwrap();
+            }
+        }
+        session.presentation = true;
+        session.player.position = [8., 2., 8.];
+        session.player.pose_known = true;
+        session.dimension = Some("minecraft:overworld".into());
+        session.environment.configure_registry(
+            "minecraft:worldgen/biome",
+            &[("minecraft:plains".into(), json!({"has_precipitation":false}))],
+        ).unwrap();
+        session.environment.activate_dimension(
+            "minecraft:overworld",
+            &json!({"min_y":0,"height":16,"has_skylight":false,
+                "has_ceiling":true,"skybox":"none"}),
+            0,
+        ).unwrap();
+        let content = session.content.as_mut().unwrap();
+        for state in [0, 1] {
+            content.insert_test_placement_metadata(
+                state, json!({"fluid_overlay":false,"block_entity_type":null}),
+            );
+        }
+        for texture in ["water_still", "water_flow", "water_overlay", "lava_still", "lava_flow"] {
+            content.insert_test_texture(
+                &format!("minecraft:block/{texture}"),
+                TextureRegion { uv: [0., 0., 1., 1.], layer: 0, width: 16, height: 16 },
+            );
+        }
+        content.set_registries(BTreeMap::from([(
+            "minecraft:worldgen/biome".into(),
+            vec![("minecraft:plains".into(), json!({
+                "temperature":0.5,"downfall":0.5,
+                "effects":{"water_color":"#507090"},"attributes":{},
+            }))],
+        )]));
+        let mut terrain = Terrain::new(Arc::new(|| {})).unwrap();
+        terrain.activate(session.content.as_ref().unwrap(), [0; 3]).unwrap();
+        terrain.set_render_rules([1.; 6], false, 0, Some(0)).unwrap();
+        session.terrain = Some(terrain);
+        assert!(session.play_world_presentation_ready());
+        session.refresh_scene().unwrap();
+        let without_far = session.scene.environment.clone();
+        let mut offer = vec![1, 0];
+        offer.extend(2048u32.to_be_bytes());
+        offer.extend(4u16.to_be_bytes());
+        for value in [0i32, 16, 8, 1] {
+            offer.extend(value.to_be_bytes());
+        }
+        session.far.enter_dimension("minecraft:overworld", None);
+        session.far.hello(&offer).unwrap();
+        assert!(session.far.active_distance() as f32 > without_far.render_fog_end);
+        session.revision += 1;
+        session.refresh_scene().unwrap();
+        assert_eq!(
+            (session.scene.environment.render_fog_start, session.scene.environment.render_fog_end),
+            (without_far.render_fog_start, without_far.render_fog_end),
+            "a far-terrain offer must not push the environment-owned haze away",
+        );
     }
 
     fn with_stage_texture(session: &mut Session, stage: u8) {

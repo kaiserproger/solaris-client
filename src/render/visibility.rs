@@ -86,6 +86,36 @@ pub(super) fn extents(keys: impl Iterator<Item = [i32; 3]>) -> Option<([i32; 3],
     any.then_some((min, max))
 }
 
+/// Reached sections of the occlusion flood with their entry/exit face masks.
+pub(super) type Reached =
+    std::collections::HashMap<[i32; 3], u16, std::hash::BuildHasherDefault<SectionHasher>>;
+
+/// Section keys are small integer triples hashed tens of thousands of times a
+/// frame (every resident section asks `reaches_bounds`); a multiply-rotate
+/// word hash is ample there and several times cheaper than SipHash.
+#[derive(Default)]
+pub(super) struct SectionHasher(u64);
+impl SectionHasher {
+    fn add(&mut self, word: u64) {
+        self.0 = (self.0.rotate_left(5) ^ word).wrapping_mul(0x51_7c_c1_b7_27_22_0a_95);
+    }
+}
+impl std::hash::Hasher for SectionHasher {
+    fn write(&mut self, bytes: &[u8]) {
+        for word in bytes.chunks(4) {
+            let mut padded = [0; 4];
+            padded[..word.len()].copy_from_slice(word);
+            self.add(u64::from(u32::from_le_bytes(padded)));
+        }
+    }
+    fn write_usize(&mut self, value: usize) {
+        self.add(value as u64);
+    }
+    fn finish(&self) -> u64 {
+        self.0
+    }
+}
+
 /// Flood reachable sections from the camera section key.
 ///
 /// `mask_of` returns the resident connectivity mask; missing sections count
@@ -98,7 +128,7 @@ pub(super) fn flood(
     bounds: ([i32; 3], [i32; 3]),
     mut mask_of: impl FnMut([i32; 3]) -> Option<u64>,
     mut in_frustum: impl FnMut([i32; 3]) -> bool,
-    reached: &mut std::collections::HashMap<[i32; 3], u16>,
+    reached: &mut Reached,
     queue: &mut Vec<([i32; 3], u8)>,
 ) -> bool {
     reached.clear();
@@ -178,7 +208,7 @@ pub(super) fn reaches_bounds(
     key: [i32; 3],
     min: Vec3,
     max: Vec3,
-    reached: &std::collections::HashMap<[i32; 3], u16>,
+    reached: &Reached,
 ) -> bool {
     if reached.contains_key(&key) {
         return true;
@@ -230,7 +260,7 @@ mod tests {
     }
     #[test]
     fn flood_marks_solid_surface_but_not_sections_behind_it() {
-        let mut reached = std::collections::HashMap::new();
+        let mut reached = Reached::default();
         let mut queue = Vec::new();
         assert!(flood(
             [0, 2, 0],
@@ -256,7 +286,7 @@ mod tests {
 
     #[test]
     fn flood_follows_a_tunnel_in_the_sealed_layer() {
-        let mut reached = std::collections::HashMap::new();
+        let mut reached = Reached::default();
         let mut queue = Vec::new();
         assert!(flood(
             [0, 2, 0],
@@ -275,7 +305,7 @@ mod tests {
 
     #[test]
     fn flood_revisits_section_on_a_new_incoming_face() {
-        let mut reached = std::collections::HashMap::new();
+        let mut reached = Reached::default();
         let mut queue = Vec::new();
         let target = [1, 1, 0];
         // First arrival is from WEST (blocked). The second monotone path
@@ -296,7 +326,7 @@ mod tests {
 
     #[test]
     fn missing_sections_are_open_and_negative_camera_is_supported() {
-        let mut reached = std::collections::HashMap::new();
+        let mut reached = Reached::default();
         let mut queue = Vec::new();
         assert!(flood(
             [-2, 0, 0],
@@ -320,7 +350,7 @@ mod tests {
 
     #[test]
     fn flood_does_not_traverse_outside_frustum() {
-        let mut reached = std::collections::HashMap::new();
+        let mut reached = Reached::default();
         let mut queue = Vec::new();
         assert!(flood(
             [0, 0, 0],
@@ -336,7 +366,7 @@ mod tests {
 
     #[test]
     fn flood_cannot_bend_over_a_wall_and_back_towards_the_camera_layer() {
-        let mut reached = std::collections::HashMap::new();
+        let mut reached = Reached::default();
         let mut queue = Vec::new();
         assert!(flood(
             [0, 0, 0],
@@ -361,7 +391,7 @@ mod tests {
     fn flood_monotone_rays_work_in_all_axis_directions() {
         for axis in 0..3 {
             for sign in [-1, 1] {
-                let mut reached = std::collections::HashMap::new();
+                let mut reached = Reached::default();
                 let mut queue = Vec::new();
                 let camera = [-3, -3, -3];
                 let mut wall = camera;
@@ -388,7 +418,7 @@ mod tests {
     }
     #[test]
     fn protruding_models_remain_visible_from_reached_neighbor_space() {
-        let reached = std::collections::HashMap::from([([0, 1, 0], 1)]);
+        let reached = Reached::from_iter([([0, 1, 0], 1)]);
         assert!(!reaches_bounds(
             [0; 3],
             Vec3::ZERO,
@@ -402,7 +432,7 @@ mod tests {
             &reached,
         ));
         // A model shifted across a horizontal border is admitted too.
-        let reached = std::collections::HashMap::from([([-1, 0, 0], 1)]);
+        let reached = Reached::from_iter([([-1, 0, 0], 1)]);
         assert!(reaches_bounds(
             [0; 3],
             Vec3::new(-0.1, 0., 0.),
@@ -425,7 +455,7 @@ mod tests {
 
     #[test]
     fn sparse_retained_extents_fall_back_conservatively() {
-        let mut reached = std::collections::HashMap::new();
+        let mut reached = Reached::default();
         let mut queue = Vec::new();
         assert!(!flood(
             [0, 0, 0],

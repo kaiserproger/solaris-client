@@ -47,7 +47,7 @@ impl Renderer {
         let graph_enabled = !self.reference_mode && visibility::occlusion_enabled();
         self.stats.graph_enabled = graph_enabled;
         let graph_available = graph_enabled
-            && visibility::extents(self.chunks.keys().copied()).is_some_and(|bounds| {
+            && self.chunk_extents.is_some_and(|bounds| {
                 visibility::flood(
                     scene.camera_position.map(|v| (v / 16.).floor() as i32),
                     bounds,
@@ -83,11 +83,11 @@ impl Renderer {
         let fully_fogged = !self.reference_mode
             && self.graphics.features().hdr
             && env.sky_kind == SkyKind::Overworld
-            && env.fog_alpha >= 1.
-            && !(env.far_fog && scene.far.distance > 0.);
+            && env.fog_alpha >= 1.;
         let fog_sphere = (env.fog_start < env.fog_end).then_some(env.fog_end + FOG_MARGIN);
         let fog_cylinder = (env.render_fog_start < env.render_fog_end)
             .then_some(env.render_fog_end + FOG_MARGIN);
+        self.fading_columns.clear();
         for (&key, chunk) in &mut self.chunks {
             if chunk.fade_duration_ms.is_none() {
                 self.stats.unknown_fade_policy_sections += 1;
@@ -106,6 +106,11 @@ impl Renderer {
             if chunk.mesh.indices.is_none() {
                 continue;
             }
+            // A fading (or never drawable) section must not hide far terrain
+            // yet: the near mesh is still see-through there.
+            if chunk.visibility.is_none_or(|visibility| visibility < 1.) {
+                self.fading_columns.push([key[0], key[2]]);
+            }
             let Some(visibility) = chunk.visibility else {
                 // Unknown compile policy can become GPU-resident but cannot draw.
                 continue;
@@ -123,8 +128,6 @@ impl Renderer {
             };
             let bounds_min = Vec3::from_array(chunk.bounds_min) - wind;
             let bounds_max = Vec3::from_array(chunk.bounds_max) + wind;
-            let in_frustum = self.reference_mode
-                || frustum.intersects(bounds_min + offset, bounds_max + offset);
             if !self.reference_mode
                 && occlusion
                 && !visibility::reaches_bounds(key, bounds_min, bounds_max, &self.occlusion_reached)
@@ -133,6 +136,9 @@ impl Renderer {
                 self.stats.graph_rejected_chunks += 1;
                 continue;
             }
+            // After the graph test: most of a large view is graph-rejected.
+            let in_frustum = self.reference_mode
+                || frustum.intersects(bounds_min + offset, bounds_max + offset);
             // Frustum rejection precedes every per-frame submission: sections
             // outside the frustum take no instance slot, no indirect candidate
             // and no transparent sort. The GPU cull pass stays the backstop for
@@ -228,6 +234,8 @@ impl Renderer {
                 });
             }
         }
+        self.fading_columns.sort_unstable();
+        self.fading_columns.dedup();
         for (material, primitives) in self.dynamic.transparent.iter().enumerate() {
             for primitive in primitives {
                 self.transparent.push(TransparentDraw {
@@ -341,6 +349,11 @@ impl Renderer {
         let env = &scene.environment;
         let features = self.graphics.features();
         let fancy = features.hdr && env.sky_kind == SkyKind::Overworld;
+        // Underwater (negative fog start) and other special fogs keep the
+        // vanilla fog colours: the atmosphere model only describes open air.
+        let open_air = fancy && env.fog_start >= 0.;
+        // Fancy aerial perspective per block, shared by loaded and far terrain.
+        let aerial = if open_air { 0.0015 } else { 0. };
         // Far terrain: tiles synced, culled and uniform written before encoding.
         let far_visible = self.far.prepare(
             &self.queue,
@@ -349,10 +362,15 @@ impl Renderer {
             fov.to_radians(),
             self.config.width as f32 / self.config.height as f32,
             fancy,
-            scene.far.covered_columns.iter().copied(),
+            aerial,
+            scene
+                .far
+                .covered_columns
+                .iter()
+                .copied()
+                .filter(|column| self.fading_columns.binary_search(column).is_err()),
         );
         let taa = fancy && self.post.taa();
-        let open_air = fancy && env.fog_start >= 0.;
         // Sub-pixel projection jitter for TAA. Culling and Hi-Z keep the
         // unjittered matrix: jitter stays under their 0.5 px slack.
         let jitter_ndc = if taa {
@@ -474,7 +492,7 @@ impl Renderer {
                 portal_layer(0),
                 portal_layer(1),
                 scene.shader_game_time.unwrap_or(0.),
-                if env.far_fog { scene.far.distance } else { 0. },
+                0.,
             ],
             // Source beacon_beam.fsh reconstructs eye depth using the OpenGL
             // projection's row 3 coefficients, not WebGPU's zero-to-one matrix.
@@ -516,11 +534,9 @@ impl Renderer {
                 cascades.radii[2],
             ],
             moon_direction: [moon.x, moon.y, moon.z, moon_strength],
-            // Underwater (negative fog start) and other special fogs keep the
-            // vanilla fog colours: the atmosphere model only describes open air.
             atmosphere: [
                 if open_air { 0.7 * (1. - env.rain.clamp(0., 1.)) } else { 0. },
-                if open_air { 0.0015 } else { 0. },
+                aerial,
                 f32::from(u8::from(open_air && features.water_ssr)),
                 0.,
             ],
@@ -1486,14 +1502,15 @@ mod terrain_translucency_tests {
         renderer.prepare_visibility(&scene, view).unwrap();
         assert_eq!(renderer.stats.visible_chunks, 1);
         assert_eq!(renderer.stats.fog_rejected_chunks, 1);
-        // Far terrain moves the visible fog edge beyond the ordinary chunk
-        // fog end, so that old end must not cull real geometry.
-        scene.environment.far_fog = true;
-        scene.far.distance = 2048.;
+        // Far terrain moves the render-distance fog out to the far distance
+        // (session), so the ordinary chunk fog end must not cull real geometry.
+        scene.environment.render_fog_start = 1984.;
+        scene.environment.render_fog_end = 2048.;
         renderer.prepare_visibility(&scene, view).unwrap();
         assert_eq!(renderer.stats.visible_chunks, 2);
         assert_eq!(renderer.stats.fog_rejected_chunks, 0);
-        scene.environment.far_fog = false;
+        scene.environment.render_fog_start = 240.;
+        scene.environment.render_fog_end = 256.;
         // Reference rendering and non-Fancy shading keep every section.
         renderer.set_graphics_preset(GraphicsPreset::Low);
         renderer.prepare_visibility(&scene, view).unwrap();

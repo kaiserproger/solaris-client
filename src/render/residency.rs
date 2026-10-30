@@ -266,11 +266,18 @@ impl Renderer {
                 .filter(|(i, _)| material::MATERIALS[*i].sort)
                 .map(|(_, indices)| indices.len() / 3)
                 .sum::<usize>();
+            // Both maps are ordered by key: one merged walk finds each
+            // section's resident counterpart without a per-section lookup
+            // (a 32-chunk view keeps ~45k sections resident every frame).
+            let mut residents = self.chunks.iter().peekable();
             for (&key, chunk) in &scene.chunks {
                 if !chunk.origin.iter().all(|v| v.is_finite()) {
                     return Err("non_finite_chunk_origin".into());
                 }
-                let resident = self.chunks.get(&key);
+                while residents.next_if(|(resident, _)| **resident < key).is_some() {}
+                let resident = residents
+                    .next_if(|(resident, _)| **resident == key)
+                    .map(|(_, chunk)| chunk);
                 if let Some(old) = resident.filter(|old| old.revision == chunk.revision) {
                     // Atlas-only changes preserve an already-uploaded section;
                     // connection/dimension changes never reuse a released payload.
@@ -322,7 +329,7 @@ impl Renderer {
                         uploaded_time_ms: if changed_generation {
                             None
                         } else {
-                            self.chunks.get(&key).and_then(|old| old.uploaded_time_ms)
+                            resident.and_then(|old| old.uploaded_time_ms)
                         },
                         visibility: None,
                         mesh,
@@ -450,6 +457,7 @@ impl Renderer {
                 }
             }
         }
+        let mut removed = false;
         for (key, chunk, packed) in staged.drain(..) {
             let ack = (key, chunk.revision);
             let Some(geometry) = scene
@@ -479,7 +487,14 @@ impl Renderer {
                         .retire(&mut self.vertex_arena, &mut self.index_arena, self.frame_id);
                     entry.into_mut()
                 }
-                std::collections::btree_map::Entry::Vacant(entry) => entry.insert(chunk),
+                std::collections::btree_map::Entry::Vacant(entry) => {
+                    let (min, max) = self.chunk_extents.get_or_insert((key, key));
+                    for axis in 0..3 {
+                        min[axis] = min[axis].min(key[axis]);
+                        max[axis] = max[axis].max(key[axis]);
+                    }
+                    entry.insert(chunk)
+                }
             };
             // The all-layer upload and resident mapping have now committed. Source
             // starts here once per section reset, never at worker/fence completion.
@@ -512,8 +527,11 @@ impl Renderer {
         let index_arena = &mut self.index_arena;
         let stats = &mut self.stats;
         let frame = self.frame_id;
+        // `retain` visits keys in ascending order: walk the sources alongside.
+        let mut sources = scene.chunks.iter().peekable();
         self.chunks.retain(|key, chunk| {
-            if let Some(source) = scene.chunks.get(key) {
+            while sources.next_if(|(source, _)| *source < key).is_some() {}
+            if let Some((_, source)) = sources.next_if(|(source, _)| *source == key) {
                 chunk.fade_duration_ms = source.fade_duration_ms;
                 chunk.visibility_mask = source.visibility;
                 return true;
@@ -527,8 +545,13 @@ impl Renderer {
             };
             std::mem::replace(&mut chunk.mesh, empty).retire(vertex_arena, index_arena, frame);
             stats.terrain_freed_chunks += 1;
+            removed = true;
             false
         });
+        if removed {
+            // Removal can shrink the extents; insertion only widened them.
+            self.chunk_extents = visibility::extents(self.chunks.keys().copied());
+        }
         if let Some((texture, bind)) = staged_texture {
             self.retired_textures.push(RetiredTexture {
                 frame: self.frame_id,

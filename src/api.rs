@@ -327,8 +327,6 @@ pub struct WorldEnvironment {
     pub render_fog_start: f32,
     pub render_fog_end: f32,
     pub fog_alpha: f32,
-    /// Ordinary atmospheric fog may share the far-terrain outer edge.
-    pub far_fog: bool,
     pub time_of_day: u64,
     pub rain: f32,
     pub thunder: f32,
@@ -363,7 +361,6 @@ impl Default for WorldEnvironment {
             render_fog_start: 48.,
             render_fog_end: 128.,
             fog_alpha: 1.,
-            far_fog: false,
             time_of_day: 6000,
             rain: 0.,
             thunder: 0.,

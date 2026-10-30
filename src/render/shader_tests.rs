@@ -650,6 +650,47 @@ fn terrain_cpu_release_keeps_gpu_geometry_and_requires_fresh_payload() {
     assert_eq!(acks, [([0; 3], 2)]);
 }
 
+/// A newly uploaded section fades in over its fade duration and is see-through
+/// meanwhile; its column must keep far terrain unmasked until the fade ends,
+/// or the sky shows through a hole in the landscape.
+#[test]
+fn fading_section_keeps_far_terrain_under_its_column() {
+    let _gpu_guard = crate::render::gpu_test_lock();
+    let mut renderer = pollster::block_on(Renderer::new_offscreen(
+        64,
+        64,
+        PathBuf::from(".analysis/far-fade-mask"),
+    ))
+    .unwrap();
+    renderer.set_graphics_preset(GraphicsPreset::Low);
+    let mut scene = Scene {
+        camera_position: [0., 2., 0.],
+        pitch: 20.,
+        ..Scene::default()
+    };
+    for (key, fade) in [([0, 0, 0], Some(2000)), ([1, 0, 0], Some(0))] {
+        scene.chunks.insert(
+            key,
+            crate::api::ChunkDraw {
+                revision: 1,
+                origin: key.map(|v| f64::from(v) * 16.),
+                bounds_min: [-1., 0., 1.],
+                bounds_max: [1., 0., 4.],
+                visibility: visibility::ALL_OPEN,
+                geometry: Some(Arc::new(terrain_release_quad())),
+                fade_duration_ms: fade,
+            },
+        );
+    }
+    scene.revision = 1;
+    pixels(&mut renderer, &scene);
+    assert_eq!(
+        renderer.fading_columns,
+        [[0, 0]],
+        "only the column still fading in keeps its far terrain"
+    );
+}
+
 /// Eight-corner-free axis-aligned box faces in `FaceGroups` order
 /// (`-Y,+Y,-Z,+Z,-X,+X`), wound CCW seen from outside, plus a diagonal quad.
 fn facing_box_geometry(partitioned: bool) -> crate::api::MeshGeometry {

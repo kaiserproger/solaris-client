@@ -2,17 +2,17 @@ use crate::{
     api::{ChunkDraw, DynamicGeometry},
     protocol::{
         content::Content,
-        world::{Neighborhood, World},
+        world::{Chunk, Neighborhood, World},
         Result,
     },
 };
 use glam::Mat4;
 use serde_json::{json, Value};
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet, VecDeque},
     sync::{
         atomic::{AtomicU64, Ordering},
-        mpsc, Arc,
+        mpsc, Arc, Condvar, Mutex, PoisonError, Weak,
     },
     thread,
     time::Instant,
@@ -25,7 +25,17 @@ mod visibility;
 use catalog::Catalog;
 use mesher::{BuiltSection, Rules};
 
-const WORKERS: usize = 2;
+/// Jobs each worker may hold beyond the one it is building. Dispatch happens
+/// only when the session updates the scene, so a worker must not run dry
+/// between two updates: eight queued sections (~10-30 ms of meshing) cover a
+/// frame, while snapshots taken at dispatch stay fresh.
+const QUEUED_PER_WORKER: usize = 8;
+
+/// Half the hardware threads: the rest serve the session, the renderer, the
+/// network and audio threads and, in singleplayer, the local server.
+fn worker_count() -> usize {
+    thread::available_parallelism().map_or(2, |n| n.get() / 2).clamp(2, 8)
+}
 // A 65×65 view may contain up to 24 nonempty vertical sections per column.
 pub(crate) const MAX_SECTIONS: usize = 131072;
 
@@ -49,7 +59,6 @@ struct Job {
     hidden: Arc<Vec<[i32; 3]>>,
 }
 struct Completion {
-    worker: usize,
     key: [i32; 3],
     revision: u64,
     epochs: [u64; 3],
@@ -57,19 +66,67 @@ struct Completion {
     elapsed_ms: f64,
     result: Result<Option<BuiltSection>>,
 }
-struct Worker {
-    send: Option<mpsc::SyncSender<Job>>,
-    thread: Option<thread::JoinHandle<()>>,
-    busy: bool,
+/// One scored dispatch candidate; collected once per update, not per job.
+struct Candidate {
+    score: f64,
+    key: [i32; 3],
+    revision: u64,
+}
+/// Jobs waiting for any worker. Prompt jobs (replacements of drawn sections,
+/// edit-created sections, the camera's own sections) enter at the front, so a
+/// long first-load backlog never delays them by more than the jobs already
+/// being built.
+struct JobQueue<T = Job> {
+    state: Mutex<(VecDeque<T>, bool)>,
+    ready: Condvar,
+}
+impl<T> Default for JobQueue<T> {
+    fn default() -> Self {
+        Self {
+            state: Mutex::new((VecDeque::new(), false)),
+            ready: Condvar::new(),
+        }
+    }
+}
+impl<T> JobQueue<T> {
+    fn push(&self, front: Vec<T>, back: Vec<T>) {
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        // `front` is best-first; pushing it reversed keeps that order.
+        for job in front.into_iter().rev() {
+            state.0.push_front(job);
+        }
+        state.0.extend(back);
+        drop(state);
+        self.ready.notify_all();
+    }
+    /// The next job, or `None` once closed and drained.
+    fn pop(&self) -> Option<T> {
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        loop {
+            if let Some(job) = state.0.pop_front() {
+                return Some(job);
+            }
+            if state.1 {
+                return None;
+            }
+            state = self.ready.wait(state).unwrap_or_else(PoisonError::into_inner);
+        }
+    }
+    fn close(&self) {
+        self.state.lock().unwrap_or_else(PoisonError::into_inner).1 = true;
+        self.ready.notify_all();
+    }
 }
 struct Section {
     revision: u64,
-    pending: bool,
     running: Option<(u64, u64)>,
     queued: Instant,
     bytes: usize,
     unknown_light_samples: u64,
     unknown_biome_samples: u64,
+    // A block change into an all-air section created this entry: nothing
+    // else in it awaits a first load, so it is admitted like a replacement.
+    created_by_edit: bool,
 }
 #[derive(Default)]
 struct Counters {
@@ -98,14 +155,23 @@ impl MeshView {
 /// Session-owned scheduling; workers own only nine immutable chunk handles and
 /// an immutable render catalog. No worker observes mutable packet-applied state.
 pub struct Terrain {
-    workers: Vec<Worker>,
+    queue: Arc<JobQueue>,
+    threads: Vec<thread::JoinHandle<()>>,
     receive: mpsc::Receiver<Completion>,
+    /// Dispatched jobs whose completion has not been received yet.
+    in_flight: usize,
+    max_in_flight: usize,
+    /// Reused per-update candidate lists: [prompt, first loads].
+    candidates: [Vec<Candidate>; 2],
     cancellation: Arc<AtomicU64>,
     generation: u64,
     epochs: [u64; 3],
     catalog: Option<Arc<Catalog>>,
     rules: Option<Rules>,
     sections: BTreeMap<[i32; 3], Section>,
+    /// Sections invalidated since their last committed build. Dispatch walks
+    /// only these, not every section (a 32-chunk view holds ~45k).
+    pending: BTreeSet<[i32; 3]>,
     next_revision: u64,
     resident_bytes: usize,
     camera: Option<[f64; 3]>,
@@ -117,21 +183,32 @@ pub struct Terrain {
     has_pending: bool,
     counters: Counters,
     hidden: Arc<Vec<[i32; 3]>>,
+    /// Columns whose received chunk or drawn-section key set changed since the
+    /// session last refreshed far-terrain coverage (see `take_coverage_changes`).
+    coverage_dirty: BTreeSet<[i32; 2]>,
+    /// Draws were cleared wholesale: every column must be re-evaluated.
+    coverage_reset: bool,
+    /// Received columns inside the mesh view as last reconciled. The weak
+    /// handle identifies a replaced chunk and keeps its address from reuse.
+    columns: BTreeMap<[i32; 2], Weak<Chunk>>,
 }
 impl Terrain {
     pub fn new(wake: Wake) -> Result<Self> {
-        let (send, receive) = mpsc::sync_channel(WORKERS);
+        let workers = worker_count();
+        let max_in_flight = workers * (1 + QUEUED_PER_WORKER);
+        let (send, receive) = mpsc::sync_channel(max_in_flight);
         let cancellation = Arc::new(AtomicU64::new(0));
-        let mut workers = Vec::with_capacity(WORKERS);
-        for worker in 0..WORKERS {
-            let (job_send, jobs) = mpsc::sync_channel::<Job>(1);
+        let queue = Arc::new(JobQueue::<Job>::default());
+        let mut threads = Vec::with_capacity(workers);
+        for worker in 0..workers {
             let send = send.clone();
             let wake = wake.clone();
             let cancellation = cancellation.clone();
-            let handle = thread::Builder::new()
+            let jobs = queue.clone();
+            let spawned = thread::Builder::new()
                 .name(format!("terrain-{worker}"))
                 .spawn(move || {
-                    while let Ok(job) = jobs.recv() {
+                    while let Some(job) = jobs.pop() {
                         let start = Instant::now();
                         let result = mesher::build_hiding(
                             &job.world,
@@ -144,7 +221,6 @@ impl Terrain {
                             &job.hidden,
                         );
                         let completion = Completion {
-                            worker,
                             key: job.key,
                             revision: job.revision,
                             epochs: job.epochs,
@@ -157,17 +233,22 @@ impl Terrain {
                         }
                         wake();
                     }
-                })
-                .map_err(|e| format!("terrain_worker_start_failed: {e}"))?;
-            workers.push(Worker {
-                send: Some(job_send),
-                thread: Some(handle),
-                busy: false,
-            });
+                });
+            match spawned {
+                Ok(handle) => threads.push(handle),
+                Err(error) => {
+                    queue.close();
+                    return Err(format!("terrain_worker_start_failed: {error}"));
+                }
+            }
         }
         Ok(Self {
-            workers,
+            queue,
+            threads,
             receive,
+            in_flight: 0,
+            max_in_flight,
+            candidates: [Vec::new(), Vec::new()],
             cancellation,
             generation: 0,
             epochs: [0; 3],
@@ -182,8 +263,12 @@ impl Terrain {
             view_min_y: 0,
             view_height: 0,
             has_pending: false,
+            pending: BTreeSet::new(),
             counters: Counters::default(),
             hidden: Arc::default(),
+            coverage_dirty: BTreeSet::new(),
+            coverage_reset: true,
+            columns: BTreeMap::new(),
         })
     }
     pub fn activate(&mut self, content: &Content, epochs: [u64; 3]) -> Result<()> {
@@ -192,9 +277,12 @@ impl Terrain {
         self.epochs = epochs;
         self.catalog = Some(catalog);
         self.sections.clear();
+        self.pending.clear();
         self.resident_bytes = 0;
         self.camera = None;
         self.view = None;
+        self.coverage_reset = true;
+        self.columns.clear();
         self.hidden = Arc::default();
         Ok(())
     }
@@ -210,11 +298,24 @@ impl Terrain {
         self.cancel_generation();
         self.catalog = None;
         self.sections.clear();
+        self.pending.clear();
         self.resident_bytes = 0;
         self.camera = None;
         self.view = None;
         self.hidden = Arc::default();
+        self.coverage_reset = true;
+        self.columns.clear();
         draws.clear();
+    }
+    /// Columns whose far-terrain coverage may have changed since the last
+    /// call: a column was received, replaced or forgotten, or one of its
+    /// sections gained or lost its draw. `None` means re-evaluate everything.
+    pub fn take_coverage_changes(&mut self) -> Option<BTreeSet<[i32; 2]>> {
+        if std::mem::take(&mut self.coverage_reset) {
+            self.coverage_dirty.clear();
+            return None;
+        }
+        Some(std::mem::take(&mut self.coverage_dirty))
     }
     /// Draw `position` through a presentation animation instead of the section
     /// mesh. The block meshes as air until [`Terrain::unhide_block`].
@@ -235,9 +336,10 @@ impl Terrain {
     /// True once the section holding `position` has no queued or running job,
     /// i.e. the mesh on screen already reflects the latest hide/unhide.
     pub fn block_settled(&self, position: [i32; 3]) -> bool {
+        let key = position.map(|v| v.div_euclid(16));
         self.sections
-            .get(&position.map(|v| v.div_euclid(16)))
-            .is_none_or(|section| !section.pending && section.running.is_none())
+            .get(&key)
+            .is_none_or(|section| !self.pending.contains(&key) && section.running.is_none())
     }
     /// Dimension cardinal shading and user visual settings are explicit inputs,
     /// not renderer guesses. A rule change invalidates all section results.
@@ -264,9 +366,7 @@ impl Terrain {
         };
         if self.rules != Some(next) {
             self.cancel_generation();
-            for section in self.sections.values_mut() {
-                section.pending = true;
-            }
+            self.pending.extend(self.sections.keys().copied());
             self.rules = Some(next);
         }
         Ok(())
@@ -302,24 +402,24 @@ impl Terrain {
         match self.sections.entry(key) {
             std::collections::btree_map::Entry::Occupied(mut entry) => {
                 let section = entry.get_mut();
-                if section.pending {
-                    self.counters.coalesced += 1;
-                } else {
+                if self.pending.insert(key) {
                     section.queued = Instant::now();
+                } else {
+                    self.counters.coalesced += 1;
                 }
                 section.revision = self.next_revision;
-                section.pending = true;
             }
             std::collections::btree_map::Entry::Vacant(entry) => {
                 entry.insert(Section {
                     revision: self.next_revision,
-                    pending: true,
                     running: None,
                     queued: Instant::now(),
                     bytes: 0,
                     unknown_light_samples: 0,
                     unknown_biome_samples: 0,
+                    created_by_edit: false,
                 });
+                self.pending.insert(key);
             }
         }
         self.has_pending = true;
@@ -327,6 +427,7 @@ impl Terrain {
         Ok(())
     }
     pub fn invalidate_chunk(&mut self, world: &World, key: [i32; 2]) -> Result<()> {
+        self.coverage_dirty.insert(key);
         // Full column replacement/light/biome/unload changes AO diagonals and
         // default biome blending in all eight neighboring columns, too.
         for x in key[0] - 1..=key[0] + 1 {
@@ -343,6 +444,7 @@ impl Terrain {
     }
     pub fn invalidate_block(&mut self, world: &World, position: [i32; 3]) -> Result<()> {
         let key = position.map(|v| v.div_euclid(16));
+        let created = !self.sections.contains_key(&key);
         // AO reaches two cells, fluid corners one, biome blending the selected
         // radius. Cartesian boundary dependencies include corner sections.
         let horizontal = i32::from(self.rules.map_or(2, |r| r.biome_blend_radius)).max(2);
@@ -364,6 +466,9 @@ impl Terrain {
                 }
             }
         }
+        if created && let Some(section) = self.sections.get_mut(&key) {
+            section.created_by_edit = true;
+        }
         Ok(())
     }
     fn sync_view(
@@ -379,9 +484,8 @@ impl Terrain {
         };
         let previous = self.view;
         let lifecycle = world.chunk_lifecycle_revision();
-        let lifecycle_changed = self.view_lifecycle != lifecycle
-            || self.view_min_y != world.min_y
-            || self.view_height != world.height;
+        let shape_changed = self.view_min_y != world.min_y || self.view_height != world.height;
+        let lifecycle_changed = self.view_lifecycle != lifecycle || shape_changed;
         if previous == Some(next) && !lifecycle_changed {
             return Ok(false);
         }
@@ -389,6 +493,12 @@ impl Terrain {
         self.view_lifecycle = lifecycle;
         self.view_min_y = world.min_y;
         self.view_height = world.height;
+        if previous == Some(next) && !shape_changed {
+            // Same window and dimension shape: only received columns came,
+            // went or were replaced. Reconcile those columns instead of every
+            // section (a 32-chunk view holds ~45k) on each chunk arrival.
+            return self.sync_columns(world, next, draws);
+        }
         let mut changed = false;
         // Retire before admitting completed jobs: a late result from the old
         // window must not refill residency after a move or distance reduction.
@@ -402,23 +512,93 @@ impl Terrain {
             }
             self.resident_bytes -= section.bytes;
             self.counters.removed += 1;
-            changed |= draws.remove(key).is_some();
+            self.pending.remove(key);
+            if draws.remove(key).is_some() {
+                changed = true;
+                self.coverage_dirty.insert([key[0], key[2]]);
+            }
             false
         });
-        draws.retain(|key, _| self.sections.contains_key(key));
-        if previous != Some(next) || lifecycle_changed {
-            for (&column, chunk) in world.chunks() {
-                if !next.contains(column) {
-                    continue;
-                }
-                let entering = previous.is_none_or(|old| !old.contains(column));
-                for y in 0..chunk.sections.len() {
-                    let key = [column[0], world.min_y.div_euclid(16) + y as i32, column[1]];
-                    if entering || !self.sections.contains_key(&key) {
-                        self.invalidate_section(world, key)?;
-                    }
+        draws.retain(|key, _| {
+            let keep = self.sections.contains_key(key);
+            if !keep {
+                self.coverage_dirty.insert([key[0], key[2]]);
+            }
+            keep
+        });
+        for (&column, chunk) in world.chunks() {
+            if !next.contains(column) {
+                continue;
+            }
+            let entering = previous.is_none_or(|old| !old.contains(column));
+            for y in 0..chunk.sections.len() {
+                let key = [column[0], world.min_y.div_euclid(16) + y as i32, column[1]];
+                if entering || !self.sections.contains_key(&key) {
+                    self.invalidate_section(world, key)?;
                 }
             }
+        }
+        self.columns.clear();
+        self.columns.extend(
+            world
+                .chunks()
+                .filter(|(column, _)| next.contains(**column))
+                .map(|(column, chunk)| (*column, Arc::downgrade(chunk))),
+        );
+        Ok(changed)
+    }
+    /// Retire the sections of columns that left the world and admit missing
+    /// sections of columns that arrived or were replaced, found by one merged
+    /// walk of the loaded and the recorded columns.
+    fn sync_columns(
+        &mut self,
+        world: &World,
+        view: MeshView,
+        draws: &mut BTreeMap<[i32; 3], ChunkDraw>,
+    ) -> Result<bool> {
+        let mut gone = Vec::new();
+        let mut arrived = Vec::new();
+        let mut recorded = self.columns.iter().peekable();
+        for (&column, chunk) in world.chunks() {
+            if !view.contains(column) {
+                continue;
+            }
+            while let Some((&key, _)) = recorded.next_if(|(key, _)| **key < column) {
+                gone.push(key);
+            }
+            let same = recorded
+                .next_if(|(key, _)| **key == column)
+                .is_some_and(|(_, handle)| std::ptr::eq(handle.as_ptr(), Arc::as_ptr(chunk)));
+            if !same {
+                arrived.push((column, Arc::downgrade(chunk), chunk.sections.len()));
+            }
+        }
+        gone.extend(recorded.map(|(key, _)| *key));
+        let bottom = world.min_y.div_euclid(16);
+        let mut changed = false;
+        for column in gone {
+            self.columns.remove(&column);
+            for y in bottom..(world.min_y + world.height).div_euclid(16) {
+                let key = [column[0], y, column[1]];
+                if let Some(section) = self.sections.remove(&key) {
+                    self.resident_bytes -= section.bytes;
+                    self.counters.removed += 1;
+                    self.pending.remove(&key);
+                }
+                if draws.remove(&key).is_some() {
+                    changed = true;
+                    self.coverage_dirty.insert(column);
+                }
+            }
+        }
+        for (column, handle, sections) in arrived {
+            for y in 0..sections {
+                let key = [column[0], bottom + y as i32, column[1]];
+                if !self.sections.contains_key(&key) {
+                    self.invalidate_section(world, key)?;
+                }
+            }
+            self.columns.insert(column, handle);
         }
         Ok(changed)
     }
@@ -444,14 +624,17 @@ impl Terrain {
             // Cancel old snapshots immediately; pending keys remain deduplicated
             // and receive current camera priority, not an old prefetch FIFO.
             self.cancel_generation();
-            for section in self.sections.values_mut().filter(|s| s.pending) {
-                section.queued = Instant::now();
+            let now = Instant::now();
+            for key in &self.pending {
+                if let Some(section) = self.sections.get_mut(key) {
+                    section.queued = now;
+                }
             }
         }
         self.camera = Some(camera);
         let mut changed = self.sync_view(world, camera, render_distance, draws)?;
         while let Ok(completion) = self.receive.try_recv() {
-            self.workers[completion.worker].busy = false;
+            self.in_flight -= 1;
             self.has_pending = true;
             if let Some(section) = self.sections.get_mut(&completion.key) {
                 if section.running == Some((completion.generation, completion.revision)) {
@@ -487,9 +670,10 @@ impl Terrain {
             section.bytes = bytes;
             section.unknown_light_samples = built.unknown_light_samples;
             section.unknown_biome_samples = built.unknown_biome_samples;
-            section.pending = false;
+            self.pending.remove(&completion.key);
+            section.created_by_edit = false;
             self.resident_bytes = next_bytes;
-            draws.insert(
+            let replaced = draws.insert(
                 completion.key,
                 ChunkDraw {
                     revision: completion.revision,
@@ -501,69 +685,118 @@ impl Terrain {
                     fade_duration_ms: rules.fade_duration_ms,
                 },
             );
+            if replaced.is_none() {
+                self.coverage_dirty.insert([completion.key[0], completion.key[2]]);
+            }
             changed = true;
         }
-        for worker in 0..self.workers.len() {
-            if !self.has_pending {
-                break;
-            }
-            if self.workers[worker].busy {
+        let free = self.max_in_flight - self.in_flight;
+        if free > 0 && self.has_pending {
+            self.dispatch(world, camera, &catalog, rules, draws, free);
+        }
+        Ok(changed)
+    }
+    /// Score every eligible section once and queue the best `free` jobs.
+    /// Prompt jobs go first (and to the front of the worker queue):
+    /// replacements of drawn sections, sections a block edit created and the
+    /// camera's own 3x3x3 sections (as in `spawn_meshes_ready`). Every fourth
+    /// job is reserved for first loads, so continuous visible edits cannot
+    /// starve them. Lower score wins: chunk distance minus four per second of
+    /// waiting.
+    fn dispatch(
+        &mut self,
+        world: &World,
+        camera: [f64; 3],
+        catalog: &Arc<Catalog>,
+        rules: Rules,
+        draws: &BTreeMap<[i32; 3], ChunkDraw>,
+        free: usize,
+    ) {
+        let now = Instant::now();
+        let center = camera.map(|coordinate| (coordinate / 16.).floor() as i32);
+        let near = |key: &[i32; 3]| (0..3).all(|axis| (key[axis] - center[axis]).abs() <= 1);
+        let mut candidates = std::mem::take(&mut self.candidates);
+        let [prompt, first_loads] = &mut candidates;
+        prompt.clear();
+        first_loads.clear();
+        // Both sets are ordered by key, so one merged walk answers "drawn?".
+        let mut drawn = draws.keys().peekable();
+        for key in &self.pending {
+            let Some(section) = self.sections.get(key) else {
+                continue;
+            };
+            if section.running == Some((self.generation, section.revision)) {
                 continue;
             }
-            // Reserve every fourth dispatch for first loads,
-            // so continuous visible edits cannot indefinitely starve first loads.
-            let prioritize_remesh = self.counters.dispatched % 4 != 3;
-            let candidate = self
-                .sections
-                .iter()
-                .filter(|(_, s)| s.pending)
-                .filter(|(_, section)| section.running != Some((self.generation, section.revision)))
-                .min_by(|(a, sa), (b, sb)| {
-                    let score = |key: &[i32; 3], section: &Section| {
-                        let distance = (0..3)
-                            .map(|i| (f64::from(key[i]) * 16. + 8. - camera[i]).powi(2))
-                            .sum::<f64>()
-                            .sqrt()
-                            / 16.;
-                        distance - section.queued.elapsed().as_secs_f64() * 4.
-                    };
-                    // Give replacements prompt admission without discarding
-                    // the first-load queue's fairness dispatches.
-                    let resident_order = if prioritize_remesh {
-                        draws.contains_key(*b).cmp(&draws.contains_key(*a))
-                    } else {
-                        draws.contains_key(*a).cmp(&draws.contains_key(*b))
-                    };
-                    resident_order
-                        .then_with(|| score(a, sa).total_cmp(&score(b, sb)))
-                        .then_with(|| a.cmp(b))
-                })
-                .map(|(&key, s)| (key, s.revision));
-            let Some((key, revision)) = candidate else {
-                self.has_pending = false;
+            while drawn.next_if(|drawn| *drawn < key).is_some() {}
+            let distance = (0..3)
+                .map(|i| (f64::from(key[i]) * 16. + 8. - camera[i]).powi(2))
+                .sum::<f64>()
+                .sqrt()
+                / 16.;
+            let candidate = Candidate {
+                score: distance - now.saturating_duration_since(section.queued).as_secs_f64() * 4.,
+                key: *key,
+                revision: section.revision,
+            };
+            if section.created_by_edit || near(key) || drawn.peek() == Some(&key) {
+                prompt.push(candidate);
+            } else {
+                first_loads.push(candidate);
+            }
+        }
+        let eligible = prompt.len() + first_loads.len();
+        let order = |a: &Candidate, b: &Candidate| {
+            a.score.total_cmp(&b.score).then_with(|| a.key.cmp(&b.key))
+        };
+        for list in [&mut *prompt, &mut *first_loads] {
+            if list.len() > free {
+                list.select_nth_unstable_by(free - 1, order);
+                list.truncate(free);
+            }
+            list.sort_unstable_by(order);
+        }
+        let (mut front, mut back) = (Vec::new(), Vec::new());
+        let (mut next_prompt, mut next_first_load) = (0, 0);
+        while front.len() + back.len() < free {
+            let first_load_turn = self.counters.dispatched % 4 == 3;
+            let is_prompt = next_prompt < prompt.len()
+                && !(first_load_turn && next_first_load < first_loads.len());
+            let candidate = if is_prompt {
+                next_prompt += 1;
+                &prompt[next_prompt - 1]
+            } else if next_first_load < first_loads.len() {
+                next_first_load += 1;
+                &first_loads[next_first_load - 1]
+            } else {
                 break;
             };
             let job = Job {
-                key,
-                revision,
+                key: candidate.key,
+                revision: candidate.revision,
                 epochs: self.epochs,
                 generation: self.generation,
-                world: world.snapshot([key[0], key[2]]),
+                world: world.snapshot([candidate.key[0], candidate.key[2]]),
                 catalog: catalog.clone(),
                 rules,
                 hidden: self.hidden.clone(),
             };
-            self.workers[worker]
-                .send
-                .as_ref()
-                .unwrap()
-                .try_send(job)
-                .map_err(|_| "terrain_worker_queue_invariant_failed".to_owned())?;
-            self.workers[worker].busy = true;
+            if let Some(section) = self.sections.get_mut(&candidate.key) {
+                section.running = Some((self.generation, candidate.revision));
+            }
             self.counters.dispatched += 1;
-            self.sections.get_mut(&key).unwrap().running = Some((self.generation, revision));
+            if is_prompt {
+                front.push(job);
+            } else {
+                back.push(job);
+            }
         }
-        Ok(changed)
+        let queued = front.len() + back.len();
+        // Only a selection that took every eligible section proves none remains.
+        self.has_pending = queued < eligible;
+        self.in_flight += queued;
+        self.queue.push(front, back);
+        self.candidates = candidates;
     }
     /// Release only the exact committed upload payload; stale acknowledgements
     /// cannot free a replacement or change scheduling/visibility metadata.
@@ -613,8 +846,9 @@ impl Terrain {
         self.counters.cpu_ms
     }
     pub fn metrics(&self) -> Value {
-        let pending = self.sections.values().filter(|s| s.pending).count();
-        let running = self.workers.iter().filter(|w| w.busy).count();
+        let pending = self.pending.len();
+        // Dispatched and not yet integrated: building or waiting in the queue.
+        let running = self.in_flight;
         let unknown_light = self
             .sections
             .values()
@@ -625,8 +859,8 @@ impl Terrain {
             .values()
             .map(|s| s.unknown_biome_samples)
             .sum::<u64>();
-        json!({"epochs":self.epochs,"generation":self.generation.to_string(),"worker_count":WORKERS,
-            "pending_sections":pending,"running_jobs":running,"result_queue_bound":WORKERS,
+        json!({"epochs":self.epochs,"generation":self.generation.to_string(),"worker_count":self.threads.len(),
+            "pending_sections":pending,"running_jobs":running,"result_queue_bound":self.max_in_flight,
             "section_descriptor_count":self.sections.len(),"section_descriptor_bound":MAX_SECTIONS,
             "queue_peak":self.counters.queue_peak,"dispatched_jobs":self.counters.dispatched,
             "completed_jobs":self.counters.completed,"stale_discarded_jobs":self.counters.stale,
@@ -640,13 +874,16 @@ impl Terrain {
             "catalog_ready":self.catalog.is_some(),"render_rules_ready":self.rules.is_some()})
     }
     /// Initial presentation waits on the camera's mesh neighborhood, not distant jobs.
+    /// Called every frame: look up the 27 neighbouring keys, never scan the queue.
     pub fn spawn_meshes_ready(&self, camera: [f64; 3]) -> bool {
         let center = camera.map(|coordinate| (coordinate / 16.).floor() as i32);
         self.catalog.is_some()
             && self.rules.is_some()
-            && self.sections.iter().all(|(key, section)| {
-                (0..3).any(|axis| (key[axis] - center[axis]).abs() > 1)
-                    || (!section.pending && section.running.is_none())
+            && (0..27).all(|i| {
+                let key = [center[0] + i % 3 - 1, center[1] + i / 3 % 3 - 1, center[2] + i / 9 - 1];
+                self.sections
+                    .get(&key)
+                    .is_none_or(|section| !self.pending.contains(&key) && section.running.is_none())
             })
     }
     /// Explicit capture diagnostics only, not per-frame observation work.
@@ -661,7 +898,7 @@ impl Terrain {
             })
             .map(|(key, section)| {
                 json!({"section":key,
-            "requested_revision":section.revision.to_string(),"pending":section.pending,
+            "requested_revision":section.revision.to_string(),"pending":self.pending.contains(key),
             "running_revision":section.running.map(|(_, revision)| revision.to_string())})
             })
             .collect();
@@ -673,20 +910,10 @@ impl Terrain {
 impl Drop for Terrain {
     fn drop(&mut self) {
         self.cancel_generation();
-        for worker in &mut self.workers {
-            worker.send.take();
-        }
-        // Drain bounded completions so senders cannot block while being joined.
-        while self.workers.iter().any(|w| w.busy) {
-            match self.receive.recv() {
-                Ok(completion) => self.workers[completion.worker].busy = false,
-                Err(_) => break,
-            }
-        }
-        for worker in &mut self.workers {
-            if let Some(handle) = worker.thread.take() {
-                let _ = handle.join();
-            }
+        // Queued jobs see the cancelled generation and return at once.
+        self.queue.close();
+        for handle in self.threads.drain(..) {
+            let _ = handle.join();
         }
     }
 }

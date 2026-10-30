@@ -9,7 +9,8 @@
 //! after the sky with its own projection (far plane past the far distance)
 //! and a cleared depth buffer; the opaque pass clears depth again, so real
 //! chunks always draw over it. Fragments over loaded chunk columns are
-//! discarded (seam) and the far edge fades into the sky by alpha.
+//! discarded (seam) and the rest take the loaded terrain's fog: Fancy fog
+//! by alpha into the sky drawn behind, otherwise toward the fog colour.
 //!
 //! Budgets: at most `CAPACITY` resident tiles (`CAPACITY * 5.2 KiB` of GPU
 //! memory) and `UPLOADS_PER_FRAME` tile writes per frame.
@@ -38,7 +39,11 @@ struct Uniform {
     view_projection: [f32; 16],
     camera: [f32; 4],
     mask: [i32; 4],
+    /// Environmental fog start/end, daylight, linear output.
     fog: [f32; 4],
+    /// Render-distance fog start/end, fog alpha, aerial coefficient.
+    edge: [f32; 4],
+    fog_color: [f32; 4],
     /// Camera block x, z: slot origins subtract it exactly in integers.
     anchor: [i32; 4],
     /// Camera position inside its block (x, z).
@@ -83,7 +88,10 @@ pub(super) struct FarTerrain {
     slot_info: wgpu::Buffer,
     mask: wgpu::Texture,
     mask_bytes: Vec<u8>,
-    mask_key: Option<([i32; 2], usize)>,
+    /// The mask bytes last written to the texture; `None` before the first.
+    /// Compared by content: one column finishing its fade while another
+    /// starts keeps the count but must still re-upload.
+    mask_uploaded: Option<Vec<u8>>,
     slots: HashMap<(u8, i32, i32), Slot>,
     free: Vec<u32>,
     scene_revision: Option<u64>,
@@ -164,7 +172,7 @@ impl FarTerrain {
             mapped_at_creation: false,
         });
         let mask_bytes = vec![0u8; (MASK * MASK) as usize];
-        // Written on the first prepared frame (`mask_key` starts empty).
+        // Written on the first prepared frame (`mask_uploaded` starts empty).
         let mask = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("far terrain loaded chunk mask"),
             size: wgpu::Extent3d {
@@ -257,7 +265,7 @@ impl FarTerrain {
             slot_info,
             mask,
             mask_bytes,
-            mask_key: None,
+            mask_uploaded: None,
             slots: HashMap::new(),
             free: (0..CAPACITY).rev().collect(),
             scene_revision: None,
@@ -269,7 +277,8 @@ impl FarTerrain {
     }
 
     /// Sync tiles, cull them and write this frame's uniform. Returns whether
-    /// the pass has anything to draw.
+    /// the pass has anything to draw. `linear_output` is the Fancy path;
+    /// `aerial` its aerial-perspective coefficient (shader.wgsl `fogged`).
     #[allow(clippy::too_many_arguments)]
     pub fn prepare(
         &mut self,
@@ -279,6 +288,7 @@ impl FarTerrain {
         fov_y: f32,
         aspect: f32,
         linear_output: bool,
+        aerial: f32,
         resident_columns: impl Iterator<Item = [i32; 2]>,
     ) -> bool {
         let far = &scene.far;
@@ -330,6 +340,20 @@ impl FarTerrain {
         let projection = Mat4::perspective_rh(fov_y, aspect, NEAR, far.distance * 1.5 + 512.);
         let view_projection = projection * view;
         let frustum = Frustum::new(view_projection);
+        let env = &scene.environment;
+        // Fancy fog dissolves into the sky: a tile wholly past a full-strength
+        // fog end is invisible. Both fog distances exceed the horizontal one.
+        let fogged_out = if linear_output && env.fog_alpha >= 1. {
+            [
+                (env.fog_start < env.fog_end).then_some(env.fog_end),
+                (env.render_fog_start < env.render_fog_end).then_some(env.render_fog_end),
+            ]
+            .into_iter()
+            .flatten()
+            .reduce(f32::min)
+        } else {
+            None
+        };
         self.visible.clear();
         let mut faces = 0u64;
         for slot in self.slots.values() {
@@ -343,10 +367,13 @@ impl FarTerrain {
             ];
             let low = slot.height[0] as f32 - camera[1] as f32 - SKIRT * size / 16.;
             let high = slot.height[1] as f32 + 1. - camera[1] as f32;
-            if !frustum.intersects(
-                Vec3::new(origin[0], low, origin[1]),
-                Vec3::new(origin[0] + size, high, origin[1] + size),
-            ) {
+            let nearest = [origin[0], origin[1]].map(|v| v.max(-(v + size)).max(0.));
+            if fogged_out.is_some_and(|end| nearest[0].hypot(nearest[1]) >= end)
+                || !frustum.intersects(
+                    Vec3::new(origin[0], low, origin[1]),
+                    Vec3::new(origin[0] + size, high, origin[1] + size),
+                )
+            {
                 continue;
             }
             faces += u64::from(slot.faces);
@@ -370,11 +397,18 @@ impl FarTerrain {
             ],
             mask: [MASK as i32 / 2, MASK as i32 / 2, MASK as i32, 1],
             fog: [
-                far.distance * 0.75,
-                far.distance,
+                env.fog_start,
+                env.fog_end,
                 daylight,
                 f32::from(u8::from(linear_output)),
             ],
+            edge: [
+                env.render_fog_start,
+                env.render_fog_end,
+                env.fog_alpha,
+                aerial,
+            ],
+            fog_color: [env.fog_color[0], env.fog_color[1], env.fog_color[2], 1.],
             anchor: [anchor[0] as i32, anchor[1] as i32, 0, 0],
             fraction: [
                 (camera[0] - anchor[0]) as f32,
@@ -464,19 +498,18 @@ impl FarTerrain {
     ) {
         let half = MASK as i32 / 2;
         self.mask_bytes.fill(0);
-        let mut count = 0;
         for [x, z] in columns {
             let (u, v) = (x - camera_chunk[0] + half, z - camera_chunk[1] + half);
             if (0..MASK as i32).contains(&u) && (0..MASK as i32).contains(&v) {
-                let texel = &mut self.mask_bytes[(v as u32 * MASK + u as u32) as usize];
-                count += usize::from(*texel == 0);
-                *texel = 255;
+                self.mask_bytes[(v as u32 * MASK + u as u32) as usize] = 255;
             }
         }
-        if self.mask_key == Some((camera_chunk, count)) {
+        if self.mask_uploaded.as_ref() == Some(&self.mask_bytes) {
             return;
         }
-        self.mask_key = Some((camera_chunk, count));
+        self.mask_uploaded
+            .get_or_insert_with(Vec::new)
+            .clone_from(&self.mask_bytes);
         queue.write_texture(
             wgpu::TexelCopyTextureInfo {
                 texture: &self.mask,
