@@ -292,6 +292,88 @@ fn animation_head_tracks_relative_to_lagged_body() {
     }
 }
 
+
+#[test]
+fn rc2_received_sleep_pose_rotates_rig_horizontally() {
+    let (mut models, mut entity) = fixture();
+    let schema = models.schemas.get_mut(&entity.type_name).unwrap();
+    schema.accessors.insert("DATA_POSE".into(), [6, 20]);
+    schema.accessors.insert("SLEEPING_POS_ID".into(), [14, 11]);
+    // Entity metadata body from the server: pose=2 and optional head block position=(0,0,0).
+    let packet = [6, 20, 2, 14, 11, 1, 0, 0, 0, 0, 0, 0, 0, 0, 255];
+    entity.metadata = metadata::decode(&mut crate::protocol::Reader::new(&packet), &Content::test_cube(), &models).unwrap();
+    models.rigs.insert("authored:rig".into(), Rig {
+        bones: vec![Bone {
+            parent: None, pivot: Vec3::ZERO, rotation: Vec3::ZERO, scale: Vec3::ONE,
+            role: BoneRole::Fixed, name: "body".into(),
+            quads: vec![[[0., 0., 0., 0., 0.], [1., 0., 0., 1., 0.],
+                         [1., 1., 0., 1., 1.], [0., 1., 0., 0., 1.]]],
+            normals: vec![[0., 0., 1.]],
+        }],
+        part_by_name: BTreeMap::new(),
+    });
+    entity.binding = Some(Ok(presentation::Binding {
+        rig: "authored:rig".into(),
+        texture: crate::protocol::content::TextureRegion { uv: [0., 0., 1., 1.], layer: 0, width: 1, height: 1 },
+        style: presentation::RootStyle::Living, layers: None,
+    }));
+    models.poses.insert(2, "SLEEPING".into());
+    models.schemas.get_mut(&entity.type_name).unwrap().dimension_constants.insert(
+        "SLEEPING_DIMENSIONS".into(),
+        resources::DimensionConstant::Dimensions(resources::Dimensions {
+            width: 0.2, height: 0.2, eye_height: 0.2, fixed: true, attachments: BTreeMap::new(),
+        }),
+    );
+    let mut store = Store::new();
+    store.models = Some(Arc::new(models));
+    store.local_avatar = Some(entity);
+    store.set_local_visible(true);
+    let mut axes = Vec::new();
+    for direction in [[0, 1], [-1, 0], [0, -1], [1, 0]] {
+        let mut geometry = DynamicGeometry::default();
+        store.append_geometry(&Content::test_cube(), [0.; 3], [0.; 3], [0.; 2], 32.,
+            0, 0., &|_| Ok(Some([15., 0.])), &|position| {
+                assert_eq!(position, [0, 0, 0]);
+                Some(direction)
+            }, &mut geometry).unwrap();
+        assert_eq!(geometry.vertices.len(), 4);
+        assert!(geometry.vertices[0].normal[1] < -0.99, "the model back must face downward");
+        let a = Vec3::from_array(geometry.vertices[0].position);
+        let b = Vec3::from_array(geometry.vertices[3].position);
+        let axis = b - a;
+        assert!(axis.y.abs() < 1e-5, "body axis must be horizontal: {axis:?}");
+        axes.push(axis);
+    }
+    assert!(axes[0].dot(axes[2]) < -0.99);
+    assert!(axes[1].dot(axes[3]) < -0.99);
+    assert!(axes[0].dot(axes[1]).abs() < 1e-5);
+}
+
+#[test]
+fn rc2_passenger_packet_bends_villager_legs_and_dismount_restores_them() {
+    use crate::protocol::{Reader, packet_ids::play::clientbound as cb};
+    let (models, mut villager) = fixture();
+    let (_, mut seat) = fixture();
+    seat.handle.network_id = 42;
+    villager.type_name = "minecraft:villager".into();
+    let mut store = Store::new();
+    store.slots = vec![villager, seat];
+    store.ids.insert(41, 0);
+    store.ids.insert(42, 1);
+    let matrices = |store: &Store| {
+        let mut out = Vec::new();
+        presentation::evaluate_rig(&rig(), store.get(41).unwrap(), &models, 0, 0., Mat4::IDENTITY, &mut out);
+        out
+    };
+    let standing = matrices(&store);
+    // Vehicle 42, one passenger 41: the ordinary SET_PASSENGERS wire body.
+    store.apply(cb::SET_PASSENGERS, &mut Reader::new(&[42, 1, 41]), &Content::test_cube(), 0).unwrap();
+    let seated = matrices(&store);
+    assert!(seated[0].transform_vector3(Vec3::Y).z.abs() > 0.9);
+    assert!(seated[1].transform_vector3(Vec3::Y).z.abs() > 0.9);
+    store.apply(cb::SET_PASSENGERS, &mut Reader::new(&[42, 0]), &Content::test_cube(), 0).unwrap();
+    assert_eq!(matrices(&store), standing);
+}
 #[test]
 fn animation_local_render_slot_is_restored_even_when_extraction_fails() {
     let (_, entity) = fixture();
@@ -307,6 +389,7 @@ fn animation_local_render_slot_is_restored_even_when_extraction_fails() {
         0,
         0.,
         &|_| Ok(Some([15., 0.])),
+        &|_| None,
         &mut DynamicGeometry::default(),
     );
     assert!(result.is_err());
@@ -421,6 +504,7 @@ fn animation_hurt_flash_is_emitted_and_expires_on_real_rig_vertices() {
                 tick,
                 0.5,
                 &|_| Ok(Some([15., 0.])),
+                &|_| None,
                 &mut geometry,
             )
             .unwrap();

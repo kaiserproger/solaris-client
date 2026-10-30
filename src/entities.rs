@@ -1555,6 +1555,7 @@ impl Store {
         tick: u64,
         partial: f32,
         light: &dyn Fn([f64; 3]) -> Result<Option<[f32; 2]>>,
+        bed_direction: &dyn Fn([i32; 3]) -> Option<[i32; 2]>,
         out: &mut DynamicGeometry,
     ) -> Result<PresentationStats> {
         // A temporary render slot reuses the ordinary rig/equipment path without
@@ -1573,6 +1574,7 @@ impl Store {
             tick,
             partial,
             light,
+            bed_direction,
             out,
         );
         if self.local_render_slot.take().is_some() {

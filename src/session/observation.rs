@@ -710,6 +710,19 @@ impl Session {
                     self.client_tick,
                     self.presentation_partial,
                     &sample_light,
+                    &|position| {
+                        let state = world.block(position)?;
+                        if !content.name(state)?.ends_with("_bed") {
+                            return None;
+                        }
+                        match content.state_properties(state)?.get("facing")?.as_str() {
+                            "north" => Some([0, -1]),
+                            "south" => Some([0, 1]),
+                            "west" => Some([-1, 0]),
+                            "east" => Some([1, 0]),
+                            _ => None,
+                        }
+                    },
                     &mut self.scene.dynamic,
                 )?;
                 let entity_indices = self.scene.dynamic.indices.iter().map(Vec::len).sum::<usize>();

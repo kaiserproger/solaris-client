@@ -359,6 +359,7 @@ pub fn append(
     tick: u64,
     partial: f32,
     light_source: &dyn Fn([f64; 3]) -> Result<Option<[f32; 2]>>,
+    bed_direction: &dyn Fn([i32; 3]) -> Option<[i32; 2]>,
     out: &mut DynamicGeometry,
 ) -> Result<PresentationStats> {
     if !radius.is_finite() || radius <= 0. || radius > 4096. {
@@ -519,6 +520,34 @@ pub fn append(
                     }
                 };
                 let pose = number(&models, entity, "DATA_POSE").unwrap_or(0);
+                if pose == 2 && matches!(binding.style, RootStyle::Living) {
+                    // Lay the rig along the bed axis, with its head at the received bed head.
+                    let direction = match value(&models, entity, "SLEEPING_POS_ID") {
+                        Some(Metadata::OptionalBlockPosition(Some(position))) => bed_direction(*position),
+                        _ => None,
+                    };
+                    let (offset, yaw) = match direction {
+                        Some([x, z]) => {
+                            let angle: f32 = match (x, z) {
+                                (0, 1) => 0., (0, -1) => 180.,
+                                (-1, 0) => -90., (1, 0) => 90.,
+                                _ => body_yaw,
+                            };
+                            let schema = &models.schemas[&entity.type_name];
+                            let eye = match (boolean(&models, entity, "DATA_BABY_ID"), schema.dimension_constants.get("BABY_DIMENSIONS")) {
+                                (true, Some(resources::DimensionConstant::Dimensions(d))) => d.eye_height,
+                                _ => schema.dimensions.eye_height,
+                            };
+                            (Vec3::new(-(x as f32) * eye, 0., -(z as f32) * eye), angle)
+                        }
+                        None => (Vec3::ZERO, body_yaw),
+                    };
+                    matrix = Mat4::from_translation(relative + offset)
+                        * Mat4::from_rotation_y(yaw.to_radians())
+                        * Mat4::from_rotation_x(std::f32::consts::FRAC_PI_2)
+                        * Mat4::from_scale(Vec3::new(-1., -1., 1.))
+                        * Mat4::from_translation(Vec3::new(0., -1.501, 0.));
+                }
                 if pose == 3 || pose == 1 || pose == 4 {
                     matrix = Mat4::from_translation(relative + Vec3::new(0., 0.35, 0.))
                         * Mat4::from_rotation_y((180. - t.yaw).to_radians())
