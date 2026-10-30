@@ -476,6 +476,7 @@ impl Session {
                     level: Some(self.player.experience_level),
                     player_tick: Some(self.client_tick as i32),
                     attack: Some(self.player.attack_strength(0.)),
+                    vignette: if world_ready { self.environment.vignette() } else { 0. },
                     players,
                     player_list_visible,
                     ..Default::default()
@@ -588,6 +589,9 @@ impl Session {
             for indices in &mut self.scene.overlay.indices {
                 indices.clear();
             }
+            for indices in &mut self.scene.overlay.overlay_blends {
+                indices.clear();
+            }
             if let Some(ui) = &mut self.ui {
                 let content = self.content.as_ref().ok_or("content unavailable")?;
                 ui.render(content, &self.inventory, &mut self.scene.overlay)?;
@@ -642,6 +646,9 @@ impl Session {
         for indices in &mut self.scene.overlay.indices {
             indices.clear();
         }
+        for indices in &mut self.scene.overlay.overlay_blends {
+            indices.clear();
+        }
         }
         if world_ready {
             self.entities.sync_local_avatar(
@@ -693,7 +700,7 @@ impl Session {
                 self.scene.camera_position,
                 self.player.yaw,
                 self.player.pitch,
-                self.render_distance,
+                self.effective_render_distance(),
                 &facts,
             )?;
             // Far terrain continues past the loaded chunks: the vanilla
