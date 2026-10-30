@@ -33,8 +33,11 @@ impl Session {
                 }
             }
             InputIntent::Key { key, pressed } => {
-                let key =
-                    normalize_key(&key).ok_or_else(|| format!("unsupported ordinary key {key}"))?;
+                let key = if key == "key.keyboard.tab" && self.screen() == "game" {
+                    self.bindings.action(crate::controls::Binding::Key(winit::keyboard::KeyCode::Tab))
+                } else {
+                    normalize_key(&key)
+                }.ok_or_else(|| format!("unsupported ordinary key {key}"))?;
                 let edge = if pressed {
                     self.keys.insert(key.into())
                 } else {

@@ -743,6 +743,23 @@ pub(super) fn start(
         "minecraft_wait_ticks" | "minecraft_press_inputs" => {
             require_play(session)?;
             let ticks = integer(args, "ticks", 1, 255)? as u64;
+            if name == "minecraft_press_inputs" && args.get("hold").is_some() {
+                let down = args["hold"].as_bool().ok_or("hold must be a boolean")?;
+                let keys = input_keys(args)?;
+                let mut applied = Vec::new();
+                for name in &keys {
+                    if let Err(error) = key(session, name, down) {
+                        if down {
+                            for prior in applied {
+                                let _ = key(session, prior, false);
+                            }
+                        }
+                        return Err(error);
+                    }
+                    applied.push(name.as_str());
+                }
+                return complete(json!({"status":"ok", "held":down}));
+            }
             if name == "minecraft_press_inputs" {
                 held = input_keys(args)?;
             }

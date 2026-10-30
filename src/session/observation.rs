@@ -964,6 +964,7 @@ mod debug_tests {
         session.ui = Some(crate::ui::UiState::new(&content).unwrap());
         session.content = Some(content);
         session.phase = "play".into();
+        session.player.pose_known = true;
         let mut add = Writer::default();
         add.byte(0x09); // add player, update listed
         add.var(2);
@@ -983,7 +984,11 @@ mod debug_tests {
         session.apply(Phase::Play, cb::TAB_LIST, &header.0).unwrap();
         session.sync_ui_state(true).unwrap();
         assert!(!session.ui.as_ref().unwrap().hud.player_list_visible);
-        session.input(InputIntent::Key { key: "player_list".into(), pressed: true }).unwrap();
+        assert!(matches!(
+            crate::minecraft::start(&mut session, "minecraft_press_inputs",
+                &json!({"keys":["key.keyboard.tab"],"ticks":1,"hold":true})).unwrap(),
+            crate::minecraft::Outcome::Complete(_)
+        ));
         session.sync_ui_state(true).unwrap();
         let ui = session.ui.as_mut().unwrap();
         assert!(ui.hud.player_list_visible);
@@ -1029,7 +1034,11 @@ mod debug_tests {
         let ui = session.ui.as_mut().unwrap();
         ui.rebuild_for_test(&session.inventory, session.content.as_ref().unwrap()).unwrap();
         assert!(ui.nodes.iter().any(|n| n.id.starts_with("tab/player/") && n.label == "Alias 0ms"));
-        session.input(InputIntent::Key { key: "player_list".into(), pressed: false }).unwrap();
+        assert!(matches!(
+            crate::minecraft::start(&mut session, "minecraft_press_inputs",
+                &json!({"keys":["key.keyboard.tab"],"ticks":1,"hold":false})).unwrap(),
+            crate::minecraft::Outcome::Complete(_)
+        ));
         session.sync_ui_state(true).unwrap();
         assert!(!session.ui.as_ref().unwrap().hud.player_list_visible);
         session.input(InputIntent::Key { key: "player_list".into(), pressed: true }).unwrap();
