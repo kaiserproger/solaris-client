@@ -379,6 +379,11 @@ impl World {
         side * side
     }
 
+    /// Two view squares (radius at least 16) so movement can overlap old and new views.
+    fn column_limit(&self) -> usize {
+        self.view_columns() * 2
+    }
+
     fn byte_limit(&self) -> usize {
         // Seed-100 measured 134,358 bytes per column at 32 chunks. The 192 KiB
         // allowance leaves ~46% headroom and retains the <=16 512 MiB floor.
@@ -391,8 +396,7 @@ impl World {
         self.chunks.iter()
     }
     pub fn insert(&mut self, pos: [i32; 2], mut chunk: Chunk) -> Result<()> {
-        // Allow two view squares during movement while preserving the old floor.
-        if self.chunks.len() >= (self.view_columns() * 2).max(2048)
+        if self.chunks.len() >= self.column_limit()
             && !self.chunks.contains_key(&pos)
         {
             return Err("client chunk residency count bound reached".into());
@@ -753,17 +757,18 @@ mod tests {
     #[test]
     fn rejected_chunk_admission_keeps_received_world_coherent() {
         let mut world = World::new(0, 16);
-        for x in 0..2048 {
+        let cap = world.column_limit() as i32;
+        for x in 0..cap {
             world.insert([x, 0], chunk(x as u32, 0)).unwrap();
         }
         let bytes = world.resident_bytes();
-        assert!(world.insert([2048, 0], chunk(2048, 0)).is_err());
-        assert_eq!(world.block([2048 * 16, 0, 0]), None);
-        assert_eq!(world.block([2047 * 16, 0, 0]), Some(2047));
+        assert!(world.insert([cap, 0], chunk(cap as u32, 0)).is_err());
+        assert_eq!(world.block([cap * 16, 0, 0]), None);
+        assert_eq!(world.block([(cap - 1) * 16, 0, 0]), Some(cap as u32 - 1));
         assert_eq!(world.resident_bytes(), bytes);
-        world.remove([2047, 0]);
-        world.insert([2048, 0], chunk(2048, 0)).unwrap();
-        assert_eq!(world.block([2048 * 16, 0, 0]), Some(2048));
+        world.remove([cap - 1, 0]);
+        world.insert([cap, 0], chunk(cap as u32, 0)).unwrap();
+        assert_eq!(world.block([cap * 16, 0, 0]), Some(cap as u32));
     }
 
     #[test]
