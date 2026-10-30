@@ -212,14 +212,6 @@ pub(super) fn material(
             .into(),
             texture: match profile.and_then(|p| p.skin) {
                 Some(region) => region,
-                None if store.local_uuid.as_deref() == Some(e.uuid.as_str()) => texture(
-                    content,
-                    if model == super::PlayerModel::Slim {
-                        "minecraft:entity/player/slim/alex"
-                    } else {
-                        "minecraft:entity/player/wide/steve"
-                    },
-                )?,
                 None => texture(content, &default.texture)?,
             },
             style: RootStyle::Living,

@@ -739,6 +739,26 @@ mod tests {
     }
 
     #[test]
+    fn p1_nameplate_background_uses_untextured_material() {
+        let (content, mut store) = fixture();
+        insert(&mut store, 7, [12., 20., 30.], 0., "A", 32);
+        let board = ScoreboardState::default();
+        let ordinary = draw(&mut store, &content, &board, 0.25);
+        assert_eq!(
+            ordinary.indices[EntityMaterial::TextBackgroundSeeThrough as usize],
+            [0, 1, 2, 0, 2, 3],
+            "the solid backdrop must not sample the glyph atlas",
+        );
+        store.get_mut(7).unwrap().metadata.insert(0, Metadata::Byte(2));
+        let discrete = draw(&mut store, &content, &board, 0.25);
+        assert_eq!(
+            discrete.indices[EntityMaterial::TextBackground as usize],
+            [0, 1, 2, 0, 2, 3],
+        );
+        assert!(discrete.indices[EntityMaterial::TextBackgroundSeeThrough as usize].is_empty());
+    }
+
+    #[test]
     fn p1_nameplate_real_passes_received_light_emission_background_and_body() {
         let (content, mut store) = fixture();
         // A named invisible marker has no submitted body but still has a tag.

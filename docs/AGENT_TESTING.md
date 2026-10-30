@@ -14,6 +14,19 @@ does not retain it. This is the real UI action, not a protocol respawn fallback.
 The `ui_respawn_` automation unit tests cover the handoff and its boundaries;
 they do not replace the windowed survival gate.
 
+### Arm, nameplates and clouds (vanilla oracle fit)
+
+The empty hand uses the same UUID-selected default skin and slim/wide rig as a
+remote player; explicit received skins are unchanged. Its rest pose is our
+rounded fit to the Java oracle silhouette, not copied transforms.
+
+World-text backdrops use the untextured background materials. Nameplates
+composite normal glyphs, the backdrop, then the half-alpha see-through glyphs;
+clouds draw before those text layers. GPU regressions cover that composition.
+
+Clouds ignore the terrain-edge fog but keep environmental fog. The 60-cell
+cloud extent is our coverage choice against the oracle's horizon cloud band.
+
 ### Teleport loading versus disconnect
 
 `minecraft_observe.in_play` means the current world is ready for interaction,

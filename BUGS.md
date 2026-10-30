@@ -23,6 +23,14 @@ are suppressed or declared fixed. Earlier `65a7f76` comparison receipts remain
 historical evidence in `.analysis/clippy-base.log` and `.analysis/clippy.log`.
 Strict Clippy is **not green**.
 
+Parity-polish checkpoint (2026-10-30, base `0b00d98`): the required debug
+`cargo clippy -p solaris-client --all-targets --message-format=json -- -D warnings`
+still fails with **419 library / 444 library-test errors**. No primary diagnostic
+intersects the added or changed parity-polish portions; this is not a green
+strict-lint result and no warnings were suppressed. Exact output and the
+changed-range classification are in `.analysis/parity-polish/clippy-final.jsonl`
+and `.analysis/parity-polish/clippy-summary.json`.
+
 ## CLIENT-TEST-001 — historical graphics-preset assertion (superseded)
 
 The earlier `65a7f76` receipt recorded
