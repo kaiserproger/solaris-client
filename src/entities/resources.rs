@@ -588,7 +588,7 @@ mod tests {
                 // A painting's segment cells are available, but not its generic eye sample.
                 Ok((kind != "minecraft:painting" || point.iter().all(|v| v.fract() == 0.))
                     .then_some([15.;2]))
-            }, &mut out).unwrap();
+            }, &|_| None, &mut out).unwrap();
         assert_eq!(stats.submitted, 1, "{kind}: {:?}", stats.unrendered);
         assert!(!out.vertices.is_empty(), "{kind}");
         out

@@ -9,7 +9,9 @@ texture/variant selection, head/body turn limits) is the Solaris-owned data tabl
 
 Models are UV-compatible with the vanilla entity textures, which the player supplies at runtime.
 Authors derive boxes from the unwrapped regions of the vanilla PNG; no Mojang numbers, code or
-mesh dumps are copied.
+mesh dumps are copied. Sleeping living entities use received pose and sleeping-position metadata
+with the facing of the bed block in the received world. Passenger links bend the legs using the
+ordinary rig animation.
 
 ## File format (schema 1)
 

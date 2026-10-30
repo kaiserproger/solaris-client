@@ -157,7 +157,7 @@ def check(path):
         dup = sorted({n for n in names if names.count(n) > 1})
         errs.append(f"duplicate bone names (animation looks bones up by name): {dup}")
     for role, lst in m.get("roles", {}).items():
-        if role not in {"head", "right_arm", "left_arm", "right_leg", "left_leg", "wing"}:
+        if role not in {"head", "right_arm", "left_arm", "right_leg", "left_leg", "wing", "crossed_arms", "nose"}:
             errs.append(f"unknown role {role}")
         for n in lst:
             if n not in names:

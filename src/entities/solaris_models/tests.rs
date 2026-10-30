@@ -20,6 +20,35 @@ fn centroid(quad: &[[f32; 5]; 4]) -> Vec3 {
 }
 
 #[test]
+fn rc2_authored_village_models_have_coherent_body_parts() {
+    let model = |id: &str| {
+        let (_, source) = EMBEDDED.iter().find(|(name, _)| *name == format!("{id}.json")).unwrap();
+        ModelFile::parse(source).unwrap()
+    };
+    let child = model("villager_baby");
+    let body = child.bones.iter().find(|b| b.name == "body").unwrap();
+    assert!(body.cubes[0].size[1] > 2., "child torso must not be a flat strip");
+    let golem = model("iron_golem");
+    let torso = golem.bones.iter().find(|b| b.name == "body").unwrap();
+    assert!(torso.cubes.len() >= 2 && torso.cubes[0].size[0] > torso.cubes[1].size[0],
+        "golem shoulders must taper to a narrower waist");
+    let head = golem.bones.iter().find(|b| b.name == "head").unwrap();
+    assert!(head.pivot[2] < torso.pivot[2] && head.pivot[1] > torso.pivot[1],
+        "golem head must sit forward and partially inside the torso");
+    for name in ["right_arm", "left_arm"] {
+        let arm = golem.bones.iter().find(|b| b.name == name).unwrap();
+        assert_eq!(arm.cubes[0].size, [4., 30., 6.], "arm texture net dimensions");
+        assert!(arm.pivot[1] + arm.cubes[0].size[1] >= 23., "arms reach near the feet");
+    }
+    assert!(!golem.bones.iter().any(|b| b.name.ends_with("_hand") || b.name.ends_with("_foot") || b.name.ends_with("_heel")),
+        "free-floating hands and feet cannot follow the limbs");
+    let left = golem.bones.iter().find(|b| b.name == "left_leg").unwrap();
+    let right = golem.bones.iter().find(|b| b.name == "right_leg").unwrap();
+    assert!(right.pivot[0] + right.cubes[0].origin[0] + right.cubes[0].size[0] < left.pivot[0] + left.cubes[0].origin[0],
+        "golem legs must remain visibly separate");
+}
+
+#[test]
 fn quads_wind_counter_clockwise_and_face_outward() {
     for mirror in [false, true] {
         for inflate in [0., 0.5] {
