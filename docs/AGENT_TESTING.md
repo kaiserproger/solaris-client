@@ -256,7 +256,8 @@ The bounded defaults are now 512 MiB decoded CPU and 1024 MiB across a two-
 generation reload; atlas GPU bytes remain capped at 256 MiB. Preprocessing
 checks its prospective allocation, including retained bytes, before allocating.
 Do not trim indexed base textures to conceal a budget failure. Launcher content
-is pinned to `solaris-content-26.3-r4` (2,691,397-byte archive); r3 does not pass
+is pinned to `solaris-content-26.3-r5` (2,782,970-byte archive); r4 lacks the
+`assets/minecraft/lang/en_us.json` an RC2 server requires, and r3 does not pass
 the integrated server's current tag check.
 
 The packaged singleplayer cache path is `servers/content/26.3`, matching the

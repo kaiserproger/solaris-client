@@ -3,7 +3,7 @@
 # content manifest for the static file server.
 #
 # The bundle is the complete vanilla content cache that
-# `solaris-v2 content import` derives (version.json, data/, reports/). The
+# `solaris-v2 content import` derives (version.json, assets/, data/, reports/). The
 # launcher's `--singleplayer-runtime` installs it as the local server's
 # `vanilla_data_dir`, so players need no JDK, no Mojang server jar and no
 # Java extractors. Owner decision 2026-10-28: this derived data is published
@@ -12,7 +12,7 @@
 #
 # Tar top-level layout:
 #   bundle.json
-#   content/version.json, content/data/, content/reports/, and any supported
+#   content/version.json, content/assets/, content/data/, content/reports/, and any supported
 #   root sidecar (currently gameplay_version.json)
 # Before packing, the staged tree is validated by the real server with
 # `solaris-v2 content verify`, so a cache the server would refuse at startup is
@@ -43,7 +43,7 @@ if [[ ! "$GAME_VERSION" =~ ^[0-9]+(\.[0-9]+)+$ ]]; then
 fi
 NAME="solaris-content-${GAME_VERSION}-r${REV}"
 BASE_URL="http://135.106.208.217:8080/static"
-ENTRIES=(version.json data reports)
+ENTRIES=(version.json assets data reports)
 OPTIONAL_ROOT_FILES=(gameplay_version.json)
 
 for entry in "${ENTRIES[@]}"; do
